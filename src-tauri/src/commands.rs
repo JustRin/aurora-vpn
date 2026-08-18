@@ -1292,13 +1292,15 @@ fn installer_suffix() -> &'static str {
 }
 
 /// Pick the asset for this platform, preferring the matching architecture when
-/// a release ships more than one (the two macOS builds, for instance).
+/// a release ships more than one (the two macOS builds, for instance). Both
+/// common spellings of each architecture are accepted, because the asset
+/// naming convention has already changed once.
 fn pick_installer_url(assets: &[Value]) -> Option<String> {
     let suffix = installer_suffix();
-    let arch = if std::env::consts::ARCH == "aarch64" {
-        "aarch64"
+    let arch: &[&str] = if std::env::consts::ARCH == "aarch64" {
+        &["aarch64", "arm64"]
     } else {
-        "x64"
+        &["x64", "x86_64", "amd64"]
     };
     let named = |a: &&Value| {
         a["name"]
@@ -1308,7 +1310,11 @@ fn pick_installer_url(assets: &[Value]) -> Option<String> {
     let candidates: Vec<&Value> = assets.iter().filter(named).collect();
     candidates
         .iter()
-        .find(|a| a["name"].as_str().is_some_and(|n| n.contains(arch)))
+        .find(|a| {
+            a["name"]
+                .as_str()
+                .is_some_and(|n| arch.iter().any(|m| n.contains(m)))
+        })
         .or_else(|| candidates.first())
         .and_then(|a| a["browser_download_url"].as_str())
         .map(str::to_string)
@@ -1527,7 +1533,8 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_version;
+    use super::{installer_suffix, parse_version, pick_installer_url};
+    use serde_json::json;
 
     #[test]
     fn version_ordering_survives_prefixes_and_suffixes() {
@@ -1536,5 +1543,36 @@ mod tests {
         assert_eq!(parse_version("v1.2.3-beta"), [1, 2, 3]);
         // Garbage must compare as 0.0.0 and never announce an update.
         assert_eq!(parse_version("latest"), [0, 0, 0]);
+    }
+
+    #[test]
+    fn installer_pick_matches_platform_and_architecture() {
+        let asset = |name: &str| {
+            json!({
+                "name": name,
+                "browser_download_url": format!("https://github.com/x/y/releases/download/v1/{name}")
+            })
+        };
+        // One asset per platform/arch, both architecture spellings represented.
+        let assets = vec![
+            asset("AuroraVPN-1.0.0-windows-x64-setup.exe"),
+            asset("AuroraVPN-1.0.0-linux-x64.AppImage"),
+            asset("AuroraVPN-1.0.0-linux-x64.deb"),
+            asset("AuroraVPN-1.0.0-macos-arm64.dmg"),
+            asset("AuroraVPN-1.0.0-macos-x64.dmg"),
+        ];
+
+        let url = pick_installer_url(&assets).expect("an installer for the host platform");
+        assert!(url.ends_with(installer_suffix()), "{url}");
+
+        // On every platform the pick must be a concrete asset, never a page.
+        assert!(url.starts_with("https://github.com/"));
+
+        // The architecture preference kicks in whenever two assets share the
+        // platform suffix (the macOS pair here).
+        if cfg!(target_os = "macos") {
+            let marker = if std::env::consts::ARCH == "aarch64" { "arm64" } else { "x64" };
+            assert!(url.contains(marker), "{url}");
+        }
     }
 }

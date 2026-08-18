@@ -74,15 +74,28 @@ jobs:
           fi
           npm run tauri build -- $ARGS
 
+      # Uniform, space-free names: the download table in the release notes and
+      # the in-app updater both key off these exact patterns.
       - name: Collect artifacts
         shell: bash
         run: |
+          VER="${GITHUB_REF_NAME#v}"
           mkdir -p upload
           find src-tauri/target -path '*/bundle/*' \
             \( -name '*-setup.exe' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.AppImage' -o -name '*.dmg' \) \
             -exec cp {} upload/ \;
-          ls -la upload
+          cd upload
+          for f in *; do
+            case "$f" in
+              *-setup.exe) mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}-setup.exe" ;;
+              *.AppImage)  mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.AppImage" ;;
+              *.deb)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.deb" ;;
+              *.rpm)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.rpm" ;;
+              *.dmg)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.dmg" ;;
+            esac
+          done
+          ls -la
 
       - uses: actions/upload-artifact@v4
         with:
@@ -101,10 +114,52 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      # The in-app updater looks for the `*-setup.exe` / `*.dmg` / `*.AppImage`
-      # assets of the latest release, so the names must keep those suffixes.
+      # An OS → download table built from the assets that actually exist, so a
+      # skipped platform never turns into a dead link. GitHub appends the
+      # auto-generated changelog below this body.
+      - name: Compose release notes
+        shell: bash
+        run: |
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          badge() { # text color logo file
+            local logo=""
+            [ -n "$3" ] && logo="&logo=$3&logoColor=white"
+            echo -n "[![](https://img.shields.io/badge/${1}-${2}?style=for-the-badge${logo})](${BASE}/${4}) "
+          }
+          WIN="" LINUX="" MAC=""
+          for f in $(ls artifacts); do
+            case "$f" in
+              *windows-x64-setup.exe) WIN+="$(badge 'Установщик_x64' '0078d4' '' "$f")" ;;
+              *linux-x64.AppImage)    LINUX+="$(badge 'AppImage_x64' 'e95420' 'linux' "$f")" ;;
+              *linux-x64.deb)         LINUX+="$(badge 'DEB_x64' 'a81d33' 'debian' "$f")" ;;
+              *linux-x64.rpm)         LINUX+="$(badge 'RPM_x64' '294172' 'fedora' "$f")" ;;
+              *macos-arm64.dmg)       MAC+="$(badge 'DMG_Apple_Silicon' '000000' 'apple' "$f")" ;;
+              *macos-x64.dmg)         MAC+="$(badge 'DMG_Intel' '4a4a4a' 'apple' "$f")" ;;
+            esac
+          done
+          {
+            echo "### Скачайте версию для своей системы / Download for your OS"
+            echo ""
+            echo "| Система | Загрузка |"
+            echo "| --- | --- |"
+            [ -n "$WIN" ]   && echo "| **Windows 10/11** | $WIN|"
+            [ -n "$LINUX" ] && echo "| **Linux** | $LINUX|"
+            [ -n "$MAC" ]   && echo "| **macOS** | $MAC|"
+            echo ""
+            echo "**Windows** обновляется сам: при выходе новой версии кнопка появляется в приложении слева внизу."
+            echo "**macOS**: образ не подписан — при первом запуске правый клик → «Открыть»."
+            echo "**Linux**: TUN-режим требует запуска с правами root; AppImage сделайте исполняемым (\`chmod +x\`)."
+            echo ""
+            echo "Контрольные суммы sha256 — в списке Assets ниже. Android — в работе: [#2](https://github.com/${GITHUB_REPOSITORY}/issues/2)."
+            echo ""
+            echo "---"
+            echo ""
+          } > body.md
+          cat body.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          body_path: body.md
           generate_release_notes: true

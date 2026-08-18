@@ -6,6 +6,16 @@
 Оболочка — **Tauri v2** (Rust + React/TypeScript). Сетевых движка два:
 **sing-box** как основной и **Xray-core** для узлов, которые sing-box не умеет.
 
+## Загрузки
+
+[![Windows](https://img.shields.io/badge/Windows-установщик_x64-0078d4?style=for-the-badge)](https://github.com/JustRin/aurora-vpn/releases/latest)
+[![Linux](https://img.shields.io/badge/Linux-AppImage_·_deb_·_rpm-e95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon_·_Intel-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
+
+Свежие сборки под каждую систему — на [странице релизов](https://github.com/JustRin/aurora-vpn/releases/latest);
+там же таблица «скачайте под свою ОС» и контрольные суммы. На Windows приложение
+дальше обновляется само. Android — в работе: [#2](https://github.com/JustRin/aurora-vpn/issues/2).
+
 ---
 
 ## Что уже работает
