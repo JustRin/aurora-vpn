@@ -1,0 +1,37 @@
+{
+  "name": "aurora-vpn",
+  "private": true,
+  "version": "0.1.2",
+  "type": "module",
+  "description": "Cross-platform VLESS/Xray VPN client for 3x-ui panels, powered by sing-box",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app": "tauri dev",
+    "app:build": "tauri build",
+    "fetch-core": "node scripts/fetch-core.mjs",
+    "icons": "python scripts/make-icon.py src-tauri/app-icon.png && tauri icon src-tauri/app-icon.png -o src-tauri/icons",
+    "test:core": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.1"
+  }
+}

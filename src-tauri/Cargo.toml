@@ -1,0 +1,65 @@
+[package]
+name = "aurora-vpn"
+version = "0.1.2"
+description = "VLESS VPN client for 3x-ui panels, powered by sing-box"
+authors = ["Aurora VPN"]
+edition = "2021"
+rust-version = "1.82"
+
+[lib]
+# `_lib` suffix keeps the desktop binary and the mobile cdylib from colliding.
+name = "aurora_vpn_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2.7"
+tauri-plugin-opener = "2.5"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+parking_lot = "0.12"
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "time",
+  "process",
+  "io-util",
+  "sync",
+  "net",
+] }
+reqwest = { version = "0.13", features = ["json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.23"
+url = "2"
+percent-encoding = "2"
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Networking_WinInet",
+  "Win32_System_Com",
+] }
+
+[features]
+# Enabled by `tauri build --debug`; keeps devtools available in release builds.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
