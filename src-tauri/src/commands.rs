@@ -1280,6 +1280,40 @@ fn parse_version(v: &str) -> [u64; 3] {
     out
 }
 
+/// The release-asset suffix that installs on this machine.
+fn installer_suffix() -> &'static str {
+    if cfg!(windows) {
+        "-setup.exe"
+    } else if cfg!(target_os = "macos") {
+        ".dmg"
+    } else {
+        ".AppImage"
+    }
+}
+
+/// Pick the asset for this platform, preferring the matching architecture when
+/// a release ships more than one (the two macOS builds, for instance).
+fn pick_installer_url(assets: &[Value]) -> Option<String> {
+    let suffix = installer_suffix();
+    let arch = if std::env::consts::ARCH == "aarch64" {
+        "aarch64"
+    } else {
+        "x64"
+    };
+    let named = |a: &&Value| {
+        a["name"]
+            .as_str()
+            .is_some_and(|n| n.ends_with(suffix))
+    };
+    let candidates: Vec<&Value> = assets.iter().filter(named).collect();
+    candidates
+        .iter()
+        .find(|a| a["name"].as_str().is_some_and(|n| n.contains(arch)))
+        .or_else(|| candidates.first())
+        .and_then(|a| a["browser_download_url"].as_str())
+        .map(str::to_string)
+}
+
 /// The newest published release, if it is ahead of the running build.
 ///
 /// Silence is deliberate for everything except transport errors: no releases
@@ -1312,21 +1346,19 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
     }
 
     let assets = release["assets"].as_array().cloned().unwrap_or_default();
-    let installer = assets.iter().find(|a| {
-        a["name"]
-            .as_str()
-            .is_some_and(|n| n.ends_with("-setup.exe"))
-    });
-    let Some(installer) = installer else {
-        return Ok(None);
+    // A release without an asset for this platform still gets announced — the
+    // release page is a perfectly good place to send the user instead.
+    let url = match pick_installer_url(&assets) {
+        Some(url) => url,
+        None => match release["html_url"].as_str() {
+            Some(page) => page.to_string(),
+            None => return Ok(None),
+        },
     };
 
     Ok(Some(UpdateInfo {
         version: tag.trim_start_matches(['v', 'V']).to_string(),
-        url: installer["browser_download_url"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
+        url,
         notes: release["body"]
             .as_str()
             .unwrap_or_default()
@@ -1336,9 +1368,10 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
     }))
 }
 
-/// Download the installer next to the temp files, hand control to it and exit
-/// through the normal teardown path so the cores and the system proxy are
-/// released before the files are replaced.
+/// Windows: download the installer, hand control to it and exit through the
+/// normal teardown path so the cores and the system proxy are released before
+/// the files are replaced. Elsewhere the package (or the release page) opens
+/// in the browser — .dmg and .AppImage installs are inherently manual.
 #[tauri::command]
 pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
     // The URL round-trips through the WebView; accept only GitHub's own
@@ -1347,6 +1380,11 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
         || url.starts_with("https://objects.githubusercontent.com/");
     if !trusted {
         return Err(AppError::msg("недопустимый адрес обновления"));
+    }
+
+    if !(cfg!(windows) && url.ends_with("-setup.exe")) {
+        return tauri_plugin_opener::open_url(url, None::<&str>)
+            .map_err(|e| AppError::msg(format!("не удалось открыть страницу загрузки: {e}")));
     }
 
     let bytes = reqwest::Client::new()
