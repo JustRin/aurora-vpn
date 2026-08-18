@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.5",
   "type": "module",
-  "description": "Cross-platform VLESS/Xray VPN client for 3x-ui panels, powered by sing-box",
+  "description": "Cross-platform VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

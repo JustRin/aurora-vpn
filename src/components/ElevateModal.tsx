@@ -1,5 +1,6 @@
 import { Modal } from "./ui";
 import { api, errText } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 
 /**
@@ -16,13 +17,14 @@ export function ElevateModal({
   onClose: () => void;
   reason: "tunnel" | "autostart";
 }) {
+  const t = useT();
   const toast = useStore((s) => s.toast);
 
   async function relaunch() {
     try {
       await api.relaunchElevated();
     } catch (e) {
-      toast("error", "Перезапуск не удался", errText(e));
+      toast("error", t("elev.relaunchFailed"), errText(e));
       onClose();
     }
   }
@@ -30,19 +32,19 @@ export function ElevateModal({
   return (
     <Modal
       open={open}
-      title="Требуются права администратора"
+      title={t("elev.title")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            Отмена
+            {t("elev.cancel")}
           </button>
           <button
             type="button"
             className="btn primary"
             onClick={() => void relaunch()}
           >
-            Перезапустить
+            {t("elev.restart")}
           </button>
         </>
       }
@@ -50,27 +52,19 @@ export function ElevateModal({
       {reason === "tunnel" ? (
         <>
           <p style={{ margin: 0, color: "var(--text-dim)", fontSize: 13 }}>
-            Режим TUN перехватывает трафик всей системы через виртуальный адаптер
-            Wintun. Его создание требует прав администратора — Windows покажет
-            запрос UAC.
+            {t("elev.tunnelWhy")}
           </p>
           <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12.5 }}>
-            Если повышать права не нужно, переключитесь на режим системного
-            прокси в настройках: он работает без UAC, но охватывает только те
-            приложения, которые уважают системные настройки прокси.
+            {t("elev.tunnelAlt")}
           </p>
         </>
       ) : (
         <>
           <p style={{ margin: 0, color: "var(--text-dim)", fontSize: 13 }}>
-            Автозапуск с правами администратора создаёт задачу в планировщике
-            Windows — обычная запись в автозагрузке так не умеет, система не даёт
-            повышать права без подтверждения.
+            {t("elev.autostartWhy")}
           </p>
           <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12.5 }}>
-            Права нужны только один раз, чтобы зарегистрировать задачу. После
-            этого приложение будет стартовать с правами администратора само,
-            без запроса UAC при каждом входе в систему.
+            {t("elev.autostartOnce")}
           </p>
         </>
       )}

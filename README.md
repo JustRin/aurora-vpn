@@ -1,8 +1,9 @@
 # Aurora VPN
 
-Клиент для VLESS-серверов из панели **3x-ui**, с режимом TUN,
-раздельным туннелированием по приложениям и маршрутизацией по правилам.
-Windows, Linux, macOS и Android.
+Клиент для серверов **VLESS**, VMess, Trojan, Shadowsocks, Hysteria2 и TUIC —
+с режимом TUN, раздельным туннелированием по приложениям и маршрутизацией по
+правилам. Работает с любыми панелями (3x-ui, Marzban и другими) и одиночными
+серверами. Windows, Linux, macOS и Android.
 
 Оболочка — **Tauri v2** (Rust + React/TypeScript). Сетевых движка два:
 **sing-box** как основной и **Xray-core** для узлов, которые sing-box не умеет.

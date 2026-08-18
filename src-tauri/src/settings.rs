@@ -56,6 +56,10 @@ pub struct Settings {
     pub start_minimized: bool,
     pub close_to_tray: bool,
 
+    /// `system`, `ru` or `en`. The frontend resolves `system` from the browser
+    /// locale; Rust resolves it via `sys-locale` for the tray menu.
+    pub language: String,
+
     /// Palette id, or `system`. Autostart is deliberately *not* stored here: the
     /// OS is its only source of truth, since the user can revoke it outside the
     /// app.
@@ -94,6 +98,8 @@ impl Default for Settings {
             auto_connect: false,
             start_minimized: false,
             close_to_tray: true,
+
+            language: "system".into(),
 
             theme: "dark".into(),
             theme_dark: true,

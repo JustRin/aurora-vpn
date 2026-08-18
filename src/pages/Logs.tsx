@@ -2,6 +2,7 @@ import { ArrowDownToLine, Copy, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Segmented } from "../components/ui";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 
 type Filter = "all" | "info" | "warn" | "error";
@@ -19,6 +20,7 @@ const RANK: Record<string, number> = {
 const MIN_RANK: Record<Filter, number> = { all: 0, info: 2, warn: 3, error: 4 };
 
 export function Logs() {
+  const t = useT();
   const logs = useStore((s) => s.logs);
   const clear = useStore((s) => s.clearLogs);
   const toast = useStore((s) => s.toast);
@@ -42,32 +44,29 @@ export function Logs() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Журнал ядра</h1>
-          <p className="page-sub">
-            Вывод sing-box в реальном времени. Сюда стоит смотреть, если
-            подключение обрывается.
-          </p>
+          <h1 className="page-title">{t("logs.title")}</h1>
+          <p className="page-sub">{t("logs.subtitle")}</p>
         </div>
         <div className="row">
           <Segmented<Filter>
             value={filter}
             onChange={setFilter}
             options={[
-              { value: "all", label: "Все" },
-              { value: "info", label: "Инфо" },
-              { value: "warn", label: "Предупр." },
-              { value: "error", label: "Ошибки" },
+              { value: "all", label: t("logs.filterAll") },
+              { value: "info", label: t("logs.filterInfo") },
+              { value: "warn", label: t("logs.filterWarn") },
+              { value: "error", label: t("logs.filterErrors") },
             ]}
           />
           <button
             type="button"
             className="btn icon"
-            title="Скопировать всё"
+            title={t("logs.copyAll")}
             onClick={async () => {
               await navigator.clipboard.writeText(
                 visible.map((l) => `${l.level.toUpperCase()} ${l.text}`).join("\n"),
               );
-              toast("success", "Журнал скопирован");
+              toast("success", t("logs.copied"));
             }}
           >
             <Copy size={15} />
@@ -75,7 +74,7 @@ export function Logs() {
           <button
             type="button"
             className="btn icon"
-            title="Очистить"
+            title={t("logs.clear")}
             onClick={() => void clear()}
           >
             <Trash2 size={15} />
@@ -94,7 +93,7 @@ export function Logs() {
       >
         {visible.length === 0 ? (
           <div style={{ color: "var(--text-muted)", padding: 12 }}>
-            Журнал пуст — записи появятся после подключения.
+            {t("logs.empty")}
           </div>
         ) : (
           visible.map((line) => (
@@ -118,7 +117,7 @@ export function Logs() {
             }}
           >
             <ArrowDownToLine size={14} />
-            К последним записям
+            {t("logs.toLatest")}
           </button>
         </div>
       )}

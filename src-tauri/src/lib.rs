@@ -77,20 +77,53 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// `system` resolved through the OS locale; anything unknown falls back to
+/// English rather than guessing.
 #[cfg(desktop)]
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItemBuilder::with_id("show", "Показать окно").build(app)?;
-    let connect = MenuItemBuilder::with_id("connect", "Подключить").build(app)?;
-    let disconnect = MenuItemBuilder::with_id("disconnect", "Отключить").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Выход").build(app)?;
+pub(crate) fn resolve_lang(choice: &str) -> &'static str {
+    match choice {
+        "ru" => "ru",
+        "en" => "en",
+        _ => sys_locale::get_locale()
+            .map(|l| if l.to_lowercase().starts_with("ru") { "ru" } else { "en" })
+            .unwrap_or("en"),
+    }
+}
 
-    let menu = MenuBuilder::new(app)
+#[cfg(desktop)]
+fn tray_menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let [show, connect, disconnect, quit] = match lang {
+        "ru" => ["Показать окно", "Подключить", "Отключить", "Выход"],
+        _ => ["Show window", "Connect", "Disconnect", "Quit"],
+    };
+    let show = MenuItemBuilder::with_id("show", show).build(app)?;
+    let connect = MenuItemBuilder::with_id("connect", connect).build(app)?;
+    let disconnect = MenuItemBuilder::with_id("disconnect", disconnect).build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", quit).build(app)?;
+
+    MenuBuilder::new(app)
         .items(&[&show])
         .separator()
         .items(&[&connect, &disconnect])
         .separator()
         .items(&[&quit])
-        .build()?;
+        .build()
+}
+
+/// Applied live when the language setting changes — a tray that keeps speaking
+/// the old language until restart would look broken.
+#[cfg(desktop)]
+pub(crate) fn update_tray_language(app: &AppHandle, choice: &str) {
+    if let Some(tray) = app.tray_by_id("main") {
+        if let Ok(menu) = tray_menu(app, resolve_lang(choice)) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+}
+
+#[cfg(desktop)]
+fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
+    let menu = tray_menu(app, lang)?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Aurora VPN")
@@ -213,7 +246,7 @@ pub fn run() {
             #[cfg(target_os = "android")]
             let state = AppState::new(config_dir, handle.clone())?;
 
-            let (auto_connect, start_minimized, theme_dark, theme_bg, has_nodes) = {
+            let (auto_connect, start_minimized, theme_dark, theme_bg, has_nodes, language) = {
                 let settings = state.settings.read();
                 (
                     settings.auto_connect,
@@ -221,12 +254,15 @@ pub fn run() {
                     settings.theme_dark,
                     settings.theme_background.clone(),
                     !state.nodes.read().is_empty(),
+                    settings.language.clone(),
                 )
             };
 
             app.manage(state);
             #[cfg(desktop)]
-            build_tray(&handle)?;
+            build_tray(&handle, resolve_lang(&language))?;
+            #[cfg(not(desktop))]
+            let _ = language;
 
             // Paint the native window in the saved theme while it is still
             // hidden, so it never opens on the previous theme's colour.

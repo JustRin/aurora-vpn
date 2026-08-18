@@ -14,6 +14,7 @@ import { SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
+import { tNow, useT } from "../lib/i18n";
 import type { ImportReport, Network, Protocol, Security, ServerNode } from "../lib/types";
 import { useStore } from "../store";
 
@@ -59,6 +60,7 @@ function emptyNode(): ServerNode {
 }
 
 export function Servers() {
+  const t = useT();
   const nodes = useStore((s) => s.nodes);
   const subs = useStore((s) => s.subscriptions);
   const latency = useStore((s) => s.latency);
@@ -77,29 +79,29 @@ export function Servers() {
   async function remove(node: ServerNode) {
     try {
       await api.deleteServer(node.id);
-      toast("info", `Сервер «${node.name}» удалён`);
+      toast("info", t("srv.serverDeleted", { name: node.name }));
     } catch (e) {
-      toast("error", "Не удалось удалить сервер", errText(e));
+      toast("error", t("srv.deleteFailed"), errText(e));
     }
   }
 
   async function copyLink(node: ServerNode) {
     if (!node.rawLink) {
-      toast("info", "У этого сервера нет исходной ссылки");
+      toast("info", t("srv.noRawLink"));
       return;
     }
     await navigator.clipboard.writeText(node.rawLink);
-    toast("success", "Ссылка скопирована");
+    toast("success", t("srv.linkCopied"));
   }
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Серверы</h1>
+          <h1 className="page-title">{t("srv.title")}</h1>
           <p className="page-sub">
-            Вставьте ссылки <span className="mono">vless://</span> из панели 3x-ui
-            или подключите подписку.
+            {t("srv.subtitleBefore")} <span className="mono">vless://</span>{" "}
+            {t("srv.subtitleAfter")}
           </p>
         </div>
         <div className="row">
@@ -110,11 +112,11 @@ export function Servers() {
             onClick={() => void refreshLatency()}
           >
             <Gauge size={15} className={testing ? "spin" : ""} />
-            Проверить задержку
+            {t("srv.testLatency")}
           </button>
           <button type="button" className="btn" onClick={() => setSubOpen(true)}>
             <Rss size={15} />
-            Подписка
+            {t("srv.subscriptionBtn")}
           </button>
           <button
             type="button"
@@ -122,7 +124,7 @@ export function Servers() {
             onClick={() => setImportOpen(true)}
           >
             <Plus size={15} />
-            Добавить
+            {t("srv.addBtn")}
           </button>
         </div>
       </div>
@@ -131,7 +133,7 @@ export function Servers() {
         <>
           <div className="row between" style={{ marginBottom: 11 }}>
             <div className="section-title" style={{ margin: 0 }}>
-              Подписки
+              {t("srv.subscriptions")}
             </div>
             <button
               type="button"
@@ -142,14 +144,14 @@ export function Servers() {
                 try {
                   reportToast(await api.refreshAllSubscriptions(), toast);
                 } catch (e) {
-                  toast("error", "Обновление не удалось", errText(e));
+                  toast("error", t("srv.refreshFailed"), errText(e));
                 } finally {
                   setRefreshingAll(false);
                 }
               }}
             >
               <RefreshCw size={14} className={refreshingAll ? "spin" : ""} />
-              Обновить все
+              {t("srv.refreshAll")}
             </button>
           </div>
 
@@ -160,7 +162,7 @@ export function Servers() {
                 <button
                   type="button"
                   className="btn ghost icon sm sub-delete"
-                  title="Удалить подписку и её серверы"
+                  title={t("srv.deleteSubTitle")}
                   onClick={async () => {
                     await api.deleteSubscription(sub.id);
                     await reload();
@@ -175,14 +177,14 @@ export function Servers() {
       )}
 
       <div className="section-title">
-        Серверы {nodes.length > 0 && <span>({nodes.length})</span>}
+        {t("srv.title")} {nodes.length > 0 && <span>({nodes.length})</span>}
       </div>
 
       {nodes.length === 0 ? (
         <Empty
           icon={<ServerIcon size={34} color="var(--text-muted)" />}
-          title="Пока нет серверов"
-          text="Скопируйте ссылку из 3x-ui (кнопка «Поделиться» у клиента) и вставьте её сюда. Можно вставить сразу несколько строк."
+          title={t("srv.emptyTitle")}
+          text={t("srv.emptyText")}
           action={
             <button
               type="button"
@@ -190,7 +192,7 @@ export function Servers() {
               onClick={() => setImportOpen(true)}
             >
               <Plus size={15} />
-              Вставить ссылки
+              {t("srv.pasteLinks")}
             </button>
           }
         />
@@ -208,7 +210,7 @@ export function Servers() {
                 <button
                   type="button"
                   className="node-radio"
-                  aria-label="Выбрать сервер"
+                  aria-label={t("srv.selectServer")}
                   onClick={() => void selectServer(node.id)}
                 />
                 <div className="grow" style={{ minWidth: 0 }}>
@@ -225,14 +227,14 @@ export function Servers() {
 
                 <span className={`dot ${tier}`} />
                 <span className="latency">
-                  {ms === undefined ? "—" : ms === null ? "н/д" : `${ms} мс`}
+                  {ms === undefined ? "—" : ms === null ? t("srv.latencyNa") : t("srv.latencyMs", { ms })}
                 </span>
 
                 <div className="node-actions">
                   <button
                     type="button"
                     className="btn ghost icon"
-                    title="Скопировать ссылку"
+                    title={t("srv.copyLinkTitle")}
                     onClick={() => void copyLink(node)}
                   >
                     <Copy size={14} />
@@ -240,7 +242,7 @@ export function Servers() {
                   <button
                     type="button"
                     className="btn ghost icon"
-                    title="Изменить"
+                    title={t("srv.editTitle")}
                     onClick={() => setEditing(node)}
                   >
                     <Pencil size={14} />
@@ -248,7 +250,7 @@ export function Servers() {
                   <button
                     type="button"
                     className="btn ghost icon"
-                    title="Удалить"
+                    title={t("srv.deleteTitle")}
                     onClick={() => void remove(node)}
                   >
                     <Trash2 size={14} />
@@ -279,7 +281,7 @@ export function Servers() {
           onClick={() => setEditing(emptyNode())}
         >
           <Plus size={14} />
-          Добавить сервер вручную
+          {t("srv.addManually")}
         </button>
       </div>
     </>
@@ -290,8 +292,8 @@ type ToastFn = (kind: "info" | "success" | "error", text: string, detail?: strin
 
 function reportToast(report: ImportReport, toast: ToastFn) {
   const parts: string[] = [];
-  if (report.added) parts.push(`добавлено ${report.added}`);
-  if (report.skipped) parts.push(`пропущено дубликатов ${report.skipped}`);
+  if (report.added) parts.push(tNow("srv.reportAdded", { n: report.added }));
+  if (report.skipped) parts.push(tNow("srv.reportSkipped", { n: report.skipped }));
 
   if (report.errors.length > 0) {
     // Surface the reason, not just a count — a rejected transport is actionable.
@@ -299,17 +301,19 @@ function reportToast(report: ImportReport, toast: ToastFn) {
       .slice(0, 5)
       .map(([line, reason]) => `${reason}\n${line}`)
       .join("\n\n");
+    const summary = parts.join(", ") || tNow("srv.reportNothing");
     toast(
       report.added ? "info" : "error",
-      `${parts.join(", ") || "ничего не добавлено"} · с ошибками: ${report.errors.length}`,
+      `${summary} · ${tNow("srv.reportErrors", { n: report.errors.length })}`,
       detail,
     );
     return;
   }
-  toast(report.added ? "success" : "info", parts.join(", ") || "Новых серверов нет");
+  toast(report.added ? "success" : "info", parts.join(", ") || tNow("srv.reportNoNew"));
 }
 
 function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useStore((s) => s.toast);
@@ -326,7 +330,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
         onClose();
       }
     } catch (e) {
-      toast("error", "Импорт не удался", errText(e));
+      toast("error", t("srv.importFailed"), errText(e));
     } finally {
       setBusy(false);
     }
@@ -335,12 +339,12 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   return (
     <Modal
       open={open}
-      title="Добавить серверы"
+      title={t("srv.addServers")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            Отмена
+            {t("srv.cancel")}
           </button>
           <button
             type="button"
@@ -348,19 +352,16 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
             disabled={busy || !text.trim()}
             onClick={() => void submit()}
           >
-            Импортировать
+            {t("srv.importBtn")}
           </button>
         </>
       }
     >
-      <Field
-        label="Ссылки"
-        hint="По одной на строку. Поддерживаются vless://, vmess://, trojan://, ss://, hysteria2://, tuic://, base64-блок подписки целиком — а http(s)-ссылка на подписку добавится в «Подписки» и будет обновляться сама."
-      >
+      <Field label={t("srv.linksLabel")} hint={t("srv.linksHint")}>
         <textarea
           className="textarea"
           style={{ minHeight: 190 }}
-          placeholder="vless://uuid@server:443?type=tcp&security=reality&pbk=...#Название"
+          placeholder={t("srv.linkPlaceholder")}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
@@ -370,6 +371,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 function SubModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -386,7 +388,7 @@ function SubModal({ open, onClose }: { open: boolean; onClose: () => void }) {
       setUrl("");
       onClose();
     } catch (e) {
-      toast("error", "Не удалось загрузить подписку", errText(e));
+      toast("error", t("srv.subLoadFailed"), errText(e));
       await reload();
     } finally {
       setBusy(false);
@@ -396,12 +398,12 @@ function SubModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Modal
       open={open}
-      title="Добавить подписку"
+      title={t("srv.addSubscription")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            Отмена
+            {t("srv.cancel")}
           </button>
           <button
             type="button"
@@ -409,23 +411,20 @@ function SubModal({ open, onClose }: { open: boolean; onClose: () => void }) {
             disabled={busy || !url.trim()}
             onClick={() => void submit()}
           >
-            Загрузить
+            {t("srv.loadBtn")}
           </button>
         </>
       }
     >
-      <Field label="Название" hint="Необязательно — по умолчанию берётся из адреса.">
+      <Field label={t("srv.nameLabel")} hint={t("srv.subNameHint")}>
         <input
           className="input"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Мой сервер"
+          placeholder={t("srv.subNamePlaceholder")}
         />
       </Field>
-      <Field
-        label="Адрес подписки"
-        hint="В 3x-ui это ссылка Subscription URL из настроек клиента."
-      >
+      <Field label={t("srv.subUrlLabel")} hint={t("srv.subUrlHint")}>
         <input
           className="input"
           value={url}
@@ -444,6 +443,7 @@ function NodeEditor({
   node: ServerNode;
   onClose: () => void;
 }) {
+  const t = useT();
   const [current, setCurrent] = useState<ServerNode>(node);
   const toast = useStore((s) => s.toast);
   const reload = useStore((s) => s.reload);
@@ -467,20 +467,20 @@ function NodeEditor({
           // rather than claiming success over a node that was never stored.
           toast(
             "error",
-            "Сервер не добавлен",
-            report.errors[0]?.[1] ?? "такой сервер уже есть в списке",
+            t("srv.serverNotAdded"),
+            report.errors[0]?.[1] ?? t("srv.duplicateServer"),
           );
           return;
         }
-        toast("success", "Сервер добавлен");
+        toast("success", t("srv.serverAdded"));
       } else {
         await api.updateServer(current);
-        toast("success", "Сервер сохранён");
+        toast("success", t("srv.serverSaved"));
       }
       await reload();
       onClose();
     } catch (e) {
-      toast("error", "Не удалось сохранить", errText(e));
+      toast("error", t("srv.saveFailed"), errText(e));
     }
   }
 
@@ -488,12 +488,12 @@ function NodeEditor({
     <Modal
       open
       wide
-      title={isNew ? "Новый сервер" : "Параметры сервера"}
+      title={isNew ? t("srv.newServer") : t("srv.serverParams")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            Отмена
+            {t("srv.cancel")}
           </button>
           <button
             type="button"
@@ -501,20 +501,20 @@ function NodeEditor({
             disabled={!current.address || !current.name}
             onClick={() => void save()}
           >
-            Сохранить
+            {t("srv.saveBtn")}
           </button>
         </>
       }
     >
       <div className="grid-2">
-        <Field label="Название">
+        <Field label={t("srv.nameLabel")}>
           <input
             className="input"
             value={current.name}
             onChange={(e) => set({ name: e.target.value })}
           />
         </Field>
-        <Field label="Протокол">
+        <Field label={t("srv.protocolLabel")}>
           <select
             className="select"
             value={current.protocol}
@@ -527,7 +527,7 @@ function NodeEditor({
             ))}
           </select>
         </Field>
-        <Field label="Адрес">
+        <Field label={t("srv.addressLabel")}>
           <input
             className="input"
             value={current.address}
@@ -535,7 +535,7 @@ function NodeEditor({
             placeholder="example.com"
           />
         </Field>
-        <Field label="Порт">
+        <Field label={t("srv.portLabel")}>
           <input
             className="input"
             type="number"
@@ -554,7 +554,7 @@ function NodeEditor({
           </Field>
         )}
         {needsPassword && (
-          <Field label="Пароль">
+          <Field label={t("srv.passwordLabel")}>
             <input
               className="input mono"
               value={current.password}
@@ -563,7 +563,7 @@ function NodeEditor({
           </Field>
         )}
         {current.protocol === "shadowsocks" && (
-          <Field label="Шифрование">
+          <Field label={t("srv.encryptionLabel")}>
             <input
               className="input"
               value={current.method}
@@ -574,7 +574,7 @@ function NodeEditor({
 
         {hasTransport && (
           <>
-            <Field label="Транспорт">
+            <Field label={t("srv.transportLabel")}>
               <select
                 className="select"
                 value={current.network}
@@ -587,7 +587,7 @@ function NodeEditor({
                 ))}
               </select>
             </Field>
-            <Field label="Шифрование канала">
+            <Field label={t("srv.channelEncryptionLabel")}>
               <select
                 className="select"
                 value={current.security}
@@ -595,7 +595,7 @@ function NodeEditor({
               >
                 {SECURITIES.map((s) => (
                   <option key={s} value={s}>
-                    {s === "none" ? "без TLS" : s.toUpperCase()}
+                    {s === "none" ? t("srv.noTls") : s.toUpperCase()}
                   </option>
                 ))}
               </select>
@@ -641,7 +641,7 @@ function NodeEditor({
                 onChange={(e) => set({ sni: e.target.value })}
               />
             </Field>
-            <Field label="Отпечаток TLS (fp)">
+            <Field label={t("srv.tlsFingerprintLabel")}>
               <input
                 className="input"
                 value={current.fingerprint}
@@ -672,7 +672,7 @@ function NodeEditor({
         )}
 
         {current.protocol === "vless" && current.security !== "none" && (
-          <Field label="Flow" hint="Обычно xtls-rprx-vision либо пусто.">
+          <Field label="Flow" hint={t("srv.flowHint")}>
             <input
               className="input mono"
               value={current.flow}
@@ -684,8 +684,8 @@ function NodeEditor({
 
       {current.security === "tls" && (
         <ToggleRow
-          label="Не проверять сертификат"
-          desc="Нужно только для самоподписанного сертификата на сервере. Соединение остаётся зашифрованным, но подмену сертификата отследить нельзя."
+          label={t("srv.skipCertLabel")}
+          desc={t("srv.skipCertDesc")}
           checked={current.allowInsecure}
           onChange={(allowInsecure) => set({ allowInsecure })}
         />
@@ -694,8 +694,8 @@ function NodeEditor({
           the parser without it; it becomes editable once the node exists. */}
       {!isNew && hasTransport && !current.flow.includes("vision") && (
         <ToggleRow
-          label="Мультиплексирование (mux)"
-          desc="Несколько запросов в одном соединении. Ускоряет открытие страниц, но несовместимо с XTLS Vision и мешает торрентам."
+          label={t("srv.muxLabel")}
+          desc={t("srv.muxDesc")}
           checked={current.mux}
           onChange={(mux) => set({ mux })}
         />

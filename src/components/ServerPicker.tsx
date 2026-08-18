@@ -2,6 +2,7 @@ import { Check, ChevronDown, Gauge } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
+import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 
 /**
@@ -12,6 +13,7 @@ import { useStore } from "../store";
  * screen rather than only in the server list.
  */
 export function ServerPicker() {
+  const t = useT();
   const nodes = useStore((s) => s.nodes);
   const activeId = useStore((s) => s.status.activeId);
   const latency = useStore((s) => s.latency);
@@ -42,7 +44,7 @@ export function ServerPicker() {
   const ping = active ? latency[active.id] : undefined;
 
   if (nodes.length === 0) {
-    return <div className="hero-server">Сервер не выбран</div>;
+    return <div className="hero-server">{t("pick.noServer")}</div>;
   }
 
   return (
@@ -53,11 +55,11 @@ export function ServerPicker() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="truncate">{active ? active.name : "Выбрать сервер"}</span>
+        <span className="truncate">{active ? active.name : t("pick.select")}</span>
         {ping != null && (
           <>
             <span className={`dot ${latencyTier(ping)}`} />
-            <span className="picker-ms">{ping} мс</span>
+            <span className="picker-ms">{t("dash.pingMs", { ping })}</span>
           </>
         )}
         <ChevronDown size={14} className="picker-caret" data-open={open} />
@@ -90,7 +92,7 @@ export function ServerPicker() {
                   </span>
                   <span className={`dot ${latencyTier(ms)}`} />
                   <span className="picker-ms">
-                    {ms === undefined ? "—" : ms === null ? "н/д" : `${ms} мс`}
+                    {ms === undefined ? "—" : ms === null ? t("dash.na") : t("dash.pingMs", { ping: ms })}
                   </span>
                 </button>
               );
@@ -105,7 +107,7 @@ export function ServerPicker() {
               onClick={() => void refreshLatency()}
             >
               <Gauge size={13} className={testing ? "spin" : ""} />
-              Проверить все
+              {t("pick.testAll")}
             </button>
           </div>
         </div>

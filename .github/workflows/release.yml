@@ -267,7 +267,7 @@ jobs:
           WIN="" LINUX="" MAC="" ANDROID=""
           for f in $(ls artifacts); do
             case "$f" in
-              *windows-x64-setup.exe) WIN+="$(badge 'Установщик_x64' '0078d4' '' "$f")" ;;
+              *windows-x64-setup.exe) WIN+="$(badge 'Installer_x64' '0078d4' '' "$f")" ;;
               *linux-x64.AppImage)    LINUX+="$(badge 'AppImage_x64' 'e95420' 'linux' "$f")" ;;
               *linux-x64.deb)         LINUX+="$(badge 'DEB_x64' 'a81d33' 'debian' "$f")" ;;
               *linux-x64.rpm)         LINUX+="$(badge 'RPM_x64' '294172' 'fedora' "$f")" ;;
@@ -279,21 +279,21 @@ jobs:
             esac
           done
           {
-            echo "### Скачайте версию для своей системы / Download for your OS"
+            echo "### Download for your OS / Скачайте версию для своей системы"
             echo ""
-            echo "| Система | Загрузка |"
+            echo "| System | Download |"
             echo "| --- | --- |"
             [ -n "$WIN" ]     && echo "| **Windows 10/11** | $WIN|"
             [ -n "$ANDROID" ] && echo "| **Android 7+** | $ANDROID|"
             [ -n "$LINUX" ]   && echo "| **Linux** | $LINUX|"
             [ -n "$MAC" ]     && echo "| **macOS** | $MAC|"
             echo ""
-            echo "**Windows** обновляется сам: при выходе новой версии кнопка появляется в приложении слева внизу. SmartScreen на свежем файле — это отсутствие подписи кода, а не вирус: «Подробнее» → «Выполнить в любом случае»."
-            echo "**Android**: современным телефонам нужен APK_arm64; arm32 — для старых моделей, x64 — для эмуляторов."
-            echo "**macOS**: образ не подписан — при первом запуске правый клик → «Открыть»."
-            echo "**Linux**: TUN-режим требует запуска с правами root; AppImage сделайте исполняемым (\`chmod +x\`)."
+            echo "**Windows** keeps itself updated: when a new version is out, a button shows up in the app's bottom-left corner. A SmartScreen warning on a fresh download means the build is not code-signed yet, not that it is malicious: \"More info\" → \"Run anyway\" («Подробнее» → «Выполнить в любом случае»)."
+            echo "**Android**: modern phones need APK_arm64; arm32 is for older devices, x64 for emulators."
+            echo "**macOS**: the image is unsigned — on first launch right-click → \"Open\"."
+            echo "**Linux**: TUN mode needs root; make the AppImage executable (\`chmod +x\`)."
             echo ""
-            echo "Контрольные суммы sha256 — в списке Assets ниже."
+            echo "sha256 checksums are listed under Assets below."
             echo ""
             echo "---"
             echo ""

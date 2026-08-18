@@ -722,10 +722,25 @@ async fn restart_if_running(app: &AppHandle) -> Result<()> {
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
     let tunnel_mode = settings.tunnel_mode;
+    #[cfg(desktop)]
+    let language_changed = {
+        let state = app.state::<AppState>();
+        let changed = state.settings.read().language != settings.language;
+        changed
+    };
     {
         let state = app.state::<AppState>();
         *state.settings.write() = settings;
         state.save_settings()?;
+    }
+    #[cfg(desktop)]
+    if language_changed {
+        let choice = {
+            let state = app.state::<AppState>();
+            let choice = state.settings.read().language.clone();
+            choice
+        };
+        crate::update_tray_language(&app, &choice);
     }
     set_status(&app, |s| s.tunnel_mode = tunnel_mode);
     restart_if_running(&app).await

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { api, errText } from "../lib/api";
+import { useT, type MsgKey } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
 import type { UpdateInfo } from "../lib/types";
 import { useStore } from "../store";
@@ -20,6 +21,7 @@ const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 /** Bottom-left release watcher: quiet until a newer build is published, then
  * a single click downloads the installer and restarts into it. */
 function UpdateBadge() {
+  const t = useT();
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -58,7 +60,7 @@ function UpdateBadge() {
       .catch((e) => {
         setBusy(false);
         setError(errText(e));
-        toast("error", "Не удалось установить обновление", errText(e));
+        toast("error", t("side.updateFailed"), errText(e));
       });
   };
 
@@ -67,12 +69,12 @@ function UpdateBadge() {
       type="button"
       className="update-badge"
       disabled={busy}
-      title={error || `Установить версию ${update.version}`}
+      title={error || t("side.installVersion", { version: update.version })}
       onClick={install}
     >
       <Download size={15} className={busy ? "pulse" : undefined} />
       <span className="grow truncate">
-        {busy ? "Загрузка…" : "Обновление"}
+        {busy ? t("side.downloading") : t("side.update")}
       </span>
       {!busy && <span className="update-version">{update.version}</span>}
     </button>
@@ -87,13 +89,13 @@ export type PageId =
   | "logs"
   | "settings";
 
-const ITEMS: { id: PageId; label: string; icon: typeof Gauge }[] = [
-  { id: "dashboard", label: "Обзор", icon: Gauge },
-  { id: "servers", label: "Серверы", icon: Server },
-  { id: "split", label: "Раздельный туннель", icon: Split },
-  { id: "routing", label: "Маршрутизация", icon: ListTree },
-  { id: "logs", label: "Журнал", icon: ScrollText },
-  { id: "settings", label: "Настройки", icon: SettingsIcon },
+const ITEMS: { id: PageId; labelKey: MsgKey; icon: typeof Gauge }[] = [
+  { id: "dashboard", labelKey: "nav.dashboard", icon: Gauge },
+  { id: "servers", labelKey: "nav.servers", icon: Server },
+  { id: "split", labelKey: "nav.split", icon: Split },
+  { id: "routing", labelKey: "nav.routing", icon: ListTree },
+  { id: "logs", labelKey: "nav.logs", icon: ScrollText },
+  { id: "settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
 
 export function Sidebar({
@@ -103,6 +105,7 @@ export function Sidebar({
   page: PageId;
   onNavigate: (page: PageId) => void;
 }) {
+  const t = useT();
   const nodeCount = useStore((s) => s.nodes.length);
   const coreVersion = useStore((s) => s.coreVersion);
   const elevated = useStore((s) => s.status.elevated);
@@ -110,7 +113,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <nav className="nav">
-        {ITEMS.map(({ id, label, icon: Icon }) => (
+        {ITEMS.map(({ id, labelKey, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -118,7 +121,7 @@ export function Sidebar({
             onClick={() => onNavigate(id)}
           >
             <Icon size={17} />
-            <span className="grow truncate">{label}</span>
+            <span className="grow truncate">{t(labelKey)}</span>
             {id === "servers" && nodeCount > 0 && (
               <span className="badge">{nodeCount}</span>
             )}
@@ -131,13 +134,13 @@ export function Sidebar({
         <div className="core-line">
           <Cpu size={13} />
           <span className="truncate" title={coreVersion}>
-            {coreVersion || "ядро не найдено"}
+            {coreVersion || t("side.noCore")}
           </span>
         </div>
         {!IS_ANDROID && (
           <div className="core-line">
             <span className={`dot ${elevated ? "good" : "ok"}`} />
-            <span>{elevated ? "права администратора" : "обычные права"}</span>
+            <span>{elevated ? t("side.admin") : t("side.user")}</span>
           </div>
         )}
       </div>

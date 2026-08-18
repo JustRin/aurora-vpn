@@ -10,6 +10,7 @@ import {
   quotaUsed,
   relativeTime,
 } from "../lib/format";
+import { useT } from "../lib/i18n";
 import type { Subscription } from "../lib/types";
 import { useStore } from "../store";
 
@@ -27,6 +28,7 @@ export function SubscriptionCard({
   sub: Subscription;
   compact?: boolean;
 }) {
+  const t = useT();
   const toast = useStore((s) => s.toast);
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +42,7 @@ export function SubscriptionCard({
     try {
       await api.refreshSubscription(sub.id);
     } catch (e) {
-      toast("error", `Не удалось обновить «${sub.name}»`, errText(e));
+      toast("error", t("srv.subRefreshFailed", { name: sub.name }), errText(e));
     } finally {
       setBusy(false);
     }
@@ -58,7 +60,7 @@ export function SubscriptionCard({
         <button
           type="button"
           className="btn ghost icon sm"
-          title="Обновить сейчас"
+          title={t("srv.refreshNow")}
           disabled={busy}
           onClick={() => void refresh()}
         >
@@ -71,7 +73,7 @@ export function SubscriptionCard({
           <div className="sub-metrics">
             <div>
               <div className="sub-metric-label micro">
-                <CalendarClock size={11} /> Осталось
+                <CalendarClock size={11} /> {t("srv.remaining")}
               </div>
               <div className={`sub-metric-value ${tier}`}>
                 {expiryLabel(sub.expire)}
@@ -79,7 +81,7 @@ export function SubscriptionCard({
             </div>
             <div style={{ textAlign: "right" }}>
               <div className="sub-metric-label micro" style={{ justifyContent: "flex-end" }}>
-                Трафик
+                {t("srv.trafficLabel")}
               </div>
               <div className="sub-metric-value">
                 {quotaLabel(sub.upload + sub.download, sub.total)}
@@ -98,24 +100,28 @@ export function SubscriptionCard({
 
           {(expired || exhausted) && (
             <div className="sub-warning">
-              {expired
-                ? "Срок действия истёк — серверы, скорее всего, уже не отвечают."
-                : "Трафик исчерпан — продлите тариф в панели."}
+              {expired ? t("srv.expiredWarning") : t("srv.exhaustedWarning")}
             </div>
           )}
         </>
       ) : (
         <div className="sub-metric-label" style={{ marginTop: 6 }}>
-          Панель не сообщает лимиты и срок действия
+          {t("srv.noUsageInfo")}
         </div>
       )}
 
       <div className="sub-foot">
         <span>
-          {sub.nodeCount} {plural(sub.nodeCount, "сервер", "сервера", "серверов")}
+          {sub.nodeCount}{" "}
+          {plural(
+            sub.nodeCount,
+            t("srv.serverOne"),
+            t("srv.serverFew"),
+            t("srv.serverMany"),
+          )}
         </span>
         <span>·</span>
-        <span>обновлено {relativeTime(sub.lastUpdated)}</span>
+        <span>{t("srv.updatedWhen", { when: relativeTime(sub.lastUpdated) })}</span>
       </div>
 
       {/* Kept in the card, not only in a toast: a subscription that fetched fine

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aurora VPN — клиент для 3x-ui / VLESS</title>
-<meta name="description" content="Открытый VPN-клиент для панелей 3x-ui: VLESS и REALITY, режим TUN, раздельное туннелирование, маршрутизация по правилам. Windows, Android, Linux, macOS.">
+<title>Aurora VPN — open-source VLESS client</title>
+<meta name="description" content="Open-source VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box. TUN mode, split tunneling, rule-based routing. Works with any panel (3x-ui, Marzban, …). Windows, Android, Linux, macOS.">
 <style>
   :root {
     --bg: #0a0c12;
@@ -27,7 +27,7 @@
     font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
     overflow-x: hidden;
   }
-  /* The app's ambient layer: three soft drifting glows plus grain. */
+  /* The app's ambient layer: three soft drifting glows. */
   .ambient {
     position: fixed;
     inset: -25%;
@@ -46,6 +46,18 @@
 
   .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 0 22px 80px; }
 
+  .lang-switch {
+    position: absolute; top: 18px; right: 22px;
+    display: flex; gap: 2px;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: var(--panel); padding: 3px;
+  }
+  .lang-switch button {
+    border: 0; background: transparent; color: var(--text-muted);
+    font: 600 12.5px/1 inherit; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .lang-switch button.on { background: var(--accent-soft); color: var(--accent-text); }
+
   header { padding: 84px 0 30px; text-align: center; }
   .logo {
     display: inline-flex; align-items: center; gap: 14px;
@@ -57,7 +69,7 @@
     box-shadow: 0 0 34px rgba(124, 58, 237, 0.55);
   }
   .tagline { margin-top: 14px; font-size: 19px; color: var(--text-dim); }
-  .tagline-en { margin-top: 6px; font-size: 14px; color: var(--text-muted); }
+  .tagline-sub { margin-top: 6px; font-size: 14px; color: var(--text-muted); }
 
   .cta { margin: 34px 0 8px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
   .btn {
@@ -102,67 +114,108 @@
 <body>
 <div class="ambient"></div>
 <div class="wrap">
+  <div class="lang-switch" role="group" aria-label="Language">
+    <button id="lang-ru" onclick="setLang('ru')">RU</button>
+    <button id="lang-en" onclick="setLang('en')">EN</button>
+  </div>
+
   <header>
     <div class="logo"><span class="orb"></span>Aurora VPN</div>
-    <div class="tagline">Открытый клиент для панелей 3x-ui: VLESS и REALITY, режим TUN,<br>раздельное туннелирование и маршрутизация по правилам.</div>
-    <div class="tagline-en">Open-source VPN client for 3x-ui / VLESS panels, powered by sing-box. MIT license.</div>
+    <div class="tagline" data-i18n="tagline"></div>
+    <div class="tagline-sub" data-i18n="taglineSub"></div>
   </header>
 
   <div class="cta">
-    <a class="btn primary" href="https://github.com/JustRin/aurora-vpn/releases/latest" id="dl">Скачать<span id="ver"></span></a>
+    <a class="btn primary" href="https://github.com/JustRin/aurora-vpn/releases/latest"><span data-i18n="download"></span><span id="ver"></span></a>
     <a class="btn" href="https://github.com/JustRin/aurora-vpn/releases/latest">Windows</a>
     <a class="btn" href="https://github.com/JustRin/aurora-vpn/releases/latest">Android</a>
     <a class="btn" href="https://github.com/JustRin/aurora-vpn/releases/latest">Linux</a>
     <a class="btn" href="https://github.com/JustRin/aurora-vpn/releases/latest">macOS</a>
   </div>
-  <div class="note">Все сборки — на странице релизов, там же контрольные суммы.
-    Windows после установки обновляется сам.</div>
+  <div class="note" data-i18n="note"></div>
 
   <div class="grid">
-    <div class="card">
-      <h3>Протоколы</h3>
-      <p>VLESS (включая REALITY и VLESS Encryption), VMess, Trojan, Shadowsocks, Hysteria2, TUIC. Импорт ссылок и подписок 3x-ui — с остатком тарифа прямо на главном экране.</p>
-    </div>
-    <div class="card">
-      <h3>Режим TUN</h3>
-      <p>Виртуальный адаптер перехватывает трафик всей системы. На Windows — Wintun, на Android — VpnService с sing-box внутри процесса, как в Hiddify и NekoBox.</p>
-    </div>
-    <div class="card">
-      <h3>Раздельный туннель</h3>
-      <p>«Только выбранные через VPN» или «выбранные мимо VPN» — по приложениям, с дублированием правил в DNS, чтобы запросы имён не утекали мимо маршрута.</p>
-    </div>
-    <div class="card">
-      <h3>Маршрутизация</h3>
-      <p>Гео-наборы RU/CN, блокировка рекламы, свои списки доменов и подсетей. Наборы кэшируются локально — туннель поднимается даже там, где GitHub недоступен.</p>
-    </div>
-    <div class="card">
-      <h3>Два движка</h3>
-      <p>sing-box как основной; узлы с <code>VLESS Encryption</code> и <code>XHTTP</code> прозрачно уходят через Xray-core. Выбор автоматический, задержки меряются одинаково.</p>
-    </div>
-    <div class="card">
-      <h3>Интерфейс</h3>
-      <p>Живой журнал ядра, замер задержек, переключение Rule / Global / Direct без перезапуска, шесть тем оформления и режим «как в системе».</p>
-    </div>
+    <div class="card"><h3 data-i18n="c1h"></h3><p data-i18n="c1p"></p></div>
+    <div class="card"><h3 data-i18n="c2h"></h3><p data-i18n="c2p"></p></div>
+    <div class="card"><h3 data-i18n="c3h"></h3><p data-i18n="c3p"></p></div>
+    <div class="card"><h3 data-i18n="c4h"></h3><p data-i18n="c4p"></p></div>
+    <div class="card"><h3 data-i18n="c5h"></h3><p data-i18n="c5p"></p></div>
+    <div class="card"><h3 data-i18n="c6h"></h3><p data-i18n="c6p"></p></div>
   </div>
 
-  <div class="open">
-    Код открыт (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>
-    Нашли проблему? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> ждут.
-  </div>
+  <div class="open" id="open-line"></div>
 
-  <footer>
-    Собран на <a href="https://github.com/SagerNet/sing-box">sing-box</a> и
-    <a href="https://tauri.app">Tauri</a> · Aurora VPN не хранит и не собирает данные пользователей —
-    приложение общается только с вашим сервером и GitHub (обновления и гео-наборы).
-  </footer>
+  <footer id="footer-line"></footer>
 </div>
 <script>
+  const I18N = {
+    ru: {
+      tagline: "Открытый клиент для серверов VLESS, VMess, Trojan, Shadowsocks, Hysteria2 и TUIC:\nREALITY, режим TUN, раздельное туннелирование и маршрутизация по правилам.",
+      taglineSub: "Работает с любыми панелями — 3x-ui, Marzban и другими — и с одиночными серверами. MIT.",
+      download: "Скачать",
+      note: "Все сборки — на странице релизов, там же контрольные суммы. Windows после установки обновляется сам.",
+      c1h: "Протоколы",
+      c1p: "VLESS (включая REALITY и VLESS Encryption), VMess, Trojan, Shadowsocks, Hysteria2, TUIC. Импорт ссылок и подписок — с остатком тарифа прямо на главном экране.",
+      c2h: "Режим TUN",
+      c2p: "Виртуальный адаптер перехватывает трафик всей системы. На Windows — Wintun, на Android — VpnService с sing-box внутри процесса, как в Hiddify и NekoBox.",
+      c3h: "Раздельный туннель",
+      c3p: "«Только выбранные через VPN» или «выбранные мимо VPN» — по приложениям, с дублированием правил в DNS, чтобы запросы имён не утекали мимо маршрута.",
+      c4h: "Маршрутизация",
+      c4p: "Гео-наборы RU/CN, блокировка рекламы, свои списки доменов и подсетей. Наборы кэшируются локально — туннель поднимается даже там, где GitHub недоступен.",
+      c5h: "Два движка",
+      c5p: "sing-box как основной; узлы с VLESS Encryption и XHTTP прозрачно уходят через Xray-core. Выбор автоматический, задержки меряются одинаково.",
+      c6h: "Интерфейс",
+      c6p: "Живой журнал ядра, замер задержек, переключение Rule / Global / Direct без перезапуска, русский и английский языки, шесть тем оформления.",
+      open: 'Код открыт (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>Нашли проблему? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> ждут.',
+      footer: 'Собран на <a href="https://github.com/SagerNet/sing-box">sing-box</a> и <a href="https://tauri.app">Tauri</a> · Aurora VPN не хранит и не собирает данные пользователей — приложение общается только с вашим сервером и GitHub (обновления и гео-наборы).',
+    },
+    en: {
+      tagline: "Open-source client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers:\nREALITY, TUN mode, split tunneling and rule-based routing.",
+      taglineSub: "Works with any panel — 3x-ui, Marzban and others — or a standalone server. MIT licensed.",
+      download: "Download",
+      note: "All builds live on the releases page, checksums included. On Windows the app updates itself.",
+      c1h: "Protocols",
+      c1p: "VLESS (including REALITY and VLESS Encryption), VMess, Trojan, Shadowsocks, Hysteria2, TUIC. Import links and subscriptions — with your plan status right on the main screen.",
+      c2h: "TUN mode",
+      c2p: "A virtual adapter captures traffic system-wide. Wintun on Windows; on Android sing-box runs inside VpnService, the same way Hiddify and NekoBox do it.",
+      c3h: "Split tunneling",
+      c3p: "“Only selected apps via VPN” or “selected apps bypass VPN” — per application, with rules mirrored into DNS so name lookups can't leak off-route.",
+      c4h: "Routing",
+      c4p: "RU/CN geo sets, ad blocking, custom domain and subnet lists. Sets are cached locally — the tunnel comes up even where GitHub is unreachable.",
+      c5h: "Two engines",
+      c5p: "sing-box as the primary; servers needing VLESS Encryption or XHTTP go through Xray-core transparently. Selection is automatic, latency is measured the same way.",
+      c6h: "Interface",
+      c6p: "Live core log, latency tests, Rule / Global / Direct switching without a restart, Russian and English languages, six themes.",
+      open: 'Open source (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>Found a problem? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> welcome.',
+      footer: 'Built on <a href="https://github.com/SagerNet/sing-box">sing-box</a> and <a href="https://tauri.app">Tauri</a> · Aurora VPN stores and collects no user data — the app only talks to your server and to GitHub (updates and geo sets).',
+    },
+  };
+
+  function setLang(lang) {
+    const dict = I18N[lang] || I18N.en;
+    document.documentElement.lang = lang;
+    for (const el of document.querySelectorAll("[data-i18n]")) {
+      el.textContent = dict[el.dataset.i18n] || "";
+    }
+    // The two rich-text blocks carry markup, so they are set as HTML from the
+    // dictionaries above (static strings, nothing user-supplied).
+    document.getElementById("open-line").innerHTML = dict.open;
+    document.getElementById("footer-line").innerHTML = dict.footer;
+    document.getElementById("lang-ru").classList.toggle("on", lang === "ru");
+    document.getElementById("lang-en").classList.toggle("on", lang === "en");
+    try { localStorage.setItem("lang", lang); } catch {}
+  }
+
+  let saved = null;
+  try { saved = localStorage.getItem("lang"); } catch {}
+  setLang(saved || (/^ru\b/i.test(navigator.language) ? "ru" : "en"));
+
   // Cosmetic: show the latest version on the download button when the API allows.
   fetch("https://api.github.com/repos/JustRin/aurora-vpn/releases/latest")
     .then(r => r.ok ? r.json() : null)
     .then(release => {
       if (release && release.tag_name) {
-        document.getElementById("ver").textContent = " " + release.tag_name;
+        document.getElementById("ver").textContent = " " + release.tag_name;
       }
     })
     .catch(() => {});

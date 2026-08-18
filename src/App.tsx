@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 
 import { api } from "./lib/api";
+import { useT } from "./lib/i18n";
 
 import { Sidebar, type PageId } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
@@ -23,6 +24,7 @@ const PAGES: Record<PageId, ComponentType> = {
 };
 
 export default function App() {
+  const t = useT();
   const [page, setPage] = useState<PageId>("dashboard");
   const ready = useStore((s) => s.ready);
   const loadError = useStore((s) => s.loadError);
@@ -48,7 +50,7 @@ export default function App() {
         <Ambient />
         <div className="app">
           <TitleBar />
-          <div className="splash">Загрузка…</div>
+          <div className="splash">{t("app.loading")}</div>
         </div>
       </>
     );
@@ -64,7 +66,7 @@ export default function App() {
             <div className="card" style={{ maxWidth: 520 }}>
               <div className="alert danger">
                 <div>
-                  <div className="alert-title">Не удалось запустить приложение</div>
+                  <div className="alert-title">{t("app.loadFailed")}</div>
                   <div className="alert-text">{loadError}</div>
                 </div>
               </div>

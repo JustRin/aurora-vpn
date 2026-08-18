@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">"Aurora VPN"</string>
     <string name="main_activity_title">"Aurora VPN"</string>
+
+    <!-- VPN foreground service; values-ru/ carries the Russian variants. -->
+    <string name="vpn_channel_name">VPN tunnel</string>
+    <string name="vpn_active">Tunnel is active</string>
+    <string name="vpn_disconnect">Disconnect</string>
+    <string name="vpn_alerts_channel_name">Rule notifications</string>
 </resources>

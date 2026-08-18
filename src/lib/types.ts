@@ -42,7 +42,11 @@ export interface ServerNode {
 export type TunnelMode = "tun" | "systemProxy";
 export type TunStack = "mixed" | "system" | "gvisor";
 
+export type LangChoice = "system" | "ru" | "en";
+
 export interface Settings {
+  /** `system` follows the OS locale; mirrored to Rust for the tray menu. */
+  language: LangChoice;
   tunnelMode: TunnelMode;
   mixedPort: number;
   clashPort: number;

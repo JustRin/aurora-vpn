@@ -1,12 +1,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
 
+import { useT } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
 import { useStore } from "../store";
 
 const appWindow = getCurrentWindow();
 
 export function TitleBar() {
+  const t = useT();
   const state = useStore((s) => s.status.state);
   const tunnelMode = useStore((s) => s.status.tunnelMode);
 
@@ -14,10 +16,10 @@ export function TitleBar() {
     state === "connected"
       ? tunnelMode === "tun"
         ? "TUN"
-        : "Системный прокси"
+        : t("bar.systemProxy")
       : state === "connecting"
-        ? "подключение…"
-        : "отключено";
+        ? t("bar.connecting")
+        : t("bar.disconnected");
 
   return (
     <div className="titlebar">

@@ -1,15 +1,21 @@
-const UNITS = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+import { tNow } from "./i18n";
+
+/** `fmt.byteUnits` is a pipe-separated list so one key covers the whole row. */
+function units(): string[] {
+  return tNow("fmt.byteUnits").split("|");
+}
 
 export function bytes(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0 Б";
-  const i = Math.min(Math.floor(Math.log(value) / Math.log(1024)), UNITS.length - 1);
+  const names = units();
+  if (!Number.isFinite(value) || value <= 0) return `0 ${names[0]}`;
+  const i = Math.min(Math.floor(Math.log(value) / Math.log(1024)), names.length - 1);
   const scaled = value / 1024 ** i;
   // Keep the column width stable: more precision only where it fits.
-  return `${scaled.toFixed(i === 0 ? 0 : scaled < 10 ? 2 : 1)} ${UNITS[i]}`;
+  return `${scaled.toFixed(i === 0 ? 0 : scaled < 10 ? 2 : 1)} ${names[i]}`;
 }
 
 export function speed(bytesPerSecond: number): string {
-  return `${bytes(bytesPerSecond)}/с`;
+  return `${bytes(bytesPerSecond)}${tNow("fmt.perSecond")}`;
 }
 
 export function duration(sinceMs: number | null): string {
@@ -23,14 +29,14 @@ export function duration(sinceMs: number | null): string {
 }
 
 export function relativeTime(iso: string): string {
-  if (!iso) return "никогда";
+  if (!iso) return tNow("fmt.never");
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "никогда";
+  if (Number.isNaN(then)) return tNow("fmt.never");
   const seconds = Math.floor((Date.now() - then) / 1000);
-  if (seconds < 60) return "только что";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} мин назад`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} ч назад`;
-  return `${Math.floor(seconds / 86400)} дн назад`;
+  if (seconds < 60) return tNow("fmt.justNow");
+  if (seconds < 3600) return tNow("fmt.minAgo", { n: Math.floor(seconds / 60) });
+  if (seconds < 86400) return tNow("fmt.hoursAgo", { n: Math.floor(seconds / 3600) });
+  return tNow("fmt.daysAgo", { n: Math.floor(seconds / 86400) });
 }
 
 /**
@@ -43,7 +49,8 @@ export function daysLeft(expireSeconds: number): number | null {
   return Math.floor(ms / 86_400_000);
 }
 
-/** Russian numeral agreement: 1 сервер, 2 сервера, 5 серверов. */
+/** Russian numeral agreement: 1 сервер, 2 сервера, 5 серверов. English only
+ * distinguishes one/many, so `few` doubles as the plural there. */
 export function plural(n: number, one: string, few: string, many: string): string {
   const abs = Math.abs(n) % 100;
   // The teens are the exception that breaks the naive tail-digit rule.
@@ -54,15 +61,17 @@ export function plural(n: number, one: string, few: string, many: string): strin
   return many;
 }
 
+/** `fmt.dayForms` carries the pipe-separated forms: "день|дня|дней" / "day|days|days". */
 function pluralDays(n: number): string {
-  return plural(n, "день", "дня", "дней");
+  const [one, few, many] = tNow("fmt.dayForms").split("|");
+  return plural(n, one, few, many);
 }
 
 export function expiryLabel(expireSeconds: number): string {
   const days = daysLeft(expireSeconds);
-  if (days === null) return "бессрочно";
-  if (days < 0) return "истекла";
-  if (days === 0) return "истекает сегодня";
+  if (days === null) return tNow("fmt.noExpiry");
+  if (days < 0) return tNow("fmt.expired");
+  if (days === 0) return tNow("fmt.expiresToday");
   return `${days} ${pluralDays(days)}`;
 }
 
@@ -91,13 +100,14 @@ export function quotaLabel(used: number, total: number): string {
   // already says there is no ceiling, and spelling it out overflows the tile.
   if (!total) return bytes(used);
 
-  const i = Math.min(Math.floor(Math.log(total) / Math.log(1024)), UNITS.length - 1);
+  const names = units();
+  const i = Math.min(Math.floor(Math.log(total) / Math.log(1024)), names.length - 1);
   const scale = 1024 ** i;
   const format = (value: number) => {
     const scaled = value / scale;
     return scaled < 10 && i > 0 ? scaled.toFixed(1) : Math.round(scaled).toString();
   };
-  return `${format(used)} / ${format(total)} ${UNITS[i]}`;
+  return `${format(used)} / ${format(total)} ${names[i]}`;
 }
 
 /** Latency buckets drive the colour of the signal dot. */
@@ -130,6 +140,10 @@ export function protocolLabel(protocol: string): string {
 /** Compact description of a node's transport, e.g. `REALITY · ws`. */
 export function transportLabel(security: string, network: string): string {
   const sec =
-    security === "reality" ? "REALITY" : security === "tls" ? "TLS" : "без TLS";
+    security === "reality"
+      ? "REALITY"
+      : security === "tls"
+        ? "TLS"
+        : tNow("fmt.noTls");
   return network === "tcp" ? sec : `${sec} · ${network}`;
 }

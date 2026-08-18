@@ -4,17 +4,20 @@ import { useState } from "react";
 import { ElevateModal } from "../components/ElevateModal";
 import { Field, Segmented, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
+import { useT } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
 import { THEMES } from "../lib/themes";
 import {
   ELEVATION_REQUIRED,
   type AutostartMode,
+  type LangChoice,
   type TunStack,
   type TunnelMode,
 } from "../lib/types";
 import { useStore } from "../store";
 
 export function Settings() {
+  const t = useT();
   const settings = useStore((s) => s.settings);
   const save = useStore((s) => s.saveSettings);
   const elevated = useStore((s) => s.status.elevated);
@@ -35,7 +38,7 @@ export function Settings() {
         setAskElevate(true);
         return;
       }
-      toast("error", "Не удалось изменить автозапуск", text);
+      toast("error", t("set.autostartFailed"), text);
     }
   }
 
@@ -43,11 +46,8 @@ export function Settings() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Настройки</h1>
-          <p className="page-sub">
-            Изменения применяются сразу; при активном подключении ядро
-            перезапускается автоматически.
-          </p>
+          <h1 className="page-title">{t("set.title")}</h1>
+          <p className="page-sub">{t("set.subtitle")}</p>
         </div>
         {!IS_ANDROID && (
           <button
@@ -56,7 +56,7 @@ export function Settings() {
             onClick={() => void api.openConfigDir()}
           >
             <FolderOpen size={15} />
-            Папка данных
+            {t("set.dataFolder")}
           </button>
         )}
       </div>
@@ -64,15 +64,15 @@ export function Settings() {
       {/* Android has exactly one tunnel — VpnService; there is nothing to choose. */}
       {!IS_ANDROID && (
         <>
-          <div className="section-title">Туннель</div>
+          <div className="section-title">{t("set.tunnelSection")}</div>
           <div className="card">
             <div className="toggle-row">
               <div className="grow">
-                <div className="toggle-label">Режим работы</div>
+                <div className="toggle-label">{t("set.tunnelMode")}</div>
                 <div className="toggle-desc">
                   {settings.tunnelMode === "tun"
-                    ? "TUN — виртуальный адаптер Wintun перехватывает трафик всей системы. Нужны права администратора, зато работают правила по приложениям."
-                    : "Системный прокси — без прав администратора, но охватывает только приложения, которые читают системные настройки прокси."}
+                    ? t("set.tunnelModeTunDesc")
+                    : t("set.tunnelModeProxyDesc")}
                 </div>
               </div>
               <Segmented<TunnelMode>
@@ -80,17 +80,14 @@ export function Settings() {
                 onChange={(tunnelMode) => void save({ tunnelMode })}
                 options={[
                   { value: "tun", label: "TUN" },
-                  { value: "systemProxy", label: "Системный прокси" },
+                  { value: "systemProxy", label: t("set.systemProxy") },
                 ]}
               />
             </div>
 
             {settings.tunnelMode === "tun" && !elevated && (
               <div className="alert" style={{ marginTop: 12 }}>
-                <div className="alert-text">
-                  Приложение запущено без прав администратора — подключение в
-                  режиме TUN предложит перезапуск.
-                </div>
+                <div className="alert-text">{t("set.tunNeedsAdmin")}</div>
               </div>
             )}
           </div>
@@ -99,24 +96,21 @@ export function Settings() {
 
       {(IS_ANDROID || settings.tunnelMode === "tun") && (
         <>
-          <div className="section-title">Параметры TUN</div>
+          <div className="section-title">{t("set.tunSection")}</div>
           <div className="card">
             <div className="grid-2">
-              <Field
-                label="Сетевой стек"
-                hint="mixed — gVisor для TCP и системный для UDP: лучший баланс скорости и совместимости."
-              >
+              <Field label={t("set.tunStack")} hint={t("set.tunStackHint")}>
                 <select
                   className="select"
                   value={settings.tunStack}
                   onChange={(e) => void save({ tunStack: e.target.value as TunStack })}
                 >
-                  <option value="mixed">mixed (рекомендуется)</option>
+                  <option value="mixed">{t("set.tunStackMixed")}</option>
                   <option value="system">system</option>
                   <option value="gvisor">gvisor</option>
                 </select>
               </Field>
-              <Field label="MTU" hint="По умолчанию 9000.">
+              <Field label="MTU" hint={t("set.mtuHint")}>
                 <input
                   className="input"
                   type="number"
@@ -126,20 +120,20 @@ export function Settings() {
               </Field>
             </div>
             <ToggleRow
-              label="Строгая маршрутизация"
-              desc="Блокирует попытки трафика уйти в обход туннеля. Отключите, если перестают работать VirtualBox/WSL или сетевые игры."
+              label={t("set.strictRoute")}
+              desc={t("set.strictRouteDesc")}
               checked={settings.strictRoute}
               onChange={(strictRoute) => void save({ strictRoute })}
             />
             <ToggleRow
-              label="Поддержка IPv6"
-              desc="Выключено — DNS отдаёт только A-записи. Включайте, если провайдер и сервер действительно поддерживают IPv6."
+              label={t("set.ipv6")}
+              desc={t("set.ipv6Desc")}
               checked={settings.ipv6}
               onChange={(ipv6) => void save({ ipv6 })}
             />
             <ToggleRow
               label="Fake-IP"
-              desc="Ускоряет открытие сайтов: домен резолвится мгновенно, а настоящий адрес узнаёт уже сервер. Может мешать некоторым локальным сервисам."
+              desc={t("set.fakeIpDesc")}
               checked={settings.fakeIp}
               onChange={(fakeIp) => void save({ fakeIp })}
             />
@@ -150,20 +144,14 @@ export function Settings() {
       <div className="section-title">DNS</div>
       <div className="card">
         <div className="grid-2">
-          <Field
-            label="DNS через VPN"
-            hint="Используется для доменов, идущих в туннель. Можно указать tls:// или https://."
-          >
+          <Field label={t("set.dnsRemote")} hint={t("set.dnsRemoteHint")}>
             <input
               className="input mono"
               defaultValue={settings.dnsRemote}
               onBlur={(e) => void save({ dnsRemote: e.target.value.trim() })}
             />
           </Field>
-          <Field
-            label="DNS напрямую"
-            hint="Для доменов в обход туннеля и для резолва адреса самого сервера."
-          >
+          <Field label={t("set.dnsDirect")} hint={t("set.dnsDirectHint")}>
             <input
               className="input mono"
               defaultValue={settings.dnsDirect}
@@ -173,10 +161,10 @@ export function Settings() {
         </div>
       </div>
 
-      <div className="section-title">Подключение</div>
+      <div className="section-title">{t("set.connSection")}</div>
       <div className="card">
         <div className="grid-2">
-          <Field label="Порт SOCKS/HTTP" hint="Локальный смешанный прокси.">
+          <Field label={t("set.mixedPort")} hint={t("set.mixedPortHint")}>
             <input
               className="input"
               type="number"
@@ -184,7 +172,7 @@ export function Settings() {
               onBlur={(e) => void save({ mixedPort: Number(e.target.value) || 2080 })}
             />
           </Field>
-          <Field label="Порт панели управления ядром" hint="Clash API на 127.0.0.1.">
+          <Field label={t("set.clashPort")} hint={t("set.clashPortHint")}>
             <input
               className="input"
               type="number"
@@ -192,17 +180,14 @@ export function Settings() {
               onBlur={(e) => void save({ clashPort: Number(e.target.value) || 9191 })}
             />
           </Field>
-          <Field
-            label="URL для проверки задержки"
-            hint="Запрос уходит через выбранный сервер."
-          >
+          <Field label={t("set.latencyUrl")} hint={t("set.latencyUrlHint")}>
             <input
               className="input mono"
               defaultValue={settings.latencyUrl}
               onBlur={(e) => void save({ latencyUrl: e.target.value.trim() })}
             />
           </Field>
-          <Field label="Уровень журнала">
+          <Field label={t("set.logLevel")}>
             <select
               className="select"
               value={settings.logLevel}
@@ -218,29 +203,25 @@ export function Settings() {
         </div>
 
         <ToggleRow
-          label="Доступ из локальной сети"
-          desc="Прокси слушает 0.0.0.0 — другие устройства в сети смогут им пользоваться. Включайте только в доверенной сети."
+          label={t("set.allowLan")}
+          desc={t("set.allowLanDesc")}
           checked={settings.allowLan}
           onChange={(allowLan) => void save({ allowLan })}
         />
         <ToggleRow
-          label="Выбирать самый быстрый сервер"
-          desc="Ядро само переключается на сервер с наименьшей задержкой и перепроверяет раз в 3 минуты."
+          label={t("set.autoSelect")}
+          desc={t("set.autoSelectDesc")}
           checked={settings.autoSelect}
           onChange={(autoSelect) => void save({ autoSelect })}
         />
       </div>
 
-      <div className="section-title">Подписки</div>
+      <div className="section-title">{t("set.subsSection")}</div>
       <div className="card">
         <div className="toggle-row">
           <div className="grow">
-            <div className="toggle-label">Обновлять автоматически</div>
-            <div className="toggle-desc">
-              Список серверов, остаток трафика и срок действия подтягиваются с
-              панели в фоне. Устаревший список — самая частая причина, по которой
-              клиент внезапно перестаёт подключаться.
-            </div>
+            <div className="toggle-label">{t("set.subAuto")}</div>
+            <div className="toggle-desc">{t("set.subAutoDesc")}</div>
           </div>
           <select
             className="select"
@@ -250,21 +231,39 @@ export function Settings() {
               void save({ subAutoUpdateMin: Number(e.target.value) })
             }
           >
-            <option value="0">Не обновлять</option>
-            <option value="180">каждые 3 часа</option>
-            <option value="360">каждые 6 часов</option>
-            <option value="720">каждые 12 часов</option>
-            <option value="1440">раз в сутки</option>
+            <option value="0">{t("set.subEveryOff")}</option>
+            <option value="180">{t("set.subEvery3h")}</option>
+            <option value="360">{t("set.subEvery6h")}</option>
+            <option value="720">{t("set.subEvery12h")}</option>
+            <option value="1440">{t("set.subEveryDay")}</option>
           </select>
         </div>
       </div>
 
-      <div className="section-title">Внешний вид</div>
+      <div className="section-title">{t("set.languageSection")}</div>
       <div className="card">
-        <div className="toggle-label">Тема оформления</div>
+        <div className="toggle-row">
+          <div className="grow">
+            <div className="toggle-label">{t("set.language")}</div>
+            <div className="toggle-desc">{t("set.languageDesc")}</div>
+          </div>
+          <Segmented<LangChoice>
+            value={settings.language ?? "system"}
+            onChange={(language) => void save({ language })}
+            options={[
+              { value: "system", label: t("set.langSystem") },
+              { value: "ru", label: "Русский" },
+              { value: "en", label: "English" },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="section-title">{t("set.themeSection")}</div>
+      <div className="card">
+        <div className="toggle-label">{t("set.theme")}</div>
         <div className="toggle-desc" style={{ marginBottom: 14 }}>
-          «Как в системе» следует за настройкой Windows и переключается сама, в
-          том числе по её расписанию светлой и тёмной темы.
+          {t("set.themeDesc")}
         </div>
 
         <div className="theme-grid">
@@ -276,7 +275,7 @@ export function Settings() {
               onClick={() => void save({ theme: theme.id })}
             >
               <span className="theme-swatch" style={{ background: theme.preview }} />
-              <span className="truncate">{theme.label}</span>
+              <span className="truncate">{t(theme.labelKey)}</span>
             </button>
           ))}
 
@@ -292,29 +291,29 @@ export function Settings() {
                   "linear-gradient(135deg, #0a0c12 0 50%, #eef1f8 50% 100%)",
               }}
             />
-            <span className="truncate">Как в системе</span>
+            <span className="truncate">{t("theme.system")}</span>
           </button>
         </div>
       </div>
 
-      <div className="section-title">Запуск</div>
+      <div className="section-title">{t("set.startupSection")}</div>
       <div className="card">
         {!IS_ANDROID && (
           <>
             <ToggleRow
-              label="Запускать вместе с Windows"
-              desc="Приложение стартует при входе в систему."
+              label={t("set.autostart")}
+              desc={t("set.autostartDesc")}
               checked={autostart !== "off"}
               onChange={(on) => void changeAutostart(on ? "normal" : "off")}
             />
 
             {autostart !== "off" && (
               <ToggleRow
-                label="Запускать сразу с правами администратора"
+                label={t("set.autostartElevated")}
                 desc={
                   elevated
-                    ? "Создаст задачу в планировщике Windows: приложение будет стартовать с правами администратора и сразу поднимать TUN — без запроса UAC. Ручной запуск ярлыком тоже пойдёт через неё, поэтому перезапуск «от администратора» больше не понадобится."
-                    : "Требуется однократный перезапуск с правами администратора, чтобы зарегистрировать задачу в планировщике."
+                    ? t("set.autostartElevatedDesc")
+                    : t("set.autostartElevatedNeedsAdmin")
                 }
                 checked={autostart === "elevated"}
                 onChange={(on) => void changeAutostart(on ? "elevated" : "normal")}
@@ -323,31 +322,27 @@ export function Settings() {
 
             {autostart === "normal" && (
               <div className="alert" style={{ marginTop: 12 }}>
-                <div className="alert-text">
-                  Обычная автозагрузка не может поднять режим TUN: после входа в
-                  систему приложение запросит права. Включите переключатель выше,
-                  чтобы этого не происходило.
-                </div>
+                <div className="alert-text">{t("set.autostartNormalWarn")}</div>
               </div>
             )}
           </>
         )}
 
         <ToggleRow
-          label="Подключаться при запуске"
+          label={t("set.autoConnect")}
           checked={settings.autoConnect}
           onChange={(autoConnect) => void save({ autoConnect })}
         />
         {!IS_ANDROID && (
           <>
             <ToggleRow
-              label="Запускать свёрнутым в трей"
+              label={t("set.startMinimized")}
               checked={settings.startMinimized}
               onChange={(startMinimized) => void save({ startMinimized })}
             />
             <ToggleRow
-              label="Закрытие окна сворачивает в трей"
-              desc="Выключено — крестик полностью завершает работу и разрывает соединение."
+              label={t("set.closeToTray")}
+              desc={t("set.closeToTrayDesc")}
               checked={settings.closeToTray}
               onChange={(closeToTray) => void save({ closeToTray })}
             />

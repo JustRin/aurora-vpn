@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { speed } from "../lib/format";
+import { useT } from "../lib/i18n";
 import type { TrafficSample } from "../store";
 
 const WIDTH = 560;
@@ -44,6 +45,7 @@ export function TrafficGraph({
   /** Fill the container edge to edge, without the legend header. */
   bleed?: boolean;
 }) {
+  const t = useT();
   const { downPath, upPath, downArea, upArea, peak } = useMemo(() => {
     const down = history.map((h) => h.down);
     const up = history.map((h) => h.up);
@@ -66,14 +68,14 @@ export function TrafficGraph({
         <div className="row between" style={{ marginBottom: 8 }}>
           <div className="legend">
             <span>
-              <i style={{ background: "var(--chart-down)" }} /> приём
+              <i style={{ background: "var(--chart-down)" }} /> {t("graph.down")}
             </span>
             <span>
-              <i style={{ background: "var(--chart-up)" }} /> отдача
+              <i style={{ background: "var(--chart-up)" }} /> {t("graph.up")}
             </span>
           </div>
           <div style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>
-            пик {speed(peak)}
+            {t("graph.peak")} {speed(peak)}
           </div>
         </div>
       )}
@@ -82,13 +84,13 @@ export function TrafficGraph({
         <div className="spark-meta">
           <div className="legend">
             <span>
-              <i style={{ background: "var(--chart-down)" }} /> приём
+              <i style={{ background: "var(--chart-down)" }} /> {t("graph.down")}
             </span>
             <span>
-              <i style={{ background: "var(--chart-up)" }} /> отдача
+              <i style={{ background: "var(--chart-up)" }} /> {t("graph.up")}
             </span>
           </div>
-          <span>пик {speed(peak)}</span>
+          <span>{t("graph.peak")} {speed(peak)}</span>
         </div>
       )}
 
@@ -97,7 +99,7 @@ export function TrafficGraph({
         preserveAspectRatio="none"
         style={{ width: "100%", height: bleed ? "100%" : HEIGHT, display: "block" }}
         role="img"
-        aria-label="График скорости"
+        aria-label={t("graph.aria")}
       >
         {/* Colours come through `style`, not attributes: SVG presentation
             attributes cannot resolve CSS custom properties, so a themed palette

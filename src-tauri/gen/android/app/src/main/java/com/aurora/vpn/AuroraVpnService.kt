@@ -155,7 +155,7 @@ class AuroraVpnService : VpnService(), CommandServerHandler {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_TUNNEL,
-                    "VPN-туннель",
+                    getString(R.string.vpn_channel_name),
                     NotificationManager.IMPORTANCE_LOW,
                 ),
             )
@@ -182,12 +182,12 @@ class AuroraVpnService : VpnService(), CommandServerHandler {
         }
         val notification = builder
             .setContentTitle("Aurora VPN")
-            .setContentText("Туннель активен")
+            .setContentText(getString(R.string.vpn_active))
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(open)
             .addAction(
-                Notification.Action.Builder(null, "Отключить", stop).build(),
+                Notification.Action.Builder(null, getString(R.string.vpn_disconnect), stop).build(),
             )
             .build()
 
@@ -209,7 +209,7 @@ class AuroraVpnService : VpnService(), CommandServerHandler {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ALERTS,
-                    "Уведомления правил",
+                    getString(R.string.vpn_alerts_channel_name),
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ),
             )

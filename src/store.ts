@@ -10,6 +10,7 @@ import {
   onSubscriptions,
   onTraffic,
 } from "./lib/api";
+import { tNow } from "./lib/i18n";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 import { paletteFor } from "./lib/themes";
 import type {
@@ -84,7 +85,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
     promise,
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`${label}: бэкенд не ответил за ${ms / 1000} с`)),
+        () => reject(new Error(tNow("toast.backendTimeout", { label, s: ms / 1000 }))),
         ms,
       ),
     ),
@@ -209,7 +210,7 @@ export const useStore = create<AppStore>((set, get) => ({
     try {
       await api.disconnect();
     } catch (e) {
-      get().toast("error", "Не удалось отключиться", errText(e));
+      get().toast("error", tNow("toast.disconnectFailed"), errText(e));
     } finally {
       get().setBusy("connection", false);
     }
@@ -234,7 +235,7 @@ export const useStore = create<AppStore>((set, get) => ({
     try {
       await api.saveSettings(next);
     } catch (e) {
-      get().toast("error", "Настройки не применены", errText(e));
+      get().toast("error", tNow("toast.settingsFailed"), errText(e));
       await get().reload();
     }
   },
@@ -258,7 +259,7 @@ export const useStore = create<AppStore>((set, get) => ({
     try {
       await api.setSplit(next);
     } catch (e) {
-      get().toast("error", "Правила не применены", errText(e));
+      get().toast("error", tNow("toast.rulesFailed"), errText(e));
       await get().reload();
     }
   },
@@ -270,7 +271,7 @@ export const useStore = create<AppStore>((set, get) => ({
       await api.setActiveServer(id);
     } catch (e) {
       set((s) => ({ status: { ...s.status, activeId: previous } }));
-      get().toast("error", "Не удалось сменить сервер", errText(e));
+      get().toast("error", tNow("toast.serverSwitchFailed"), errText(e));
     }
   },
 
@@ -281,7 +282,7 @@ export const useStore = create<AppStore>((set, get) => ({
       await api.setClashMode(mode);
     } catch (e) {
       set((s) => ({ status: { ...s.status, mode: previous } }));
-      get().toast("error", "Не удалось сменить режим", errText(e));
+      get().toast("error", tNow("toast.modeSwitchFailed"), errText(e));
     }
   },
 
@@ -291,7 +292,7 @@ export const useStore = create<AppStore>((set, get) => ({
       const result = await api.testLatency(ids);
       set((s) => ({ latency: { ...s.latency, ...result } }));
     } catch (e) {
-      get().toast("error", "Проверка задержки не удалась", errText(e));
+      get().toast("error", tNow("toast.latencyFailed"), errText(e));
     } finally {
       get().setBusy("latency", false);
     }
@@ -312,7 +313,7 @@ export const useStore = create<AppStore>((set, get) => ({
         autostart: snapshot.autostart,
       });
     } catch (e) {
-      get().toast("error", "Не удалось обновить состояние", errText(e));
+      get().toast("error", tNow("toast.reloadFailed"), errText(e));
     }
   },
 

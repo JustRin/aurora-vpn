@@ -4,15 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Empty, Modal, Segmented, Switch } from "../components/ui";
 import { api, errText } from "../lib/api";
+import { useT, type MsgKey } from "../lib/i18n";
 import type { AppRule, RunningApp, SplitMode } from "../lib/types";
 import { useStore } from "../store";
 
-const MODE_HELP: Record<SplitMode, string> = {
-  off: "Весь трафик системы идёт через VPN.",
-  include:
-    "Через VPN пойдут только выбранные приложения. Все остальные — напрямую, минуя туннель.",
-  exclude:
-    "Выбранные приложения пойдут напрямую, минуя VPN. Весь остальной трафик — через туннель.",
+const MODE_HELP: Record<SplitMode, MsgKey> = {
+  off: "split.modeOffHelp",
+  include: "split.modeIncludeHelp",
+  exclude: "split.modeExcludeHelp",
 };
 
 function newId() {
@@ -20,6 +19,7 @@ function newId() {
 }
 
 export function SplitTunnel() {
+  const t = useT();
   const split = useStore((s) => s.split);
   const saveSplit = useStore((s) => s.saveSplit);
   const tunnelMode = useStore((s) => s.status.tunnelMode);
@@ -36,13 +36,13 @@ export function SplitTunnel() {
   async function addByPath() {
     const picked = await openDialog({
       multiple: false,
-      title: "Выберите программу",
-      filters: [{ name: "Программы", extensions: ["exe"] }],
+      title: t("split.exeDialogTitle"),
+      filters: [{ name: t("split.exeDialogFilter"), extensions: ["exe"] }],
     });
     if (typeof picked !== "string") return;
     const name = picked.split(/[\\/]/).pop() ?? picked;
     if (apps.some((a) => a.path.toLowerCase() === picked.toLowerCase())) {
-      toast("info", "Эта программа уже в списке");
+      toast("info", t("split.alreadyInList"));
       return;
     }
     setApps([...apps, { id: newId(), name, path: picked, enabled: true }]);
@@ -52,11 +52,8 @@ export function SplitTunnel() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Раздельный туннель</h1>
-          <p className="page-sub">
-            Правила по конкретным приложениям. Маршрут и DNS-запросы программы
-            всегда идут одним путём — так адрес не утекает мимо туннеля.
-          </p>
+          <h1 className="page-title">{t("split.title")}</h1>
+          <p className="page-sub">{t("split.subtitle")}</p>
         </div>
       </div>
 
@@ -64,13 +61,8 @@ export function SplitTunnel() {
         <div className="alert" style={{ marginBottom: 18 }}>
           <SplitIcon size={17} color="var(--warn)" style={{ flexShrink: 0 }} />
           <div>
-            <div className="alert-title">Работает только в режиме TUN</div>
-            <div className="alert-text">
-              Сейчас включён режим системного прокси. Определить, какому
-              приложению принадлежит соединение, можно только когда трафик
-              проходит через виртуальный адаптер — переключите режим в
-              настройках.
-            </div>
+            <div className="alert-title">{t("split.tunOnlyTitle")}</div>
+            <div className="alert-text">{t("split.tunOnlyText")}</div>
           </div>
         </div>
       )}
@@ -78,16 +70,16 @@ export function SplitTunnel() {
       <div className="card">
         <div className="row between" style={{ marginBottom: 12 }}>
           <div>
-            <div className="toggle-label">Режим</div>
-            <div className="toggle-desc">{MODE_HELP[split.mode ?? "off"]}</div>
+            <div className="toggle-label">{t("split.mode")}</div>
+            <div className="toggle-desc">{t(MODE_HELP[split.mode ?? "off"])}</div>
           </div>
           <Segmented<SplitMode>
             value={split.mode ?? "off"}
             onChange={(mode) => void saveSplit({ mode })}
             options={[
-              { value: "off", label: "Выключен" },
-              { value: "include", label: "Только выбранные" },
-              { value: "exclude", label: "Кроме выбранных" },
+              { value: "off", label: t("split.modeOff") },
+              { value: "include", label: t("split.modeInclude") },
+              { value: "exclude", label: t("split.modeExclude") },
             ]}
           />
         </div>
@@ -95,7 +87,7 @@ export function SplitTunnel() {
 
       <div className="section-title">
         <span className="row between">
-          <span>Приложения ({apps.length})</span>
+          <span>{t("split.appsCount", { count: apps.length })}</span>
         </span>
       </div>
 
@@ -106,11 +98,11 @@ export function SplitTunnel() {
           onClick={() => setPickerOpen(true)}
         >
           <Plus size={15} />
-          Из запущенных
+          {t("split.addFromRunning")}
         </button>
         <button type="button" className="btn" onClick={() => void addByPath()}>
           <FolderOpen size={15} />
-          Выбрать .exe
+          {t("split.pickExe")}
         </button>
         <div className="grow" />
         {apps.length > 0 && (
@@ -119,7 +111,7 @@ export function SplitTunnel() {
             className="btn ghost sm"
             onClick={() => setApps([])}
           >
-            Очистить список
+            {t("split.clearList")}
           </button>
         )}
       </div>
@@ -127,8 +119,8 @@ export function SplitTunnel() {
       {apps.length === 0 ? (
         <Empty
           icon={<SplitIcon size={34} color="var(--text-muted)" />}
-          title="Список пуст"
-          text="Добавьте приложения — например, банковский клиент и Steam мимо VPN, либо только браузер через VPN."
+          title={t("split.emptyTitle")}
+          text={t("split.emptyText")}
         />
       ) : (
         <div className="list">
@@ -139,7 +131,7 @@ export function SplitTunnel() {
                 <div className="node-name truncate">{app.name}</div>
                 <div className="node-meta">
                   <span className="truncate" title={app.path}>
-                    {app.path || "совпадение по имени процесса"}
+                    {app.path || t("split.matchByName")}
                   </span>
                 </div>
               </div>
@@ -201,6 +193,7 @@ function ProcessPicker({
   existing: AppRule[];
   onAdd: (apps: RunningApp[]) => void;
 }) {
+  const t = useT();
   const [apps, setApps] = useState<RunningApp[]>([]);
   const [query, setQuery] = useState("");
   const [includeSystem, setIncludeSystem] = useState(false);
@@ -213,7 +206,7 @@ function ProcessPicker({
     try {
       setApps(await api.listRunningApps(withSystem));
     } catch (e) {
-      toast("error", "Не удалось получить список процессов", errText(e));
+      toast("error", t("split.procsFailed"), errText(e));
     } finally {
       setLoading(false);
     }
@@ -245,12 +238,12 @@ function ProcessPicker({
     <Modal
       open={open}
       wide
-      title="Запущенные приложения"
+      title={t("split.runningApps")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            Отмена
+            {t("split.cancel")}
           </button>
           <button
             type="button"
@@ -261,7 +254,7 @@ function ProcessPicker({
               onClose();
             }}
           >
-            Добавить ({selected.size})
+            {t("split.addCount", { count: selected.size })}
           </button>
         </>
       }
@@ -276,7 +269,7 @@ function ProcessPicker({
           <input
             className="input"
             style={{ paddingLeft: 31 }}
-            placeholder="Поиск по имени или пути"
+            placeholder={t("split.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -284,7 +277,7 @@ function ProcessPicker({
         <button
           type="button"
           className="btn icon"
-          title="Обновить"
+          title={t("split.refresh")}
           onClick={() => void load(includeSystem)}
         >
           <RefreshCw size={15} className={loading ? "spin" : ""} />
@@ -294,14 +287,14 @@ function ProcessPicker({
       <div className="row" style={{ gap: 8 }}>
         <Switch checked={includeSystem} onChange={setIncludeSystem} />
         <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-          Показывать системные процессы Windows
+          {t("split.showSystemProcs")}
         </span>
       </div>
 
       <div style={{ maxHeight: "46vh", overflowY: "auto" }} className="list">
         {filtered.length === 0 && (
           <div className="empty" style={{ padding: 28 }}>
-            <p>{loading ? "Загрузка…" : "Ничего не найдено"}</p>
+            <p>{loading ? t("split.loading") : t("split.nothingFound")}</p>
           </div>
         )}
         {filtered.map((app) => {
@@ -338,10 +331,14 @@ function ProcessPicker({
                 </div>
               </div>
               {app.instances > 1 && (
-                <span className="chip">{app.instances} проц.</span>
+                <span className="chip">
+                  {t("split.instancesCount", { count: app.instances })}
+                </span>
               )}
-              {added && <span className="chip">уже добавлено</span>}
-              {isSelected && !added && <span className="chip accent">выбрано</span>}
+              {added && <span className="chip">{t("split.alreadyAdded")}</span>}
+              {isSelected && !added && (
+                <span className="chip accent">{t("split.selectedChip")}</span>
+              )}
             </button>
           );
         })}

@@ -1,7 +1,7 @@
 [package]
 name = "aurora-vpn"
 version = "0.1.5"
-description = "VLESS VPN client for 3x-ui panels, powered by sing-box"
+description = "VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box"
 authors = ["Aurora VPN"]
 edition = "2021"
 rust-version = "1.82"
@@ -41,6 +41,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 [target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "0.13", features = ["json"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+# Resolves the "system" language choice for the tray menu.
+sys-locale = "0.3"
 
 # The default TLS backend (rustls-platform-verifier) needs a Java companion
 # class and an initialized android context, and the default rustls provider

@@ -44,8 +44,8 @@
     "externalBin": ["binaries/sing-box", "binaries/xray"],
     "copyright": "Aurora VPN",
     "category": "Utility",
-    "shortDescription": "VLESS client for 3x-ui",
-    "longDescription": "Aurora VPN — desktop client for 3x-ui / Xray VLESS servers with TUN mode, per-application split tunneling and rule-based routing.",
+    "shortDescription": "VLESS / sing-box VPN client",
+    "longDescription": "Aurora VPN — client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers with TUN mode, per-application split tunneling and rule-based routing. Works with any panel (3x-ui, Marzban, …).",
     "windows": {
       "nsis": {
         "installMode": "perMachine",

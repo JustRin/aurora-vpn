@@ -17,17 +17,19 @@ import { TrafficGraph } from "../components/TrafficGraph";
 import { Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { bytes, duration, speed } from "../lib/format";
+import { type MsgKey, useT } from "../lib/i18n";
 import { ELEVATION_REQUIRED, type ClashMode } from "../lib/types";
 import { useStore } from "../store";
 
-const STATE_LABEL: Record<string, string> = {
-  disconnected: "Отключено",
-  connecting: "Подключение",
-  connected: "Подключено",
-  error: "Ошибка",
+const STATE_KEY: Record<string, MsgKey> = {
+  disconnected: "dash.stateDisconnected",
+  connecting: "dash.stateConnecting",
+  connected: "dash.stateConnected",
+  error: "dash.stateError",
 };
 
 export function Dashboard() {
+  const t = useT();
   const status = useStore((s) => s.status);
   const traffic = useStore((s) => s.traffic);
   const history = useStore((s) => s.history);
@@ -76,7 +78,7 @@ export function Dashboard() {
         setAskElevate(true);
         return;
       }
-      toast("error", "Не удалось подключиться", text);
+      toast("error", t("dash.connectFailed"), text);
     }
   }
 
@@ -84,18 +86,16 @@ export function Dashboard() {
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Обзор</h1>
-          <p className="page-sub">
-            Состояние туннеля, скорость и режим маршрутизации.
-          </p>
+          <h1 className="page-title">{t("dash.title")}</h1>
+          <p className="page-sub">{t("dash.subtitle")}</p>
         </div>
         <Segmented<ClashMode>
           value={status.mode}
           onChange={(mode) => void setMode(mode)}
           options={[
-            { value: "Rule", label: "По правилам" },
-            { value: "Global", label: "Всё через VPN" },
-            { value: "Direct", label: "Напрямую" },
+            { value: "Rule", label: t("dash.modeRule") },
+            { value: "Global", label: t("dash.modeGlobal") },
+            { value: "Direct", label: t("dash.modeDirect") },
           ]}
         />
       </div>
@@ -103,16 +103,13 @@ export function Dashboard() {
       {!status.elevated && status.tunnelMode === "tun" && (
         <div className="notice">
           <ShieldAlert size={15} color="var(--warn)" style={{ flexShrink: 0 }} />
-          <span className="grow">
-            Режим TUN требует прав администратора — иначе доступен только
-            системный прокси.
-          </span>
+          <span className="grow">{t("dash.tunNeedsAdmin")}</span>
           <button
             type="button"
             className="btn sm"
             onClick={() => setAskElevate(true)}
           >
-            Перезапустить
+            {t("dash.restart")}
           </button>
         </div>
       )}
@@ -124,7 +121,7 @@ export function Dashboard() {
           data-state={status.state}
           disabled={busy || nodes.length === 0}
           onClick={() => void onPower()}
-          aria-label={connected ? "Отключить" : "Подключить"}
+          aria-label={connected ? t("dash.disconnect") : t("dash.connect")}
         >
           <span className="power-ring" />
           <span className="power-core">
@@ -133,16 +130,14 @@ export function Dashboard() {
         </button>
 
         <div className="hero-id">
-          <div className="hero-state">{STATE_LABEL[status.state]}</div>
+          <div className="hero-state">{t(STATE_KEY[status.state])}</div>
 
           <ServerPicker />
 
           {status.message ? (
             <div className="hero-note">{status.message}</div>
           ) : nodes.length === 0 ? (
-            <div className="hero-note">
-              Добавьте сервер на вкладке «Серверы», чтобы начать.
-            </div>
+            <div className="hero-note">{t("dash.addServerHint")}</div>
           ) : connected ? (
             <div style={{ marginTop: 10 }}>
               <span className="uptime-chip">
@@ -156,13 +151,13 @@ export function Dashboard() {
         <div className="hero-rates">
           <div>
             <div className="micro">
-              <ArrowDownToLine size={11} style={{ verticalAlign: -1 }} /> Приём
+              <ArrowDownToLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficDown")}
             </div>
             <div className="rate-value">{speed(traffic.downSpeed)}</div>
           </div>
           <div>
             <div className="micro">
-              <ArrowUpFromLine size={11} style={{ verticalAlign: -1 }} /> Отдача
+              <ArrowUpFromLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficUp")}
             </div>
             <div className="rate-value">{speed(traffic.upSpeed)}</div>
           </div>
@@ -181,7 +176,7 @@ export function Dashboard() {
       <div className="tile-grid">
         <div className="stat">
           <div className="stat-label micro">
-            <Waypoints size={12} /> За сессию
+            <Waypoints size={12} /> {t("dash.thisSession")}
           </div>
           <div className="stat-value">{bytes(traffic.download + traffic.upload)}</div>
           <div className="stat-foot">
@@ -192,41 +187,41 @@ export function Dashboard() {
         <button
           type="button"
           className="stat"
-          title="Разорвать все активные соединения"
+          title={t("dash.closeAllConns")}
           disabled={!connected}
           onClick={async () => {
             try {
               await api.closeConnections();
-              toast("success", "Соединения разорваны");
+              toast("success", t("dash.connsClosed"));
             } catch (e) {
-              toast("error", "Не удалось разорвать соединения", errText(e));
+              toast("error", t("dash.connsCloseFailed"), errText(e));
             }
           }}
         >
           <div className="stat-label micro">
-            <Link2 size={12} /> Соединений
+            <Link2 size={12} /> {t("dash.connections")}
           </div>
           <div className="stat-value">{traffic.connections}</div>
           <div className="stat-foot">
-            {connected ? "нажмите, чтобы разорвать" : "нет подключения"}
+            {connected ? t("dash.clickToClose") : t("dash.notConnected")}
           </div>
         </button>
 
         <button
           type="button"
           className="stat"
-          title="Проверить задержку"
+          title={t("dash.testLatency")}
           disabled={nodes.length === 0 || testing}
           onClick={() => void refreshLatency(activeNode ? [activeNode.id] : [])}
         >
           <div className="stat-label micro">
-            <Gauge size={12} className={testing ? "spin" : ""} /> Задержка
+            <Gauge size={12} className={testing ? "spin" : ""} /> {t("dash.latency")}
           </div>
           <div className="stat-value">
-            {ping === undefined ? "—" : ping === null ? "н/д" : `${ping} мс`}
+            {ping === undefined ? "—" : ping === null ? t("dash.na") : t("dash.pingMs", { ping })}
           </div>
           <div className="stat-foot">
-            {activeNode ? "нажмите, чтобы измерить" : "сервер не выбран"}
+            {activeNode ? t("dash.clickToTest") : t("dash.noServer")}
           </div>
         </button>
       </div>
