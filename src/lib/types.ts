@@ -200,3 +200,10 @@ export interface UpdateInfo {
   url: string;
   notes: string;
 }
+
+/** Download ticks for an in-flight update install; `total` is `null` when the
+ * server sent no Content-Length. */
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}

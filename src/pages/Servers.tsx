@@ -151,20 +151,14 @@ export function Servers() {
 
           <div className="grid-2" style={{ marginBottom: 8 }}>
             {subs.map((sub) => (
-              <div key={sub.id} style={{ position: "relative" }}>
-                <SubscriptionCard sub={sub} />
-                <button
-                  type="button"
-                  className="btn ghost icon sm sub-delete"
-                  title={t("srv.deleteSubTitle")}
-                  onClick={async () => {
-                    await api.deleteSubscription(sub.id);
-                    await reload();
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              <SubscriptionCard
+                key={sub.id}
+                sub={sub}
+                onDelete={async () => {
+                  await api.deleteSubscription(sub.id);
+                  await reload();
+                }}
+              />
             ))}
           </div>
         </>

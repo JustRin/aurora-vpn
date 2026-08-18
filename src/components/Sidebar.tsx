@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Cpu,
   Download,
@@ -10,13 +11,16 @@ import {
   Split,
 } from "lucide-react";
 
-import { api, errText } from "../lib/api";
+import { api, errText, onUpdateProgress } from "../lib/api";
 import { useT, type MsgKey } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
-import type { UpdateInfo } from "../lib/types";
+import type { UpdateInfo, UpdateProgress } from "../lib/types";
 import { useStore } from "../store";
 
-const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
+/** A window focus re-checks at most this often: the GitHub API is
+ * unauthenticated and rate-limited per IP. */
+const FOCUS_CHECK_MIN_GAP = 10 * 60 * 1000;
 
 /** Bottom-left release watcher: quiet until a newer build is published, then
  * a single click downloads the installer and restarts into it. */
@@ -24,12 +28,15 @@ function UpdateBadge() {
   const t = useT();
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState("");
   const toast = useStore((s) => s.toast);
 
   useEffect(() => {
     let disposed = false;
-    const check = () =>
+    let lastCheck = 0;
+    const check = () => {
+      lastCheck = Date.now();
       api
         .checkUpdate()
         .then((info) => {
@@ -37,32 +44,72 @@ function UpdateBadge() {
         })
         // Offline or rate-limited — try again on the next tick.
         .catch(() => {});
+    };
     // Let the app finish its own start-up before touching the network.
     const first = setTimeout(check, 5000);
     const timer = setInterval(check, UPDATE_CHECK_INTERVAL);
+    // A release published mid-session used to stay invisible until the next
+    // slow tick; coming back to the window is the natural moment to look
+    // again. Native window focus, not the DOM event — restoring from the tray
+    // must count too.
+    const unfocus = getCurrentWindow().onFocusChanged(({ payload }) => {
+      if (payload && Date.now() - lastCheck >= FOCUS_CHECK_MIN_GAP) check();
+    });
     return () => {
       disposed = true;
       clearTimeout(first);
       clearInterval(timer);
+      void unfocus.then((f) => f());
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const unlisten = onUpdateProgress((p) => {
+      if (!disposed) setProgress(p);
+    });
+    return () => {
+      disposed = true;
+      void unlisten.then((f) => f());
     };
   }, []);
 
   if (!update) return null;
 
+  // Mirrors the backend branch: only this combination downloads in-app and
+  // exits into a silent installer; every other platform opens the browser
+  // and the app keeps running.
+  const exitsIntoInstaller = !IS_ANDROID && update.url.endsWith("-setup.exe");
+
   const install = () => {
     setBusy(true);
     setError("");
+    setProgress(null);
     api
       .installUpdate(update.url)
-      // On Windows the app exits into the installer; elsewhere the package
-      // opens in the browser and the app keeps running.
-      .then(() => setBusy(false))
+      // Keep the badge in its «installing» state while the app exits into
+      // the installer — flipping back to «Update» would read as a failure.
+      .then(() => {
+        if (!exitsIntoInstaller) setBusy(false);
+      })
       .catch((e) => {
         setBusy(false);
+        setProgress(null);
         setError(errText(e));
         toast("error", t("side.updateFailed"), errText(e));
       });
   };
+
+  const pct =
+    busy && progress && progress.total
+      ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+      : null;
+  const installing = pct === 100;
+  const label = busy
+    ? installing
+      ? t("side.installing")
+      : t("side.downloading")
+    : t("side.update");
 
   return (
     <button
@@ -73,10 +120,14 @@ function UpdateBadge() {
       onClick={install}
     >
       <Download size={15} className={busy ? "pulse" : undefined} />
-      <span className="grow truncate">
-        {busy ? t("side.downloading") : t("side.update")}
-      </span>
+      <span className="grow truncate">{label}</span>
       {!busy && <span className="update-version">{update.version}</span>}
+      {pct !== null && !installing && (
+        <span className="update-version">{pct}%</span>
+      )}
+      {pct !== null && (
+        <span className="update-progress" style={{ width: `${pct}%` }} />
+      )}
     </button>
   );
 }

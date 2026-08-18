@@ -33,8 +33,10 @@ pub fn is_elevated() -> bool {
 /// is honoured with a UAC prompt. `std::process::Command` goes through
 /// CreateProcess, which refuses such binaries with os error 740 — this is
 /// exactly how the per-machine NSIS updater used to fail to launch.
+///
+/// Blocks while the UAC prompt is on screen; a declined prompt is an `Err`.
 #[cfg(windows)]
-pub fn shell_launch(path: &std::path::Path) -> Result<()> {
+pub fn shell_launch(path: &std::path::Path, args: Option<&str>) -> Result<()> {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -42,12 +44,15 @@ pub fn shell_launch(path: &std::path::Path) -> Result<()> {
     use crate::error::AppError;
 
     let file = HSTRING::from(path.as_os_str());
+    let params = args.map(HSTRING::from);
     let result = unsafe {
         ShellExecuteW(
             None,
             PCWSTR::null(),
             PCWSTR(file.as_ptr()),
-            PCWSTR::null(),
+            params
+                .as_ref()
+                .map_or(PCWSTR::null(), |p| PCWSTR(p.as_ptr())),
             PCWSTR::null(),
             SW_SHOWNORMAL,
         )
@@ -101,4 +106,35 @@ pub fn relaunch_elevated() -> Result<()> {
         "автоматическое повышение прав поддерживается только на Windows — \
          запустите приложение через sudo",
     ))
+}
+
+/// Let the single-instance «show yourself» message through UIPI.
+///
+/// The plugin delivers a second launch as a `WM_COPYDATA` message to a hidden
+/// window, and Windows silently drops window messages sent by an unelevated
+/// process to an elevated one. This app usually runs elevated (the autostart
+/// task, TUN mode) while the desktop shortcut starts a plain process, so
+/// without this exception the running instance never hears that click.
+/// Process-wide on purpose: the target is the plugin's hidden event window,
+/// whose handle this code never sees.
+#[cfg(windows)]
+pub fn allow_single_instance_message() {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        ChangeWindowMessageFilter, MSGFLT_ADD, WM_COPYDATA,
+    };
+    unsafe {
+        let _ = ChangeWindowMessageFilter(WM_COPYDATA, MSGFLT_ADD);
+    }
+}
+
+/// Pass this fresh launch's right to take the foreground on to whichever
+/// process ends up showing the window. A process the user just started may
+/// bring itself to the front; the long-running tray instance may not — its
+/// `SetForegroundWindow` would be reduced to a taskbar flash.
+#[cfg(windows)]
+pub fn yield_foreground() {
+    use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
 }

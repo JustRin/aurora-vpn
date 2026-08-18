@@ -1,4 +1,4 @@
-import { CalendarClock, RefreshCw, Rss } from "lucide-react";
+import { CalendarClock, RefreshCw, Rss, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { api, errText } from "../lib/api";
@@ -24,9 +24,11 @@ import { useStore } from "../store";
 export function SubscriptionCard({
   sub,
   compact,
+  onDelete,
 }: {
   sub: Subscription;
   compact?: boolean;
+  onDelete?: () => void;
 }) {
   const t = useT();
   const toast = useStore((s) => s.toast);
@@ -57,15 +59,27 @@ export function SubscriptionCard({
             {sub.name}
           </span>
         </div>
-        <button
-          type="button"
-          className="btn ghost icon sm"
-          title={t("srv.refreshNow")}
-          disabled={busy}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={14} className={busy ? "spin" : ""} />
-        </button>
+        <div className="row" style={{ gap: 2, flexShrink: 0 }}>
+          {onDelete && (
+            <button
+              type="button"
+              className="btn ghost icon sm"
+              title={t("srv.deleteSubTitle")}
+              onClick={onDelete}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn ghost icon sm"
+            title={t("srv.refreshNow")}
+            disabled={busy}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={14} className={busy ? "spin" : ""} />
+          </button>
+        </div>
       </div>
 
       {sub.hasUsage ? (

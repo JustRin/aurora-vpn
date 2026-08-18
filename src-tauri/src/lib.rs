@@ -168,13 +168,56 @@ fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Whether some other process is already running this same executable.
+/// The name under which the single-instance plugin registers its guard: the
+/// `tauri.conf.json` identifier plus the plugin's `-sim` suffix. The plugin
+/// offers no way to ask, so the name is kept in sync by hand.
+#[cfg(windows)]
+const SINGLE_INSTANCE_MUTEX: &str = "com.aurora.vpn-sim";
+
+/// Whether a live instance currently holds the single-instance mutex.
 ///
-/// Checked before the elevated-task hand-off below: when an instance is
-/// already up, the normal path must proceed so the single-instance guard can
-/// focus its window instead.
+/// This is the one liveness signal that crosses the integrity-level gap: an
+/// unelevated launch may not even be able to read the elevated instance's
+/// executable path (which blinds the `sysinfo` scan below), but a named
+/// kernel object stays observable — worst case as an access-denied error.
+#[cfg(windows)]
+fn single_instance_mutex_held() -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED};
+    use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+
+    unsafe {
+        match OpenMutexW(
+            SYNCHRONIZATION_SYNCHRONIZE,
+            false,
+            &HSTRING::from(SINGLE_INSTANCE_MUTEX),
+        ) {
+            Ok(handle) => {
+                let _ = CloseHandle(handle);
+                true
+            }
+            // Denied access still proves the mutex exists — it just belongs
+            // to an instance running at a higher integrity level.
+            Err(e) => e.code() == E_ACCESSDENIED,
+        }
+    }
+}
+
+/// Whether some other process is already running this app.
+///
+/// Checked before the elevated-task hand-off below, for two reasons: when an
+/// instance is already up, the normal path must proceed so the single-instance
+/// guard can focus its window — and asking the Task Scheduler to start the app
+/// while the previous task instance is still alive would be silently ignored
+/// (`MultipleInstancesPolicy: IgnoreNew`), turning the click into nothing.
 #[cfg(windows)]
 fn another_instance_running() -> bool {
+    if single_instance_mutex_held() {
+        return true;
+    }
+
+    // Fallback for the brief window in which the other instance is alive but
+    // has not registered the mutex yet.
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
     let Ok(me) = std::env::current_exe() else {
@@ -194,17 +237,31 @@ fn another_instance_running() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // A manual launch while the elevated autostart task is registered used to
-    // open an unelevated instance whose first advice was «перезапустите с
-    // правами администратора». Handing the launch to that task starts this
-    // same exe elevated with no UAC prompt — the very ability the task was
-    // registered for.
     #[cfg(windows)]
-    if !sys::elevate::is_elevated()
-        && !another_instance_running()
-        && sys::autostart::start_elevated_task()
     {
-        return;
+        if sys::elevate::is_elevated() {
+            // Opt in to the single-instance «show yourself» message before the
+            // plugin even starts: UIPI would otherwise drop it, and a click on
+            // the shortcut while the app sits in the tray would do nothing.
+            sys::elevate::allow_single_instance_message();
+        } else {
+            // A manual launch while the elevated autostart task is registered
+            // used to open an unelevated instance whose first advice was
+            // «перезапустите с правами администратора». Handing the launch to
+            // that task starts this same exe elevated with no UAC prompt — the
+            // very ability the task was registered for.
+            let already_running = another_instance_running();
+            if !already_running && sys::autostart::start_elevated_task() {
+                return;
+            }
+            if already_running {
+                // The single-instance plugin is about to swallow this launch
+                // in favour of the running window; that window cannot take
+                // the foreground on its own, but this process may pass on
+                // the right it got from the user's click.
+                sys::elevate::yield_foreground();
+            }
+        }
     }
 
     let mut builder = tauri::Builder::default()
@@ -351,6 +408,7 @@ pub fn run() {
             commands::is_elevated,
             commands::relaunch_elevated,
             commands::open_config_dir,
+            commands::open_screen_snip,
             commands::check_update,
             commands::install_update,
         ])

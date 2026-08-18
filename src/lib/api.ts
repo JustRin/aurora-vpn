@@ -16,6 +16,7 @@ import type {
   Subscription,
   Traffic,
   UpdateInfo,
+  UpdateProgress,
 } from "./types";
 
 export const EVT = {
@@ -25,6 +26,7 @@ export const EVT = {
   nodes: "app://nodes",
   subscriptions: "app://subscriptions",
   latency: "app://latency",
+  updateProgress: "app://update-progress",
 } as const;
 
 export const api = {
@@ -74,10 +76,14 @@ export const api = {
   isElevated: () => invoke<boolean>("is_elevated"),
   relaunchElevated: () => invoke<void>("relaunch_elevated"),
   openConfigDir: () => invoke<void>("open_config_dir"),
+  /** Windows: the elevated window hides PrtScn from the Snipping Tool (UIPI),
+   * so the frontend relays the key press and the overlay is opened by hand. */
+  openScreenSnip: () => invoke<void>("open_screen_snip"),
 
   /** `null` when the running build is already the newest release. */
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
-  /** Downloads the installer, launches it and exits the app. */
+  /** Streams download ticks via `EVT.updateProgress`; on Windows the app then
+   * exits into a silent installer that relaunches it. */
   installUpdate: (url: string) => invoke<void>("install_update", { url }),
 };
 
@@ -105,6 +111,12 @@ export function onSubscriptions(
 
 export function onLatency(cb: (value: LatencyMap) => void): Promise<UnlistenFn> {
   return listen<LatencyMap>(EVT.latency, (e) => cb(e.payload));
+}
+
+export function onUpdateProgress(
+  cb: (value: UpdateProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<UpdateProgress>(EVT.updateProgress, (e) => cb(e.payload));
 }
 
 /** Tauri rejects with whatever the command serialized; normalise it to a string. */

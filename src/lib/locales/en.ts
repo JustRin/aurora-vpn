@@ -18,6 +18,7 @@ export const en: Record<keyof typeof ru, string> = {
 
   "side.update": "Update",
   "side.downloading": "Downloading…",
+  "side.installing": "Installing…",
   "side.installVersion": "Install version {version}",
   "side.updateFailed": "Failed to install the update",
   "side.noCore": "core not found",

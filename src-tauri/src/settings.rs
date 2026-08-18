@@ -113,6 +113,61 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// Whether switching from `self` to `next` changes the running tunnel —
+    /// that is, any field the generated core document is built from. UI-only
+    /// preferences (theme, language, tray behaviour…) must not bounce a live
+    /// connection.
+    ///
+    /// The destructuring is exhaustive on purpose: a new field refuses to
+    /// compile until it is filed into one of the two groups.
+    pub fn tunnel_changed(&self, next: &Settings) -> bool {
+        let Settings {
+            tunnel_mode,
+            mixed_port,
+            clash_port,
+            allow_lan,
+            tun_stack,
+            tun_mtu,
+            strict_route,
+            ipv6,
+            log_level,
+            dns_remote,
+            dns_direct,
+            dns_strategy,
+            fake_ip,
+            // Baked into the `urltest` outbound of the generated document.
+            latency_url,
+            auto_select,
+            // UI-only: never part of the generated document.
+            auto_connect: _,
+            start_minimized: _,
+            close_to_tray: _,
+            language: _,
+            theme: _,
+            theme_dark: _,
+            theme_background: _,
+            sub_auto_update_min: _,
+        } = self;
+
+        *tunnel_mode != next.tunnel_mode
+            || *mixed_port != next.mixed_port
+            || *clash_port != next.clash_port
+            || *allow_lan != next.allow_lan
+            || *tun_stack != next.tun_stack
+            || *tun_mtu != next.tun_mtu
+            || *strict_route != next.strict_route
+            || *ipv6 != next.ipv6
+            || *log_level != next.log_level
+            || *dns_remote != next.dns_remote
+            || *dns_direct != next.dns_direct
+            || *dns_strategy != next.dns_strategy
+            || *fake_ip != next.fake_ip
+            || *latency_url != next.latency_url
+            || *auto_select != next.auto_select
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SplitMode {
@@ -182,6 +237,36 @@ impl Default for SplitConfig {
             bypass_cn: false,
             block_ads: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn ui_preferences_do_not_touch_the_tunnel() {
+        let base = Settings::default();
+        let ui = Settings {
+            theme: "crimson".into(),
+            theme_dark: false,
+            theme_background: "#ffffff".into(),
+            language: "en".into(),
+            close_to_tray: false,
+            auto_connect: true,
+            start_minimized: true,
+            sub_auto_update_min: 0,
+            ..base.clone()
+        };
+        assert!(!base.tunnel_changed(&ui));
+    }
+
+    #[test]
+    fn config_inputs_do_touch_the_tunnel() {
+        let base = Settings::default();
+        assert!(base.tunnel_changed(&Settings { dns_remote: "9.9.9.9".into(), ..base.clone() }));
+        assert!(base.tunnel_changed(&Settings { mixed_port: 1080, ..base.clone() }));
+        assert!(base.tunnel_changed(&Settings { auto_select: true, ..base.clone() }));
     }
 }
 

@@ -32,6 +32,7 @@ pub const EVT_LOG: &str = "app://log";
 pub const EVT_NODES: &str = "app://nodes";
 pub const EVT_SUBS: &str = "app://subscriptions";
 pub const EVT_LATENCY: &str = "app://latency";
+pub const EVT_UPDATE_PROGRESS: &str = "app://update-progress";
 
 // ---------------------------------------------------------------- payloads
 
@@ -728,6 +729,12 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
         let changed = state.settings.read().language != settings.language;
         changed
     };
+    // Decided before the write below: afterwards both sides are the new value.
+    let tunnel_changed = {
+        let state = app.state::<AppState>();
+        let changed = state.settings.read().tunnel_changed(&settings);
+        changed
+    };
     {
         let state = app.state::<AppState>();
         *state.settings.write() = settings;
@@ -743,7 +750,12 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
         crate::update_tray_language(&app, &choice);
     }
     set_status(&app, |s| s.tunnel_mode = tunnel_mode);
-    restart_if_running(&app).await
+    // A theme click or a tray preference must not drop a live connection —
+    // only settings the core document is built from are worth a restart.
+    if tunnel_changed {
+        return restart_if_running(&app).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1404,6 +1416,16 @@ pub struct UpdateInfo {
     pub notes: String,
 }
 
+/// Download ticks for an in-flight `install_update`, throttled on this side so
+/// a fast connection does not flood the IPC bridge. `total` is absent when the
+/// server sent no Content-Length.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
 /// `"v1.2.3-beta"` → `[1, 2, 3]`. Lenient on purpose: a tag that fails to
 /// parse compares as `0.0.0` and therefore never triggers an update.
 fn parse_version(v: &str) -> [u64; 3] {
@@ -1512,10 +1534,11 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
     }))
 }
 
-/// Windows: download the installer, hand control to it and exit through the
-/// normal teardown path so the cores and the system proxy are released before
-/// the files are replaced. Elsewhere the package (or the release page) opens
-/// in the browser — .dmg and .AppImage installs are inherently manual.
+/// Windows: download the installer (streaming progress to the UI), release the
+/// tunnel and the system proxy, then hand control to a silent NSIS install
+/// (`/S /UPDATE /R`) that restarts the app when the files are replaced.
+/// Elsewhere the package (or the release page) opens in the browser — .dmg and
+/// .AppImage installs are inherently manual.
 #[tauri::command]
 pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
     // The URL round-trips through the WebView; accept only GitHub's own
@@ -1531,40 +1554,106 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
             .map_err(|e| AppError::msg(format!("не удалось открыть страницу загрузки: {e}")));
     }
 
-    let bytes = crate::net::http_client()
+    let mut resp = crate::net::http_client()
         .get(&url)
         .header("User-Agent", "aurora-vpn-updater")
         .timeout(Duration::from_secs(600))
         .send()
         .await
         .and_then(|r| r.error_for_status())
-        .map_err(|e| AppError::msg(format!("не удалось скачать обновление: {e}")))?
-        .bytes()
-        .await
         .map_err(|e| AppError::msg(format!("не удалось скачать обновление: {e}")))?;
+
+    let total = resp.content_length();
+    let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
+    let mut last_tick = Instant::now();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось скачать обновление: {e}")))?
+    {
+        bytes.extend_from_slice(&chunk);
+        if last_tick.elapsed() >= Duration::from_millis(150) {
+            last_tick = Instant::now();
+            let _ = app.emit(
+                EVT_UPDATE_PROGRESS,
+                UpdateProgress {
+                    downloaded: bytes.len() as u64,
+                    total,
+                },
+            );
+        }
+    }
     // A truncated download would install nothing but still kill the session.
     if bytes.len() < 1_000_000 {
         return Err(AppError::msg("скачанный установщик неполный — попробуйте ещё раз"));
     }
+    // The closing tick is also the UI's cue to switch from «downloading» to
+    // «installing».
+    let done = bytes.len() as u64;
+    let _ = app.emit(
+        EVT_UPDATE_PROGRESS,
+        UpdateProgress {
+            downloaded: done,
+            total: Some(done),
+        },
+    );
 
     let path = std::env::temp_dir().join("aurora-vpn-update-setup.exe");
     std::fs::write(&path, &bytes)?;
-    // Through the shell, not CreateProcess: the per-machine installer carries a
-    // `requireAdministrator` manifest, and only the shell can raise the UAC
-    // prompt for it (otherwise: os error 740).
-    #[cfg(windows)]
-    elevate::shell_launch(&path)?;
-    #[cfg(not(windows))]
-    std::process::Command::new(&path)
-        .spawn()
-        .map_err(|e| AppError::msg(format!("не удалось запустить установщик: {e}")))?;
 
-    // Give the installer a beat to appear, then leave through RunEvent::Exit,
-    // which stops both engines and restores the system proxy.
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        app.exit(0);
-    });
+    #[cfg(windows)]
+    {
+        // A silent installer does not ask about a running instance — it
+        // hard-kills it, skipping RunEvent::Exit. Tear the session down first
+        // so the adapter, the engines and the system proxy are already
+        // released whatever happens to this process afterwards.
+        let was_connected = {
+            let state = app.state::<AppState>();
+            let connected = state.status.read().state == ConnState::Connected;
+            connected
+        };
+        shutdown(&app, "");
+
+        // Through the shell, not CreateProcess: the per-machine installer
+        // carries a `requireAdministrator` manifest, and only the shell can
+        // raise the UAC prompt for it (otherwise: os error 740). /S — no
+        // installer UI at all; /UPDATE — existing shortcuts and WebView2 are
+        // kept as they are; /R — the freshly installed build is started when
+        // the copy is done (unelevated; the startup hand-off re-elevates it
+        // through the autostart task when one is registered). The prompt
+        // blocks until answered, hence the dedicated thread.
+        let launch = tauri::async_runtime::spawn_blocking(move || {
+            elevate::shell_launch(&path, Some("/S /UPDATE /R"))
+        })
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось запустить установщик: {e}")))?;
+        if let Err(e) = launch {
+            // The UAC prompt was declined: put the session back the way it was.
+            if was_connected {
+                let _ = connect(app.clone()).await;
+            }
+            return Err(e);
+        }
+
+        // Let the Ok cross the IPC bridge, then exit; the teardown above
+        // already did the real work, and RunEvent::Exit is idempotent.
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            app.exit(0);
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(&path)
+            .spawn()
+            .map_err(|e| AppError::msg(format!("не удалось запустить установщик: {e}")))?;
+        // Give the installer a beat to appear, then leave through
+        // RunEvent::Exit, which stops both engines and restores the proxy.
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            app.exit(0);
+        });
+    }
     Ok(())
 }
 
@@ -1662,6 +1751,36 @@ pub async fn relaunch_elevated(app: AppHandle) -> Result<()> {
     elevate::relaunch_elevated()?;
     shutdown(&app, "");
     app.exit(0);
+    Ok(())
+}
+
+/// Windows: open the system snip overlay in response to a PrintScreen press.
+///
+/// This app usually runs elevated (TUN needs it), and UIPI hides keystrokes
+/// from lower-integrity listeners — so while our window has focus, the
+/// Snipping Tool never learns that PrtScn was pressed and the key appears
+/// dead. The webview does receive it, though, so the frontend relays the
+/// press here and the overlay is launched by hand.
+#[tauri::command]
+pub async fn open_screen_snip() -> Result<()> {
+    #[cfg(windows)]
+    {
+        // Honour the user's «PrtScn opens Snipping Tool» switch (on by default
+        // in Windows 11). When it is off, the key means «copy the screen to the
+        // clipboard», which the OS handles fine even over an elevated window —
+        // popping the overlay then would be worse than doing nothing.
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let enabled = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey("Control Panel\\Keyboard")
+            .and_then(|key| key.get_value::<u32, _>("PrintScreenKeyForSnippingEnabled"))
+            .map(|value| value != 0)
+            .unwrap_or(true);
+        if enabled {
+            tauri_plugin_opener::open_url("ms-screenclip:", None::<&str>)
+                .map_err(|e| AppError::msg(format!("не удалось открыть «Ножницы»: {e}")))?;
+        }
+    }
     Ok(())
 }
 

@@ -29,6 +29,21 @@ export default function App() {
   const ready = useStore((s) => s.ready);
   const loadError = useStore((s) => s.loadError);
 
+  // PrintScreen reaches the webview only as a keyup. While the app runs
+  // elevated, UIPI hides the key from the unelevated Snipping Tool listener,
+  // so the system overlay never opens on its own — relay the press ourselves.
+  // Bare PrtScn only: Alt+PrtScn and Win+PrtScn are handled by the OS itself
+  // and still work over an elevated window.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "PrintScreen" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        void api.openScreenSnip();
+      }
+    };
+    window.addEventListener("keyup", onKey);
+    return () => window.removeEventListener("keyup", onKey);
+  }, []);
+
   // The window is created hidden to avoid a white WebView flash. Reveal it only
   // after the browser has actually painted a frame — two nested rAF callbacks
   // put us safely past the first commit.

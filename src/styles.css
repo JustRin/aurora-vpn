@@ -640,6 +640,7 @@ textarea {
 /* Sits above the footer divider, styled after .nav-item so it reads as one
  * more quiet row of the sidebar rather than an alert. */
 .update-badge {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -655,6 +656,8 @@ textarea {
   cursor: pointer;
   text-align: left;
   transition: background 0.15s ease;
+  /* The download fill below must not poke past the rounded corners. */
+  overflow: hidden;
 }
 
 .update-badge:hover:not(:disabled) {
@@ -681,6 +684,16 @@ textarea {
 
 .update-badge .pulse {
   animation: update-pulse 1.2s ease-in-out infinite;
+}
+
+/* Download fill along the bottom edge, driven by inline width. */
+.update-badge .update-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent-hi);
+  transition: width 0.2s ease;
 }
 
 @keyframes update-pulse {
@@ -954,6 +967,10 @@ textarea {
   font-weight: 560;
   font-family: inherit;
   cursor: default;
+  /* One line, always: when a flex parent squeezes the control, wrapped labels
+     would double its height and reflow the page — the neighbour text is the
+     part that may wrap. */
+  white-space: nowrap;
   transition: background 0.13s, color 0.13s;
 }
 .segmented button:hover:not(.on) {
@@ -1611,13 +1628,6 @@ textarea {
   color: var(--danger);
 }
 
-/* Sits over the card's own header row, next to the refresh button. */
-.sub-delete {
-  position: absolute;
-  top: 11px;
-  right: 40px;
-}
-
 .sub-foot {
   display: flex;
   align-items: center;
@@ -2009,5 +2019,9 @@ textarea {
   }
   .split-mode-help {
     text-align: left;
+  }
+  /* Non-wrapping labels must instead earn their fit on a phone width. */
+  .segmented button {
+    padding: 6px 9px;
   }
 }

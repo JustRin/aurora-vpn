@@ -18,6 +18,7 @@ export const ru = {
 
   "side.update": "Обновление",
   "side.downloading": "Загрузка…",
+  "side.installing": "Установка…",
   "side.installVersion": "Установить версию {version}",
   "side.updateFailed": "Не удалось установить обновление",
   "side.noCore": "ядро не найдено",
