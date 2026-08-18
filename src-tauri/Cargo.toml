@@ -1,6 +1,6 @@
 [package]
 name = "aurora-vpn"
-version = "0.1.4"
+version = "0.1.5"
 description = "VLESS VPN client for 3x-ui panels, powered by sing-box"
 authors = ["Aurora VPN"]
 edition = "2021"

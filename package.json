@@ -1,7 +1,7 @@
 {
   "name": "aurora-vpn",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Cross-platform VLESS/Xray VPN client for 3x-ui panels, powered by sing-box",
   "scripts": {
