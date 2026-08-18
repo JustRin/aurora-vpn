@@ -49,11 +49,16 @@ function UpdateBadge() {
   const install = () => {
     setBusy(true);
     setError("");
-    api.installUpdate(update.url).catch((e) => {
-      setBusy(false);
-      setError(errText(e));
-      toast("error", "Не удалось установить обновление", errText(e));
-    });
+    api
+      .installUpdate(update.url)
+      // On Windows the app exits into the installer; elsewhere the package
+      // opens in the browser and the app keeps running.
+      .then(() => setBusy(false))
+      .catch((e) => {
+        setBusy(false);
+        setError(errText(e));
+        toast("error", "Не удалось установить обновление", errText(e));
+      });
   };
 
   return (

@@ -120,7 +120,9 @@ async function install({ label, url, exeStem, triple }) {
 }
 
 async function main() {
-  const key = `${process.platform}-${process.arch}`;
+  // `CORE_TARGET` lets CI fetch cores for a cross-compiled architecture of the
+  // same OS (e.g. darwin-x64 from an arm64 runner); locally it is absent.
+  const key = process.env.CORE_TARGET || `${process.platform}-${process.arch}`;
   const target = TARGETS[key];
   if (!target) {
     throw new Error(`платформа ${key} не поддерживается этим скриптом`);

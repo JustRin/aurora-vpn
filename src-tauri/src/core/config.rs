@@ -645,7 +645,13 @@ mod tests {
         build_full(settings, split, HashMap::new(), all_sets())
     }
 
+    // A realistic absolute path for the host OS: `file_name()` only splits on
+    // the platform's own separator, so a Windows path is one opaque component
+    // on Unix and the derived `process_name` rule would never match.
+    #[cfg(windows)]
     const XRAY_EXE: &str = r"C:\app\xray.exe";
+    #[cfg(not(windows))]
+    const XRAY_EXE: &str = "/app/xray.exe";
 
     fn build_with_xray(
         settings: Settings,
