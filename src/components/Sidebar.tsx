@@ -17,7 +17,7 @@ import { IS_ANDROID } from "../lib/platform";
 import type { UpdateInfo, UpdateProgress } from "../lib/types";
 import { useStore } from "../store";
 
-const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL = 10 * 60 * 1000;
 /** A window focus re-checks at most this often: the GitHub API is
  * unauthenticated and rate-limited per IP. */
 const FOCUS_CHECK_MIN_GAP = 10 * 60 * 1000;
