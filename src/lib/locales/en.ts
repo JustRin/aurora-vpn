@@ -193,7 +193,7 @@ export const en: Record<keyof typeof ru, string> = {
   // ------------------------------------------------------------------ servers
   "srv.title": "Servers",
   "srv.subtitleBefore": "Paste",
-  "srv.subtitleAfter": "links from your panel or connect a subscription.",
+  "srv.subtitleAfter": "links from your panel — a subscription URL works too.",
   "srv.testLatency": "Test latency",
   "srv.subscriptionBtn": "Subscription",
   "srv.addBtn": "Add",

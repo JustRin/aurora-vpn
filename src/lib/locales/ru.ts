@@ -193,7 +193,7 @@ export const ru = {
   // ------------------------------------------------------------------ servers
   "srv.title": "Серверы",
   "srv.subtitleBefore": "Вставьте ссылки",
-  "srv.subtitleAfter": "из вашей панели или подключите подписку.",
+  "srv.subtitleAfter": "из вашей панели — ссылка подписки тоже подойдёт.",
   "srv.testLatency": "Проверить задержку",
   "srv.subscriptionBtn": "Подписка",
   "srv.addBtn": "Добавить",

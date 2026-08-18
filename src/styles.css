@@ -1905,6 +1905,23 @@ textarea {
   color: var(--text-muted);
 }
 
+/* The split-tunnel mode switcher sits in the page header: the page's one
+   top-level decision, in the space the title leaves empty. */
+.split-mode-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  max-width: 400px;
+}
+
+.split-mode-help {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 /* ============================================================ narrow screens
    Phone layout (the Android build): the sidebar folds into an icon strip
    under the title bar, everything else stacks into one column. The desktop
@@ -1985,5 +2002,12 @@ textarea {
   .toggle-row {
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .split-mode-head {
+    align-items: flex-start;
+  }
+  .split-mode-help {
+    text-align: left;
   }
 }

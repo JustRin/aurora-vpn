@@ -55,6 +55,21 @@ export function SplitTunnel() {
           <h1 className="page-title">{t("split.title")}</h1>
           <p className="page-sub">{t("split.subtitle")}</p>
         </div>
+        {/* The mode switcher lives in the header — the space to the right of
+            the title is otherwise empty, and the mode is the page's one
+            top-level decision. */}
+        <div className="split-mode-head">
+          <Segmented<SplitMode>
+            value={split.mode ?? "off"}
+            onChange={(mode) => void saveSplit({ mode })}
+            options={[
+              { value: "off", label: t("split.modeOff") },
+              { value: "include", label: t("split.modeInclude") },
+              { value: "exclude", label: t("split.modeExclude") },
+            ]}
+          />
+          <div className="split-mode-help">{t(MODE_HELP[split.mode ?? "off"])}</div>
+        </div>
       </div>
 
       {tunnelMode !== "tun" && (
@@ -66,24 +81,6 @@ export function SplitTunnel() {
           </div>
         </div>
       )}
-
-      <div className="card">
-        <div className="row between" style={{ marginBottom: 12 }}>
-          <div>
-            <div className="toggle-label">{t("split.mode")}</div>
-            <div className="toggle-desc">{t(MODE_HELP[split.mode ?? "off"])}</div>
-          </div>
-          <Segmented<SplitMode>
-            value={split.mode ?? "off"}
-            onChange={(mode) => void saveSplit({ mode })}
-            options={[
-              { value: "off", label: t("split.modeOff") },
-              { value: "include", label: t("split.modeInclude") },
-              { value: "exclude", label: t("split.modeExclude") },
-            ]}
-          />
-        </div>
-      </div>
 
       <div className="section-title">
         <span className="row between">

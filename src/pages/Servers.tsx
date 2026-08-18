@@ -4,7 +4,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Rss,
   Server as ServerIcon,
   Trash2,
 } from "lucide-react";
@@ -72,7 +71,6 @@ export function Servers() {
   const toast = useStore((s) => s.toast);
 
   const [importOpen, setImportOpen] = useState(false);
-  const [subOpen, setSubOpen] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [editing, setEditing] = useState<ServerNode | null>(null);
 
@@ -113,10 +111,6 @@ export function Servers() {
           >
             <Gauge size={15} className={testing ? "spin" : ""} />
             {t("srv.testLatency")}
-          </button>
-          <button type="button" className="btn" onClick={() => setSubOpen(true)}>
-            <Rss size={15} />
-            {t("srv.subscriptionBtn")}
           </button>
           <button
             type="button"
@@ -263,7 +257,6 @@ export function Servers() {
       )}
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} />
-      <SubModal open={subOpen} onClose={() => setSubOpen(false)} />
       {editing && (
         // Keying on the node id remounts the form, so its draft state is seeded
         // from the freshly selected node instead of leaking between edits.
@@ -370,71 +363,6 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-function SubModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const t = useT();
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const toast = useStore((s) => s.toast);
-  const reload = useStore((s) => s.reload);
-
-  async function submit() {
-    setBusy(true);
-    try {
-      const report = await api.addSubscription(name, url);
-      reportToast(report, toast);
-      await reload();
-      setName("");
-      setUrl("");
-      onClose();
-    } catch (e) {
-      toast("error", t("srv.subLoadFailed"), errText(e));
-      await reload();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={open}
-      title={t("srv.addSubscription")}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            {t("srv.cancel")}
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy || !url.trim()}
-            onClick={() => void submit()}
-          >
-            {t("srv.loadBtn")}
-          </button>
-        </>
-      }
-    >
-      <Field label={t("srv.nameLabel")} hint={t("srv.subNameHint")}>
-        <input
-          className="input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t("srv.subNamePlaceholder")}
-        />
-      </Field>
-      <Field label={t("srv.subUrlLabel")} hint={t("srv.subUrlHint")}>
-        <input
-          className="input"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://panel.example.com:2096/sub/xxxxx"
-        />
-      </Field>
-    </Modal>
-  );
-}
 
 function NodeEditor({
   node,
