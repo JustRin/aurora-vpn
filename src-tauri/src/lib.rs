@@ -135,8 +135,45 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Whether some other process is already running this same executable.
+///
+/// Checked before the elevated-task hand-off below: when an instance is
+/// already up, the normal path must proceed so the single-instance guard can
+/// focus its window instead.
+#[cfg(windows)]
+fn another_instance_running() -> bool {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    let Ok(me) = std::env::current_exe() else {
+        return false;
+    };
+    let my_pid = std::process::id();
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
+    );
+    sys.processes()
+        .values()
+        .any(|p| p.pid().as_u32() != my_pid && p.exe().map(|e| e == me).unwrap_or(false))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A manual launch while the elevated autostart task is registered used to
+    // open an unelevated instance whose first advice was «перезапустите с
+    // правами администратора». Handing the launch to that task starts this
+    // same exe elevated with no UAC prompt — the very ability the task was
+    // registered for.
+    #[cfg(windows)]
+    if !sys::elevate::is_elevated()
+        && !another_instance_running()
+        && sys::autostart::start_elevated_task()
+    {
+        return;
+    }
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init());

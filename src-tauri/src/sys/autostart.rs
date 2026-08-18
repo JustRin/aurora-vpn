@@ -67,6 +67,43 @@ mod imp {
             .unwrap_or(false)
     }
 
+    /// The executable the registered task actually points at. The task stores
+    /// an absolute path from the moment it was created; after a reinstall to a
+    /// different location it would start the wrong (or no) binary.
+    fn task_command() -> Option<String> {
+        let out = schtasks(&["/Query", "/TN", TASK_NAME, "/XML"]).ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let start = text.find("<Command>")? + "<Command>".len();
+        let end = text[start..].find("</Command>")? + start;
+        Some(text[start..end].trim().trim_matches('"').to_string())
+    }
+
+    /// Start the elevated autostart task, which launches this same executable
+    /// with administrator rights and **no UAC prompt** — exactly the ability
+    /// the task was registered for. Returns true when the hand-off happened
+    /// and the calling (unelevated) process should exit.
+    pub fn start_elevated_task() -> bool {
+        if !task_exists() {
+            return false;
+        }
+        // Never delegate to a task that points at some other binary: the user
+        // would see their click do nothing at all.
+        let same_exe = match (task_command(), std::env::current_exe()) {
+            (Some(registered), Ok(current)) => registered
+                .eq_ignore_ascii_case(&current.to_string_lossy()),
+            _ => false,
+        };
+        if !same_exe {
+            return false;
+        }
+        schtasks(&["/Run", "/TN", TASK_NAME])
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    }
+
     pub fn run_key_exists() -> bool {
         run_key()
             .map(|key| key.get_value::<String, _>(RUN_VALUE).is_ok())
@@ -237,6 +274,13 @@ mod imp {
             "автозапуск пока реализован только для Windows",
         ))
     }
+}
+
+/// Delegate this launch to the elevated autostart task. Windows-only: the
+/// concept does not exist elsewhere.
+#[cfg(windows)]
+pub fn start_elevated_task() -> bool {
+    imp::start_elevated_task()
 }
 
 /// What the OS is actually configured to do — not what the settings file wishes.
