@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
 
+import { IS_ANDROID } from "../lib/platform";
 import { useStore } from "../store";
 
 const appWindow = getCurrentWindow();
@@ -28,25 +29,27 @@ export function TitleBar() {
           {label}
         </div>
       </div>
-      <div className="win-buttons">
-        <button className="win-button" onClick={() => void appWindow.minimize()}>
-          <Minus size={15} />
-        </button>
-        <button
-          className="win-button"
-          onClick={() => void appWindow.toggleMaximize()}
-        >
-          <Square size={12} />
-        </button>
-        <button
-          className="win-button close"
-          // Closing routes through the Rust side, which decides between hiding
-          // to tray and a real shutdown.
-          onClick={() => void appWindow.close()}
-        >
-          <X size={15} />
-        </button>
-      </div>
+      {!IS_ANDROID && (
+        <div className="win-buttons">
+          <button className="win-button" onClick={() => void appWindow.minimize()}>
+            <Minus size={15} />
+          </button>
+          <button
+            className="win-button"
+            onClick={() => void appWindow.toggleMaximize()}
+          >
+            <Square size={12} />
+          </button>
+          <button
+            className="win-button close"
+            // Closing routes through the Rust side, which decides between hiding
+            // to tray and a real shutdown.
+            onClick={() => void appWindow.close()}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

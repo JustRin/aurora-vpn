@@ -1,20 +1,24 @@
 # Aurora VPN
 
-Десктопный клиент для VLESS-серверов из панели **3x-ui**, с режимом TUN,
+Клиент для VLESS-серверов из панели **3x-ui**, с режимом TUN,
 раздельным туннелированием по приложениям и маршрутизацией по правилам.
+Windows, Linux, macOS и Android.
 
 Оболочка — **Tauri v2** (Rust + React/TypeScript). Сетевых движка два:
 **sing-box** как основной и **Xray-core** для узлов, которые sing-box не умеет.
+На Android sing-box работает не отдельным процессом, а библиотекой **libbox**
+внутри `VpnService` — как в Hiddify и NekoBox.
 
 ## Загрузки
 
 [![Windows](https://img.shields.io/badge/Windows-установщик_x64-0078d4?style=for-the-badge)](https://github.com/JustRin/aurora-vpn/releases/latest)
+[![Android](https://img.shields.io/badge/Android-APK_arm64-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-AppImage_·_deb_·_rpm-e95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple_Silicon_·_Intel-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 
 Свежие сборки под каждую систему — на [странице релизов](https://github.com/JustRin/aurora-vpn/releases/latest);
 там же таблица «скачайте под свою ОС» и контрольные суммы. На Windows приложение
-дальше обновляется само. Android — в работе: [#2](https://github.com/JustRin/aurora-vpn/issues/2).
+дальше обновляется само.
 
 ---
 
@@ -164,7 +168,8 @@ src-tauri/src/
   link.rs                разбор ссылок и подписок
   settings.rs            настройки, правила раздельного туннеля
   core/config.rs         сборка конфигурации sing-box  ← основная логика
-  core/process.rs        запуск ядра, захват логов, остановка
+  core/process.rs        запуск ядра, захват логов, остановка (десктоп)
+  core/android.rs        мост к VpnService/libbox (Android)
   core/clash.rs          клиент Clash API (статистика, задержка, переключение)
   sys/elevate.rs         проверка прав и перезапуск через UAC
   sys/sysproxy.rs        системный прокси Windows
@@ -317,18 +322,37 @@ core/cache.db          кэш ядра и гео-наборов
 Логика намеренно отделена от платформы: разбор ссылок, генерация конфига и
 управление ядром общие, а всё специфичное собрано в `src-tauri/src/sys/`.
 
-Чтобы добавить Linux/macOS, нужно:
+### Android
 
-1. `npm run fetch-core` на целевой машине — скрипт уже знает про
-   linux/darwin × amd64/arm64;
-2. реализовать `sys/sysproxy.rs` для целевой ОС (сейчас там честная заглушка
-   с ошибкой, а не тихий no-op);
-3. заменить `sys/elevate.rs::relaunch_elevated` на pkexec/osascript.
+Настольная схема «супервизор + движки-процессы» на Android невозможна:
+туннельный интерфейс выдаёт только `VpnService`, и его файловый дескриптор
+нужно передать движку внутри процесса приложения. Поэтому:
 
-Маршрутизация, TUN и правила по процессам менять не нужно — sing-box
-поддерживает их на всех трёх платформах. Для Android/iOS понадобится
-`tauri android init` и перенос запуска ядра на `VpnService`/`NetworkExtension`,
-поскольку там нельзя порождать дочерний процесс.
+- sing-box собирается в **libbox** (gomobile) и живёт внутри Kotlin-сервиса
+  (`gen/android/.../AuroraVpnService.kt`); дескриптор TUN он получает через
+  `PlatformInterface.openTun`, конфиг — тот же, что строит `core/config.rs`;
+- Rust-мост — `core/android.rs`: плагин Tauri дёргает Kotlin-команды
+  start/stop/status, а логи ядро пишет в файл, который Rust читает в «Журнал»;
+- Clash API на loopback остаётся управляющей плоскостью — статистика, задержки
+  и переключение серверов работают тем же кодом, что на десктопе;
+- раздельное туннелирование по приложениям выполняет сам `VpnService`
+  (`include_package`/`exclude_package` в tun-инбаунде), список приложений
+  вместо списка процессов отдаёт `PackageManager`;
+- Xray-узлы в первой итерации не поддерживаются: у узлов с VLESS Encryption
+  уже есть автоматический откат на классический VLESS, XHTTP-узлы честно
+  пишут причину в журнал. Сборка libxray — отдельная задача.
+
+Сборка APK локально (нужны JDK 17+, Android SDK+NDK, Go 1.24+, цели Rust
+`aarch64-linux-android` и др.):
+
+```bash
+npm run libbox          # собирает libbox.aar (~20 минут, один раз на версию)
+npm run tauri android build -- --apk
+```
+
+В CI job `build-android` делает то же самое; готовый AAR кэшируется по версии.
+Подпись релизных APK берётся из секретов `ANDROID_KEYSTORE*`; без них APK
+подписывается debug-ключом (установится, но обновления потребуют переустановки).
 
 ---
 

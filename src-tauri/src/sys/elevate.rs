@@ -11,7 +11,14 @@ pub fn is_elevated() -> bool {
     unsafe { IsUserAnAdmin().as_bool() }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "android")]
+pub fn is_elevated() -> bool {
+    // No elevation concept: the TUN device comes from VpnService after a
+    // one-time consent dialog, which `core::android::prepare` handles.
+    true
+}
+
+#[cfg(not(any(windows, target_os = "android")))]
 pub fn is_elevated() -> bool {
     // On Unix the TUN device needs root (or CAP_NET_ADMIN, which we cannot
     // detect portably without extra dependencies).
@@ -20,6 +27,38 @@ pub fn is_elevated() -> bool {
         .and_then(|v| v.parse::<u32>().ok())
         .map(|uid| uid == 0)
         .unwrap_or_else(|| std::path::Path::new("/proc/1/root").read_link().is_ok())
+}
+
+/// Start an executable through the shell, so a `requireAdministrator` manifest
+/// is honoured with a UAC prompt. `std::process::Command` goes through
+/// CreateProcess, which refuses such binaries with os error 740 — this is
+/// exactly how the per-machine NSIS updater used to fail to launch.
+#[cfg(windows)]
+pub fn shell_launch(path: &std::path::Path) -> Result<()> {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    use crate::error::AppError;
+
+    let file = HSTRING::from(path.as_os_str());
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR::null(),
+            PCWSTR(file.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success as a pseudo-handle strictly greater than 32.
+    if result.0 as usize <= 32 {
+        return Err(AppError::msg(
+            "установщик не запустился — запрос прав администратора был отклонён",
+        ));
+    }
+    Ok(())
 }
 
 /// Restart this executable with elevated rights. The caller is expected to exit

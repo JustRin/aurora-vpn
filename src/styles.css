@@ -637,25 +637,41 @@ textarea {
   color: var(--text-muted);
 }
 
+/* Sits above the footer divider, styled after .nav-item so it reads as one
+ * more quiet row of the sidebar rather than an alert. */
 .update-badge {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 11px;
   width: 100%;
-  padding: 7px 9px;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  font-size: 11.5px;
-  font-weight: 600;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--accent-soft), transparent 92%);
+  color: var(--accent-text);
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
   text-align: left;
   transition: background 0.15s ease;
 }
 
 .update-badge:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: linear-gradient(
+    90deg,
+    var(--accent-soft),
+    var(--accent-soft) 92%
+  );
+}
+
+.update-badge .update-version {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .update-badge:disabled {
@@ -1887,4 +1903,87 @@ textarea {
   display: grid;
   place-items: center;
   color: var(--text-muted);
+}
+
+/* ============================================================ narrow screens
+   Phone layout (the Android build): the sidebar folds into an icon strip
+   under the title bar, everything else stacks into one column. The desktop
+   window can't get this narrow (min-width 960), so these rules are inert there. */
+@media (max-width: 700px) {
+  .body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .nav {
+    flex-direction: row;
+    gap: 4px;
+    flex: 1 1 auto;
+  }
+
+  /* Icon-only items: labels and counters would not fit six columns wide. */
+  .nav-item {
+    padding: 9px 11px;
+  }
+  .nav-item .grow,
+  .nav-item .badge {
+    display: none;
+  }
+  .nav-item.active::before {
+    /* The side rail reads as clutter on a horizontal strip. */
+    display: none;
+  }
+
+  .update-badge {
+    width: auto;
+    margin-bottom: 0;
+    padding: 8px 10px;
+    flex: 0 0 auto;
+  }
+  .update-badge .grow {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .content {
+    padding: 18px 14px 28px;
+  }
+
+  .page-head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 16px;
+    padding: 22px 16px 0;
+  }
+  .hero.flat {
+    padding-bottom: 22px;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .toggle-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }

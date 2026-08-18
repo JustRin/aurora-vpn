@@ -14,8 +14,10 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::core::clash::ClashApi;
 use crate::core::config::{self, BuildInput, TAG_PROXY};
-use crate::core::process::LogLine;
-use crate::core::{ruleset, xray};
+use crate::core::log::LogLine;
+use crate::core::ruleset;
+#[cfg(not(target_os = "android"))]
+use crate::core::xray;
 use crate::error::{AppError, Result};
 use crate::link;
 use crate::model::ServerNode;
@@ -115,8 +117,17 @@ fn effective_nodes(state: &AppState) -> Vec<ServerNode> {
         .collect()
 }
 
+/// No second engine on Android: nodes that need Xray are carried by sing-box
+/// with the extra layer dropped (`can_fall_back_to_singbox`), the rest fail
+/// with a readable log line. Building libxray is tracked separately.
+#[cfg(target_os = "android")]
+fn start_xray_if_needed(_app: &AppHandle) -> Result<HashMap<String, u16>> {
+    Ok(HashMap::new())
+}
+
 /// Start the Xray engine if any node needs it, and report the loopback ports it
 /// listens on. Returns an empty map when sing-box can handle everything.
+#[cfg(not(target_os = "android"))]
 fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
     let (nodes, log_level) = {
         let state = app.state::<AppState>();
@@ -200,7 +211,10 @@ fn build_and_write(
     let settings = state.settings.read().clone();
     let split = state.split.read().clone();
     let active_id = state.resolve_active_id();
+    #[cfg(not(target_os = "android"))]
     let xray_exe = state.xray.lock().as_ref().map(|e| e.exe().to_path_buf());
+    #[cfg(target_os = "android")]
+    let xray_exe: Option<std::path::PathBuf> = None;
 
     let built = config::build(&BuildInput {
         nodes: &nodes,
@@ -213,6 +227,8 @@ fn build_and_write(
         xray_exe: xray_exe.as_deref(),
         rule_sets,
         rule_set_dir: &state.paths.rule_set_dir,
+        #[cfg(target_os = "android")]
+        log_file: &state.paths.log_file,
     })?;
 
     *state.tags.write() = built.tags.iter().cloned().collect();
@@ -468,6 +484,7 @@ fn shutdown(app: &AppHandle, message: &str) {
         let mut core = state.core.lock();
         core.stop();
     }
+    #[cfg(not(target_os = "android"))]
     if let Some(engine) = state.xray.lock().as_mut() {
         engine.stop();
     }
@@ -544,17 +561,29 @@ pub async fn connect(app: AppHandle) -> Result<()> {
         drop(settings);
         values
     };
+    // VpnService is the only tunnel Android offers; a stale system-proxy
+    // preference carried over from a desktop-era store must not disable it.
+    #[cfg(target_os = "android")]
+    let tunnel_mode = {
+        let _ = tunnel_mode;
+        TunnelMode::Tun
+    };
 
     if node_count == 0 {
         return Err(AppError::msg(
             "нет ни одного сервера — добавьте ссылку vless:// или подписку",
         ));
     }
+    #[cfg(not(target_os = "android"))]
     if tunnel_mode == TunnelMode::Tun && !elevate::is_elevated() {
         return Err(AppError::msg(
             "ELEVATION_REQUIRED",
         ));
     }
+    // The one-time system consent dialog, before anything is torn down or
+    // started: a refusal must leave the current state untouched.
+    #[cfg(target_os = "android")]
+    crate::core::android::prepare(&app).await?;
 
     let resolved_active = {
         let state = app.state::<AppState>();
@@ -906,7 +935,7 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
     };
 
     let fetch = async {
-        let client = reqwest::Client::builder()
+        let client = crate::net::http_builder()
             .timeout(Duration::from_secs(30))
             // A subscription URL is normally reachable without the tunnel; going
             // through a half-configured system proxy would deadlock the refresh.
@@ -1170,12 +1199,37 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
 
 // ---------------------------------------------------------------- system
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn list_running_apps(include_system: bool) -> Result<Vec<procs::RunningApp>> {
     // Enumerating processes touches the whole process table; keep it off the UI thread.
     tokio::task::spawn_blocking(move || procs::running_apps(include_system))
         .await
         .map_err(|e| AppError::msg(format!("не удалось получить список процессов: {e}")))
+}
+
+/// Same command, different well: a sandboxed app cannot see other processes,
+/// but it can list installed packages. `path` carries the package name — the
+/// value the tun inbound's include/exclude lists match on.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn list_running_apps(
+    app: AppHandle,
+    include_system: bool,
+) -> Result<Vec<procs::RunningApp>> {
+    let packages = tokio::task::spawn_blocking(move || crate::core::android::list_packages(&app))
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось получить список приложений: {e}")))??;
+    Ok(packages
+        .into_iter()
+        .filter(|p| include_system || !p.system)
+        .map(|p| procs::RunningApp {
+            name: p.name,
+            path: p.package,
+            instances: 1,
+            system: p.system,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1205,16 +1259,24 @@ pub async fn preview_config(app: AppHandle) -> Result<String> {
 
     // Preview the shape the tunnel would take, including the Xray hand-off, so
     // a bug report shows what the engines actually receive.
+    #[cfg(not(target_os = "android"))]
     let xray_built = xray::build(
         &nodes,
         xray::DEFAULT_BASE_PORT,
         xray::log_level(&settings.log_level),
     )?;
+    #[cfg(not(target_os = "android"))]
     let xray_ports = xray_built
         .as_ref()
         .map(|b| b.ports.clone())
         .unwrap_or_default();
+    #[cfg(not(target_os = "android"))]
     let xray_exe = state.xray.lock().as_ref().map(|e| e.exe().to_path_buf());
+
+    #[cfg(target_os = "android")]
+    let xray_ports = HashMap::new();
+    #[cfg(target_os = "android")]
+    let xray_exe: Option<std::path::PathBuf> = None;
 
     let built = config::build(&BuildInput {
         nodes: &nodes,
@@ -1228,9 +1290,13 @@ pub async fn preview_config(app: AppHandle) -> Result<String> {
         // Preview what the current cache allows, not an optimistic view of it.
         rule_sets: &cached_rule_sets(&state.paths.rule_set_dir, &split),
         rule_set_dir: &state.paths.rule_set_dir,
+        #[cfg(target_os = "android")]
+        log_file: &state.paths.log_file,
     })?;
 
+    #[allow(unused_mut)]
     let mut text = serde_json::to_string_pretty(&built.json)?;
+    #[cfg(not(target_os = "android"))]
     if let Some(xray) = xray_built {
         text.push_str("\n\n// ---- Xray (второй движок) ----\n");
         text.push_str(&serde_json::to_string_pretty(&xray.json)?);
@@ -1286,6 +1352,8 @@ fn installer_suffix() -> &'static str {
         "-setup.exe"
     } else if cfg!(target_os = "macos") {
         ".dmg"
+    } else if cfg!(target_os = "android") {
+        ".apk"
     } else {
         ".AppImage"
     }
@@ -1330,7 +1398,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
     let current = app.package_info().version.to_string();
     let api = format!("https://api.github.com/repos/{UPDATE_REPO}/releases/latest");
 
-    let resp = reqwest::Client::new()
+    let resp = crate::net::http_client()
         .get(&api)
         .header("User-Agent", "aurora-vpn-updater")
         .header("Accept", "application/vnd.github+json")
@@ -1393,7 +1461,7 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
             .map_err(|e| AppError::msg(format!("не удалось открыть страницу загрузки: {e}")));
     }
 
-    let bytes = reqwest::Client::new()
+    let bytes = crate::net::http_client()
         .get(&url)
         .header("User-Agent", "aurora-vpn-updater")
         .timeout(Duration::from_secs(600))
@@ -1411,6 +1479,12 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
 
     let path = std::env::temp_dir().join("aurora-vpn-update-setup.exe");
     std::fs::write(&path, &bytes)?;
+    // Through the shell, not CreateProcess: the per-machine installer carries a
+    // `requireAdministrator` manifest, and only the shell can raise the UAC
+    // prompt for it (otherwise: os error 740).
+    #[cfg(windows)]
+    elevate::shell_launch(&path)?;
+    #[cfg(not(windows))]
     std::process::Command::new(&path)
         .spawn()
         .map_err(|e| AppError::msg(format!("не удалось запустить установщик: {e}")))?;

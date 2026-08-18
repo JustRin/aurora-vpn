@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 
 /// Sentinel the UI matches on to offer a restart-as-administrator prompt.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub const ELEVATION_REQUIRED: &str = "ELEVATION_REQUIRED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

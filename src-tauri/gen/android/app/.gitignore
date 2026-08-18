@@ -1,0 +1,12 @@
+/src/main/**/generated
+/src/main/jniLibs/**/*.so
+/src/main/assets/tauri.conf.json
+/tauri.build.gradle.kts
+/proguard-tauri.pro
+/tauri.properties
+# ~100 MB of gomobile output; rebuilt by scripts/build-libbox.mjs or CI.
+/libs/*.aar
+# Release signing material, provided by CI secrets.
+/keystore.properties
+*.jks
+*.keystore

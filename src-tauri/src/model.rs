@@ -43,6 +43,7 @@ pub enum Network {
 }
 
 impl Network {
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub fn as_xray(self) -> &'static str {
         match self {
             Network::Tcp => "tcp",

@@ -3,16 +3,24 @@ mod core;
 mod error;
 mod link;
 mod model;
+mod net;
 mod settings;
 mod state;
 mod store;
 mod sys;
 
+#[cfg(desktop)]
 use std::path::PathBuf;
 
+#[cfg(desktop)]
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+#[cfg(desktop)]
+use tauri::WindowEvent;
+#[cfg(desktop)]
+use tauri::AppHandle;
+use tauri::{Manager, RunEvent};
 
 use crate::state::AppState;
 
@@ -20,16 +28,19 @@ use crate::state::AppState;
 ///
 /// Tauri strips the target-triple suffix when it installs an `externalBin`, but
 /// leaves it in place during `tauri dev`, so both layouts have to be probed.
+#[cfg(desktop)]
 fn locate_core() -> Option<PathBuf> {
     locate_binary("sing-box")
 }
 
 /// Xray is optional: without it, nodes that need it fail with a clear message
 /// while everything sing-box can handle keeps working.
+#[cfg(desktop)]
 fn locate_xray() -> Option<PathBuf> {
     locate_binary("xray")
 }
 
+#[cfg(desktop)]
 fn locate_binary(stem: &str) -> Option<PathBuf> {
     let exe_name = if cfg!(windows) {
         format!("{stem}.exe")
@@ -57,6 +68,7 @@ fn locate_binary(stem: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
+#[cfg(desktop)]
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -65,6 +77,7 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "Показать окно").build(app)?;
     let connect = MenuItemBuilder::with_id("connect", "Подключить").build(app)?;
@@ -140,10 +153,17 @@ pub fn run() {
         }));
     }
 
+    // The bridge to the Kotlin VpnService that hosts libbox.
+    #[cfg(target_os = "android")]
+    {
+        builder = builder.plugin(crate::core::android::init());
+    }
+
     let app = builder
         .setup(|app| {
             let handle = app.handle().clone();
 
+            #[cfg(desktop)]
             let core_exe = locate_core().ok_or_else(|| {
                 std::io::Error::other(
                     "не найден бинарник ядра sing-box — положите его в src-tauri/binaries",
@@ -151,7 +171,10 @@ pub fn run() {
             })?;
 
             let config_dir = app.path().app_config_dir()?;
+            #[cfg(desktop)]
             let state = AppState::new(config_dir, core_exe, locate_xray())?;
+            #[cfg(target_os = "android")]
+            let state = AppState::new(config_dir, handle.clone())?;
 
             let (auto_connect, start_minimized, theme_dark, theme_bg, has_nodes) = {
                 let settings = state.settings.read();
@@ -165,6 +188,7 @@ pub fn run() {
             };
 
             app.manage(state);
+            #[cfg(desktop)]
             build_tray(&handle)?;
 
             // Paint the native window in the saved theme while it is still
@@ -211,16 +235,18 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let app = window.app_handle();
+        .on_window_event(|_window, _event| {
+            // Closing to tray only makes sense where there is a tray.
+            #[cfg(desktop)]
+            if let WindowEvent::CloseRequested { api, .. } = _event {
+                let app = _window.app_handle();
                 let close_to_tray = app
                     .try_state::<AppState>()
                     .map(|s| s.settings.read().close_to_tray)
                     .unwrap_or(false);
                 if close_to_tray {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let _ = _window.hide();
                 }
             }
         })
@@ -267,6 +293,7 @@ pub fn run() {
                     let _ = sys::sysproxy::disable();
                 }
                 state.core.lock().stop();
+                #[cfg(not(target_os = "android"))]
                 if let Some(engine) = state.xray.lock().as_mut() {
                     engine.stop();
                 }

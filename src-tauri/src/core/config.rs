@@ -48,6 +48,10 @@ pub struct BuildInput<'a> {
     /// start, taking the whole tunnel down over an optional filter.
     pub rule_sets: &'a HashSet<String>,
     pub rule_set_dir: &'a Path,
+    /// In-process libbox has no stdout the app could capture, so the config
+    /// points its log output at a file the Rust side tails.
+    #[cfg(target_os = "android")]
+    pub log_file: &'a Path,
 }
 
 #[derive(Debug)]
@@ -139,6 +143,7 @@ fn dns_server(tag: &str, address: &str, detour: Option<&str>) -> (Value, bool) {
 
 /// Emit one rule per matcher kind: within a single sing-box rule the fields are
 /// ANDed, so name-matches and path-matches must live in separate rules to be ORed.
+#[cfg(not(target_os = "android"))]
 fn app_rules(split: &SplitConfig, extra: &[(&str, Value)]) -> Vec<Value> {
     let mut out = Vec::new();
     let names = split.active_names();
@@ -215,7 +220,17 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         xray_exe,
         rule_sets,
         rule_set_dir,
+        #[cfg(target_os = "android")]
+        log_file,
     } = input;
+
+    // Android has exactly one tunnel: the VpnService TUN device. The persisted
+    // preference may still say "system proxy" if the store travelled over from
+    // a desktop install.
+    #[cfg(target_os = "android")]
+    let tunnel_mode = TunnelMode::Tun;
+    #[cfg(not(target_os = "android"))]
+    let tunnel_mode = settings.tunnel_mode;
 
     // Only worth emitting when the second engine is actually dialling something.
     let xray_bypass = match (xray_ports.is_empty(), *xray_exe) {
@@ -402,6 +417,19 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // Per-application DNS steering. Skipping this is exactly how split tunnelling
     // leaks: the traffic would take the right path but the lookup would not.
     let fake_ip_usable = settings.fake_ip;
+    // On Android the TUN device itself keeps excluded apps out, DNS included —
+    // whatever still reaches us follows the default path.
+    #[cfg(target_os = "android")]
+    let dns_final = {
+        if fake_ip_usable {
+            dns_rules.push(json!({
+                "query_type": ["A", "AAAA"],
+                "server": TAG_DNS_FAKE
+            }));
+        }
+        TAG_DNS_REMOTE
+    };
+    #[cfg(not(target_os = "android"))]
     let dns_final = match split.mode {
         SplitMode::Include if split.has_active_apps() => {
             if fake_ip_usable {
@@ -457,12 +485,13 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // ---------------------------------------------------------------- inbounds
     let mut inbounds: Vec<Value> = Vec::new();
 
-    if settings.tunnel_mode == TunnelMode::Tun {
+    if tunnel_mode == TunnelMode::Tun {
         let mut address = vec!["172.19.0.1/30".to_string()];
         if settings.ipv6 {
             address.push("fdfe:dcba:9876::1/126".to_string());
         }
-        inbounds.push(json!({
+        #[allow(unused_mut)]
+        let mut tun = json!({
             "type": "tun",
             "tag": "tun-in",
             "address": address,
@@ -470,7 +499,25 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
             "auto_route": true,
             "strict_route": settings.strict_route,
             "stack": settings.tun_stack.as_str()
-        }));
+        });
+        // Per-app split tunnelling happens at the TUN device itself: libbox
+        // passes these lists to VpnService.Builder, so excluded apps never
+        // enter the tunnel at all. `AppRule.path` carries the package name.
+        #[cfg(target_os = "android")]
+        {
+            let packages = split.active_paths();
+            if !packages.is_empty() && split.has_active_apps() {
+                let key = match split.mode {
+                    SplitMode::Include => Some("include_package"),
+                    SplitMode::Exclude => Some("exclude_package"),
+                    SplitMode::Off => None,
+                };
+                if let Some(key) = key {
+                    tun[key] = json!(packages);
+                }
+            }
+        }
+        inbounds.push(tun);
     }
 
     inbounds.push(json!({
@@ -505,7 +552,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "domain": xray_server_domains, "outbound": TAG_DIRECT }));
     }
 
-    if settings.tunnel_mode == TunnelMode::Tun {
+    if tunnel_mode == TunnelMode::Tun {
         rules.push(json!({ "protocol": "dns", "action": "hijack-dns" }));
     }
 
@@ -565,6 +612,12 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         used_rule_sets.push(rule_set("geoip-cn", rule_set_dir));
     }
 
+    // On Android app selection is enforced by the TUN device itself (see the
+    // include/exclude packages above): whatever still enters the tunnel goes
+    // to the proxy, so process-attribution rules are neither possible nor needed.
+    #[cfg(target_os = "android")]
+    let route_final = TAG_PROXY;
+    #[cfg(not(target_os = "android"))]
     let route_final = match split.mode {
         SplitMode::Include if split.has_active_apps() => {
             rules.extend(app_rules(split, &[("outbound", json!(TAG_PROXY))]));
@@ -587,10 +640,20 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     route.insert("default_domain_resolver".into(), json!(TAG_DNS_DIRECT));
 
     // ------------------------------------------------------------------ assemble
+    // Desktop: no `output` key on purpose — logs stay on stdout so the
+    // supervisor can stream them into the UI live. Android: libbox runs
+    // in-process, so the file named here is the only place lines can go.
+    #[cfg(not(target_os = "android"))]
+    let log_section = json!({ "level": settings.log_level, "timestamp": true });
+    #[cfg(target_os = "android")]
+    let log_section = json!({
+        "level": settings.log_level,
+        "timestamp": true,
+        "output": log_file.to_string_lossy()
+    });
+
     let config = json!({
-        // No `output` key on purpose: logs stay on stdout so the supervisor can
-        // stream them into the UI live.
-        "log": { "level": settings.log_level, "timestamp": true },
+        "log": log_section,
         "experimental": {
             "clash_api": {
                 "external_controller": format!("127.0.0.1:{}", settings.clash_port),

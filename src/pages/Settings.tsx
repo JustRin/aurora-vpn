@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ElevateModal } from "../components/ElevateModal";
 import { Field, Segmented, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
+import { IS_ANDROID } from "../lib/platform";
 import { THEMES } from "../lib/themes";
 import {
   ELEVATION_REQUIRED,
@@ -48,48 +49,55 @@ export function Settings() {
             перезапускается автоматически.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void api.openConfigDir()}
-        >
-          <FolderOpen size={15} />
-          Папка данных
-        </button>
-      </div>
-
-      <div className="section-title">Туннель</div>
-      <div className="card">
-        <div className="toggle-row">
-          <div className="grow">
-            <div className="toggle-label">Режим работы</div>
-            <div className="toggle-desc">
-              {settings.tunnelMode === "tun"
-                ? "TUN — виртуальный адаптер Wintun перехватывает трафик всей системы. Нужны права администратора, зато работают правила по приложениям."
-                : "Системный прокси — без прав администратора, но охватывает только приложения, которые читают системные настройки прокси."}
-            </div>
-          </div>
-          <Segmented<TunnelMode>
-            value={settings.tunnelMode}
-            onChange={(tunnelMode) => void save({ tunnelMode })}
-            options={[
-              { value: "tun", label: "TUN" },
-              { value: "systemProxy", label: "Системный прокси" },
-            ]}
-          />
-        </div>
-
-        {settings.tunnelMode === "tun" && !elevated && (
-          <div className="alert" style={{ marginTop: 12 }}>
-            <div className="alert-text">
-              Приложение запущено без прав администратора — подключение в режиме
-              TUN предложит перезапуск.
-            </div>
-          </div>
+        {!IS_ANDROID && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void api.openConfigDir()}
+          >
+            <FolderOpen size={15} />
+            Папка данных
+          </button>
         )}
       </div>
 
-      {settings.tunnelMode === "tun" && (
+      {/* Android has exactly one tunnel — VpnService; there is nothing to choose. */}
+      {!IS_ANDROID && (
+        <>
+          <div className="section-title">Туннель</div>
+          <div className="card">
+            <div className="toggle-row">
+              <div className="grow">
+                <div className="toggle-label">Режим работы</div>
+                <div className="toggle-desc">
+                  {settings.tunnelMode === "tun"
+                    ? "TUN — виртуальный адаптер Wintun перехватывает трафик всей системы. Нужны права администратора, зато работают правила по приложениям."
+                    : "Системный прокси — без прав администратора, но охватывает только приложения, которые читают системные настройки прокси."}
+                </div>
+              </div>
+              <Segmented<TunnelMode>
+                value={settings.tunnelMode}
+                onChange={(tunnelMode) => void save({ tunnelMode })}
+                options={[
+                  { value: "tun", label: "TUN" },
+                  { value: "systemProxy", label: "Системный прокси" },
+                ]}
+              />
+            </div>
+
+            {settings.tunnelMode === "tun" && !elevated && (
+              <div className="alert" style={{ marginTop: 12 }}>
+                <div className="alert-text">
+                  Приложение запущено без прав администратора — подключение в
+                  режиме TUN предложит перезапуск.
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {(IS_ANDROID || settings.tunnelMode === "tun") && (
         <>
           <div className="section-title">Параметры TUN</div>
           <div className="card">
@@ -291,34 +299,38 @@ export function Settings() {
 
       <div className="section-title">Запуск</div>
       <div className="card">
-        <ToggleRow
-          label="Запускать вместе с Windows"
-          desc="Приложение стартует при входе в систему."
-          checked={autostart !== "off"}
-          onChange={(on) => void changeAutostart(on ? "normal" : "off")}
-        />
+        {!IS_ANDROID && (
+          <>
+            <ToggleRow
+              label="Запускать вместе с Windows"
+              desc="Приложение стартует при входе в систему."
+              checked={autostart !== "off"}
+              onChange={(on) => void changeAutostart(on ? "normal" : "off")}
+            />
 
-        {autostart !== "off" && (
-          <ToggleRow
-            label="Запускать сразу с правами администратора"
-            desc={
-              elevated
-                ? "Создаст задачу в планировщике Windows: приложение будет стартовать с правами администратора и сразу поднимать TUN — без запроса UAC при каждом входе."
-                : "Требуется однократный перезапуск с правами администратора, чтобы зарегистрировать задачу в планировщике."
-            }
-            checked={autostart === "elevated"}
-            onChange={(on) => void changeAutostart(on ? "elevated" : "normal")}
-          />
-        )}
+            {autostart !== "off" && (
+              <ToggleRow
+                label="Запускать сразу с правами администратора"
+                desc={
+                  elevated
+                    ? "Создаст задачу в планировщике Windows: приложение будет стартовать с правами администратора и сразу поднимать TUN — без запроса UAC при каждом входе."
+                    : "Требуется однократный перезапуск с правами администратора, чтобы зарегистрировать задачу в планировщике."
+                }
+                checked={autostart === "elevated"}
+                onChange={(on) => void changeAutostart(on ? "elevated" : "normal")}
+              />
+            )}
 
-        {autostart === "normal" && (
-          <div className="alert" style={{ marginTop: 12 }}>
-            <div className="alert-text">
-              Обычная автозагрузка не может поднять режим TUN: после входа в
-              систему приложение запросит права. Включите переключатель выше,
-              чтобы этого не происходило.
-            </div>
-          </div>
+            {autostart === "normal" && (
+              <div className="alert" style={{ marginTop: 12 }}>
+                <div className="alert-text">
+                  Обычная автозагрузка не может поднять режим TUN: после входа в
+                  систему приложение запросит права. Включите переключатель выше,
+                  чтобы этого не происходило.
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <ToggleRow
@@ -326,17 +338,21 @@ export function Settings() {
           checked={settings.autoConnect}
           onChange={(autoConnect) => void save({ autoConnect })}
         />
-        <ToggleRow
-          label="Запускать свёрнутым в трей"
-          checked={settings.startMinimized}
-          onChange={(startMinimized) => void save({ startMinimized })}
-        />
-        <ToggleRow
-          label="Закрытие окна сворачивает в трей"
-          desc="Выключено — крестик полностью завершает работу и разрывает соединение."
-          checked={settings.closeToTray}
-          onChange={(closeToTray) => void save({ closeToTray })}
-        />
+        {!IS_ANDROID && (
+          <>
+            <ToggleRow
+              label="Запускать свёрнутым в трей"
+              checked={settings.startMinimized}
+              onChange={(startMinimized) => void save({ startMinimized })}
+            />
+            <ToggleRow
+              label="Закрытие окна сворачивает в трей"
+              desc="Выключено — крестик полностью завершает работу и разрывает соединение."
+              checked={settings.closeToTray}
+              onChange={(closeToTray) => void save({ closeToTray })}
+            />
+          </>
+        )}
       </div>
 
       <ElevateModal

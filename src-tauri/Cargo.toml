@@ -32,13 +32,29 @@ tokio = { version = "1", features = [
   "sync",
   "net",
 ] }
-reqwest = { version = "0.13", features = ["json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.23"
 url = "2"
 percent-encoding = "2"
-sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+reqwest = { version = "0.13", features = ["json"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+
+# The default TLS backend (rustls-platform-verifier) needs a Java companion
+# class and an initialized android context, and the default rustls provider
+# (aws-lc-rs) fights the NDK cross-compile. Bundled webpki roots over ring
+# avoid both — see `net::http_builder`.
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "charset",
+  "http2",
+  "rustls-no-provider",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2.4"

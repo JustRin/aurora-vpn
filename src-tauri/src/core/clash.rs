@@ -48,7 +48,7 @@ impl ClashApi {
         Self {
             base: format!("http://127.0.0.1:{port}"),
             secret: secret.to_string(),
-            http: reqwest::Client::builder()
+            http: crate::net::http_builder()
                 .timeout(Duration::from_secs(15))
                 // The controller is on loopback; a system proxy must not intercept it.
                 .no_proxy()

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { api, errText } from "../lib/api";
+import { IS_ANDROID } from "../lib/platform";
 import type { UpdateInfo } from "../lib/types";
 import { useStore } from "../store";
 
@@ -66,15 +67,14 @@ function UpdateBadge() {
       type="button"
       className="update-badge"
       disabled={busy}
-      title={error || update.notes || `Обновление до версии ${update.version}`}
+      title={error || `Установить версию ${update.version}`}
       onClick={install}
     >
-      <Download size={13} className={busy ? "pulse" : undefined} />
+      <Download size={15} className={busy ? "pulse" : undefined} />
       <span className="grow truncate">
-        {busy
-          ? "Загрузка обновления…"
-          : `Доступна версия ${update.version} — обновить`}
+        {busy ? "Загрузка…" : "Обновление"}
       </span>
+      {!busy && <span className="update-version">{update.version}</span>}
     </button>
   );
 }
@@ -126,18 +126,20 @@ export function Sidebar({
         ))}
       </nav>
 
+      <UpdateBadge />
       <div className="sidebar-footer">
-        <UpdateBadge />
         <div className="core-line">
           <Cpu size={13} />
           <span className="truncate" title={coreVersion}>
             {coreVersion || "ядро не найдено"}
           </span>
         </div>
-        <div className="core-line">
-          <span className={`dot ${elevated ? "good" : "ok"}`} />
-          <span>{elevated ? "права администратора" : "обычные права"}</span>
-        </div>
+        {!IS_ANDROID && (
+          <div className="core-line">
+            <span className={`dot ${elevated ? "good" : "ok"}`} />
+            <span>{elevated ? "права администратора" : "обычные права"}</span>
+          </div>
+        )}
       </div>
     </aside>
   );

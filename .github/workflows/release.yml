@@ -103,10 +103,114 @@ jobs:
           path: upload/*
           if-no-files-found: error
 
+  build-android:
+    runs-on: ubuntu-latest
+    env:
+      # Pinned together with scripts/build-libbox.mjs; bump both deliberately.
+      LIBBOX_VERSION: "1.13.19"
+      NDK_VERSION: "28.2.13676358"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install Android NDK
+        run: |
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;$NDK_VERSION" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # gomobile compiles the whole of sing-box for every ABI — ~20 minutes.
+      # The AAR only changes when the pinned version does, so cache it by key.
+      - name: Cache libbox
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/gen/android/app/libs/libbox.aar
+          key: libbox-${{ env.LIBBOX_VERSION }}-api23
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build libbox
+        run: node scripts/build-libbox.mjs "$LIBBOX_VERSION"
+
+      # Real signing when the secrets exist; the debug key otherwise, so a fork
+      # without secrets still gets an installable artifact.
+      - name: Configure signing
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            echo "$ANDROID_KEYSTORE" | base64 -d > src-tauri/gen/android/keystore.jks
+            {
+              echo "storeFile=../keystore.jks"
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyAlias=$ANDROID_KEY_ALIAS"
+              echo "keyPassword=$ANDROID_KEY_PASSWORD"
+            } > src-tauri/gen/android/app/keystore.properties
+            echo "Release keystore configured."
+          else
+            echo "No ANDROID_KEYSTORE secret — falling back to the debug key."
+          fi
+
+      - name: Build APKs
+        run: npm run tauri android build -- --apk --split-per-abi
+
+      # Tauri's per-abi flavors are named arm64 / arm / x86_64 / x86.
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p upload
+          find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk' -print
+          for f in $(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk'); do
+            name=$(basename "$f")
+            case "$name" in
+              *x86_64*) cp "$f" "upload/AuroraVPN-${VER}-android-x64.apk" ;;
+              *arm64*)  cp "$f" "upload/AuroraVPN-${VER}-android-arm64.apk" ;;
+              *arm*)    cp "$f" "upload/AuroraVPN-${VER}-android-arm32.apk" ;;
+            esac
+          done
+          ls -la upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: upload/*
+          if-no-files-found: error
+
   # A single job publishes everything at once, so four parallel uploads never
   # race each other creating the release.
+  #
+  # The Android job is still the newest of the set: a failure there skips the
+  # APK row of the table but must not hold the desktop release hostage.
   publish:
-    needs: build
+    needs: [build, build-android]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -126,7 +230,7 @@ jobs:
             [ -n "$3" ] && logo="&logo=$3&logoColor=white"
             echo -n "[![](https://img.shields.io/badge/${1}-${2}?style=for-the-badge${logo})](${BASE}/${4}) "
           }
-          WIN="" LINUX="" MAC=""
+          WIN="" LINUX="" MAC="" ANDROID=""
           for f in $(ls artifacts); do
             case "$f" in
               *windows-x64-setup.exe) WIN+="$(badge 'Установщик_x64' '0078d4' '' "$f")" ;;
@@ -135,6 +239,9 @@ jobs:
               *linux-x64.rpm)         LINUX+="$(badge 'RPM_x64' '294172' 'fedora' "$f")" ;;
               *macos-arm64.dmg)       MAC+="$(badge 'DMG_Apple_Silicon' '000000' 'apple' "$f")" ;;
               *macos-x64.dmg)         MAC+="$(badge 'DMG_Intel' '4a4a4a' 'apple' "$f")" ;;
+              *android-arm64.apk)     ANDROID+="$(badge 'APK_arm64' '3ddc84' 'android' "$f")" ;;
+              *android-arm32.apk)     ANDROID+="$(badge 'APK_arm32' '6f9c3d' 'android' "$f")" ;;
+              *android-x64.apk)       ANDROID+="$(badge 'APK_x64' '9aa0a6' 'android' "$f")" ;;
             esac
           done
           {
@@ -142,15 +249,17 @@ jobs:
             echo ""
             echo "| Система | Загрузка |"
             echo "| --- | --- |"
-            [ -n "$WIN" ]   && echo "| **Windows 10/11** | $WIN|"
-            [ -n "$LINUX" ] && echo "| **Linux** | $LINUX|"
-            [ -n "$MAC" ]   && echo "| **macOS** | $MAC|"
+            [ -n "$WIN" ]     && echo "| **Windows 10/11** | $WIN|"
+            [ -n "$ANDROID" ] && echo "| **Android 7+** | $ANDROID|"
+            [ -n "$LINUX" ]   && echo "| **Linux** | $LINUX|"
+            [ -n "$MAC" ]     && echo "| **macOS** | $MAC|"
             echo ""
             echo "**Windows** обновляется сам: при выходе новой версии кнопка появляется в приложении слева внизу."
+            echo "**Android**: современным телефонам нужен APK_arm64; arm32 — для старых моделей, x64 — для эмуляторов."
             echo "**macOS**: образ не подписан — при первом запуске правый клик → «Открыть»."
             echo "**Linux**: TUN-режим требует запуска с правами root; AppImage сделайте исполняемым (\`chmod +x\`)."
             echo ""
-            echo "Контрольные суммы sha256 — в списке Assets ниже. Android — в работе: [#2](https://github.com/${GITHUB_REPOSITORY}/issues/2)."
+            echo "Контрольные суммы sha256 — в списке Assets ниже."
             echo ""
             echo "---"
             echo ""

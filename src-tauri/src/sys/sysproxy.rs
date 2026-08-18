@@ -5,6 +5,10 @@
 //! forced logoff — an in-memory snapshot dies with it and the user's own proxy
 //! configuration is lost for good.
 
+// Android is TUN-only; the module stays compiled (callers reference it from
+// shared code paths) but nothing here ever runs.
+#![cfg_attr(target_os = "android", allow(dead_code))]
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

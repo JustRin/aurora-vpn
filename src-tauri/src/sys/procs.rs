@@ -1,9 +1,11 @@
 //! Enumerates running applications so the split-tunnelling picker can offer real
 //! choices instead of asking the user to type executable names from memory.
 
+#[cfg(not(target_os = "android"))]
 use std::collections::HashMap;
 
 use serde::Serialize;
+#[cfg(not(target_os = "android"))]
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +22,7 @@ pub struct RunningApp {
 
 /// Heuristic: binaries living under the Windows directory are OS plumbing rather
 /// than something a user would knowingly route.
+#[cfg(not(target_os = "android"))]
 fn looks_like_system(path: &str) -> bool {
     let lower = path.to_lowercase();
     lower.starts_with("c:\\windows\\")
@@ -27,6 +30,11 @@ fn looks_like_system(path: &str) -> bool {
         || lower.starts_with("/system/")
 }
 
+// On Android the split-tunnel picker asks the Kotlin side for installed
+// packages instead (`commands::list_running_apps`) — only the payload struct
+// above is shared.
+
+#[cfg(not(target_os = "android"))]
 pub fn running_apps(include_system: bool) -> Vec<RunningApp> {
     let mut sys = System::new();
     sys.refresh_processes_specifics(

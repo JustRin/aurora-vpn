@@ -83,7 +83,7 @@ pub async fn ensure(specs: &[Spec], dir: &Path) -> Outcome {
         return Outcome { available, failures };
     }
 
-    let client = reqwest::Client::builder()
+    let client = crate::net::http_builder()
         .timeout(DOWNLOAD_TIMEOUT)
         // The tunnel is not up yet, and a half-configured system proxy would
         // deadlock this fetch.

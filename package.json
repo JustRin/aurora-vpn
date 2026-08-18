@@ -13,6 +13,7 @@
     "app": "tauri dev",
     "app:build": "tauri build",
     "fetch-core": "node scripts/fetch-core.mjs",
+    "libbox": "node scripts/build-libbox.mjs",
     "icons": "python scripts/make-icon.py src-tauri/app-icon.png && tauri icon src-tauri/app-icon.png -o src-tauri/icons",
     "test:core": "cargo test --manifest-path src-tauri/Cargo.toml"
   },

@@ -5,7 +5,9 @@ dist-ssr/
 
 # Rust / Tauri
 src-tauri/target/
-src-tauri/gen/
+# The Android project under gen/android IS tracked (Kotlin service, manifest,
+# gradle); only regenerated schema dumps stay out.
+src-tauri/gen/schemas/
 
 # Bundled core binaries are large; fetch them with scripts/fetch-core.mjs
 src-tauri/binaries/*
