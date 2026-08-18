@@ -212,6 +212,10 @@ jobs:
     needs: [build, build-android]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    # `secrets` is not allowed inside step-level `if`; mirroring the token into
+    # the job environment is the sanctioned way to gate steps on its presence.
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -224,7 +228,7 @@ jobs:
       # SmartScreen «неопознанное приложение» warning goes away.
       - name: Stage unsigned installer for signing
         id: unsigned
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-unsigned
@@ -232,7 +236,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign Windows installer
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
         uses: signpath/github-action-submit-signing-request@v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -244,7 +248,7 @@ jobs:
           output-artifact-directory: signed
 
       - name: Replace installer with the signed one
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
         shell: bash
         run: |
           for f in signed/*-setup.exe; do
