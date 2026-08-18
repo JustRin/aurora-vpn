@@ -786,11 +786,34 @@ pub async fn set_clash_mode(app: AppHandle, mode: String) -> Result<()> {
 
 // ---------------------------------------------------------------- servers
 
+/// Split pasted import text into node-link material and subscription URLs.
+///
+/// Pasting the panel's subscription URL into the «Добавить» box is the natural
+/// first move, so http(s) lines are routed into the subscription flow instead
+/// of being refused with «протокол не поддерживается».
+fn split_import_text(text: &str) -> (String, Vec<String>) {
+    let mut sub_urls: Vec<String> = Vec::new();
+    let mut plain = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            sub_urls.push(trimmed.to_string());
+        } else {
+            plain.push_str(line);
+            plain.push('\n');
+        }
+    }
+    (plain, sub_urls)
+}
+
 #[tauri::command]
 pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
-    let report = link::parse_subscription(&text);
+    let (plain, sub_urls) = split_import_text(&text);
+
+    let report = link::parse_subscription(&plain);
     let mut added = 0;
     let mut skipped = 0;
+    let mut errors = report.errors;
 
     {
         let state = app.state::<AppState>();
@@ -810,10 +833,42 @@ pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
     }
 
     emit_nodes(&app);
+
+    for url in sub_urls {
+        // A panel that is already registered just refreshes — pasting the
+        // same URL twice must not produce a second identical subscription.
+        let known = {
+            let state = app.state::<AppState>();
+            let subs = state.subs.read();
+            subs.iter().find(|s| s.url == url).map(|s| s.id.clone())
+        };
+        let result = match known {
+            Some(id) => refresh_subscription(app.clone(), id).await,
+            None => {
+                add_subscription(
+                    app.clone(),
+                    SubInput {
+                        name: String::new(),
+                        url: url.clone(),
+                    },
+                )
+                .await
+            }
+        };
+        match result {
+            Ok(sub) => {
+                added += sub.added;
+                skipped += sub.skipped;
+                errors.extend(sub.errors);
+            }
+            Err(e) => errors.push((url, e.to_string())),
+        }
+    }
+
     Ok(ImportReport {
         added,
         skipped,
-        errors: report.errors,
+        errors,
     })
 }
 
@@ -1607,8 +1662,24 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{installer_suffix, parse_version, pick_installer_url};
+    use super::{installer_suffix, parse_version, pick_installer_url, split_import_text};
     use serde_json::json;
+
+    #[test]
+    fn subscription_urls_are_split_from_node_links() {
+        let text = "vless://uuid@host:443?type=tcp#node\n  https://panel.example:2096/subs/token  \nмусор\nhttp://plain.example/sub";
+        let (plain, urls) = split_import_text(text);
+        assert_eq!(
+            urls,
+            vec![
+                "https://panel.example:2096/subs/token".to_string(),
+                "http://plain.example/sub".to_string(),
+            ]
+        );
+        assert!(plain.contains("vless://uuid@host:443"));
+        assert!(plain.contains("мусор"));
+        assert!(!plain.contains("panel.example"));
+    }
 
     #[test]
     fn version_ordering_survives_prefixes_and_suffixes() {

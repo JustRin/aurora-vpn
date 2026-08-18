@@ -355,7 +355,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <Field
         label="Ссылки"
-        hint="По одной на строку. Поддерживаются vless://, vmess://, trojan://, ss://, hysteria2://, tuic:// — а также base64-блок подписки целиком."
+        hint="По одной на строку. Поддерживаются vless://, vmess://, trojan://, ss://, hysteria2://, tuic://, base64-блок подписки целиком — а http(s)-ссылка на подписку добавится в «Подписки» и будет обновляться сама."
       >
         <textarea
           className="textarea"
