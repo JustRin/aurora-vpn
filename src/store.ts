@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { create } from "zustand";
 
 import {
@@ -54,6 +55,7 @@ interface AppStore {
   traffic: Traffic;
   latency: LatencyMap;
   coreVersion: string;
+  appVersion: string;
   autostart: AutostartMode;
 
   logs: LogLine[];
@@ -113,6 +115,7 @@ export const useStore = create<AppStore>((set, get) => ({
   traffic: { upload: 0, download: 0, upSpeed: 0, downSpeed: 0, connections: 0 },
   latency: {},
   coreVersion: "",
+  appVersion: "",
   autostart: "off",
 
   logs: [],
@@ -121,6 +124,11 @@ export const useStore = create<AppStore>((set, get) => ({
   busy: {},
 
   async init() {
+    // Independent of the snapshot: a failure here must not block start-up,
+    // it only leaves the version rows empty.
+    void getVersion()
+      .then((appVersion) => set({ appVersion }))
+      .catch(() => {});
     try {
       // A hung IPC call must surface as a diagnosable error, never as an
       // indefinite splash screen.

@@ -4,6 +4,7 @@ import {
   Cpu,
   Download,
   Gauge,
+  Info,
   ListTree,
   ScrollText,
   Server,
@@ -159,6 +160,7 @@ export function Sidebar({
   const t = useT();
   const nodeCount = useStore((s) => s.nodes.length);
   const coreVersion = useStore((s) => s.coreVersion);
+  const appVersion = useStore((s) => s.appVersion);
   const elevated = useStore((s) => s.status.elevated);
 
   return (
@@ -182,6 +184,12 @@ export function Sidebar({
 
       <UpdateBadge />
       <div className="sidebar-footer">
+        <div className="core-line">
+          <Info size={13} />
+          <span className="truncate" title={t("side.appVersion")}>
+            {appVersion ? `Aurora VPN ${appVersion}` : "Aurora VPN"}
+          </span>
+        </div>
         <div className="core-line">
           <Cpu size={13} />
           <span className="truncate" title={coreVersion}>

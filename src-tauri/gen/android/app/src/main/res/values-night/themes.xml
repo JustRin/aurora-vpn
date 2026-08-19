@@ -1,6 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.aurora_vpn" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- The web app's dark background: shown at startup before the
+             WebView paints, and in the inset strips around it. -->
+        <item name="android:windowBackground">#0a0c12</item>
     </style>
 </resources>

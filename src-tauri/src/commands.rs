@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::core::clash::ClashApi;
 use crate::core::config::{self, BuildInput, TAG_PROXY};
@@ -1550,7 +1551,12 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
     }
 
     if !(cfg!(windows) && url.ends_with("-setup.exe")) {
-        return tauri_plugin_opener::open_url(url, None::<&str>)
+        // Through the app handle, not the standalone helper: the helper shells
+        // out to xdg-open & co., which do not exist on Android (os error 2) —
+        // the plugin routes this through an Intent instead.
+        return app
+            .opener()
+            .open_url(url, None::<&str>)
             .map_err(|e| AppError::msg(format!("не удалось открыть страницу загрузки: {e}")));
     }
 

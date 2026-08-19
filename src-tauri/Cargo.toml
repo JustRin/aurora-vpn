@@ -1,6 +1,8 @@
 [package]
 name = "aurora-vpn"
-version = "0.1.6"
+# Placeholder — the app version users see lives in ../package.json;
+# tauri.conf.json points its `version` field there.
+version = "0.0.0"
 description = "VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box"
 authors = ["Aurora VPN"]
 edition = "2021"

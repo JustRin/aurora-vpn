@@ -34,6 +34,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The app self-reports the version from package.json (tauri.conf.json
+      # points there), so a tag that disagrees with it would ship an installer
+      # that keeps offering itself as an update. Refuse to build one.
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          PKG="$(node -p 'require("./package.json").version')"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag is v${TAG} but package.json says ${PKG} — bump package.json before tagging"
+            exit 1
+          fi
+
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
@@ -111,6 +125,17 @@ jobs:
       NDK_VERSION: "28.2.13676358"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          PKG="$(node -p 'require("./package.json").version')"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag is v${TAG} but package.json says ${PKG} — bump package.json before tagging"
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:

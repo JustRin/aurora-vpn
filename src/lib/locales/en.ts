@@ -24,6 +24,7 @@ export const en: Record<keyof typeof ru, string> = {
   "side.noCore": "core not found",
   "side.admin": "administrator rights",
   "side.user": "regular rights",
+  "side.appVersion": "installed app version",
 
   // ------------------------------------------------------------------ toasts
   "toast.backendTimeout": "{label}: the backend did not answer within {s} s",
@@ -49,6 +50,8 @@ export const en: Record<keyof typeof ru, string> = {
   "set.subtitle":
     "Changes apply immediately; with an active connection the core restarts automatically.",
   "set.dataFolder": "Data folder",
+  "set.tabCore": "Core",
+  "set.tabClient": "Client",
   "set.autostartFailed": "Failed to change autostart",
 
   "set.tunnelSection": "Tunnel",
@@ -134,6 +137,9 @@ export const en: Record<keyof typeof ru, string> = {
   "set.closeToTray": "Closing the window minimizes to tray",
   "set.closeToTrayDesc":
     "Off — the close button quits completely and drops the connection.",
+  "set.aboutSection": "About",
+  "set.appVersion": "App version",
+  "set.coreVersion": "Core",
 
   // -------------------------------------------------------------- formatters
   "fmt.byteUnits": "B|KB|MB|GB|TB",
