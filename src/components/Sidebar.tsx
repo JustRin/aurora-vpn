@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Cpu,
@@ -150,6 +150,58 @@ const ITEMS: { id: PageId; labelKey: MsgKey; icon: typeof Gauge }[] = [
   { id: "settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
 
+type Pill = { x: number; y: number; w: number; h: number };
+
+/** Geometry of the active row, for the pill that slides between them.
+ * The first placement lands without a transition: on open the selection is
+ * already home, it does not fly in from the corner. */
+function useNavPill(page: PageId) {
+  const navRef = useRef<HTMLElement>(null);
+  const [pill, setPill] = useState<Pill | null>(null);
+  const [placed, setPlaced] = useState(false);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const el = nav?.querySelector<HTMLElement>(".nav-item.active");
+    if (!nav || !el) return;
+    const measure = () => {
+      const next = {
+        x: el.offsetLeft,
+        y: el.offsetTop,
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+      };
+      // Identical numbers must not re-render: the observer below would
+      // otherwise see its own write and loop.
+      setPill((prev) =>
+        prev &&
+        prev.x === next.x &&
+        prev.y === next.y &&
+        prev.w === next.w &&
+        prev.h === next.h
+          ? prev
+          : next,
+      );
+    };
+    measure();
+    // The rows move under us on a window resize, across the phone breakpoint,
+    // and when a translation changes how wide a label sits.
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [page]);
+
+  useEffect(() => {
+    if (!pill || placed) return;
+    // One frame parked at the starting position, then transitions may run.
+    const frame = requestAnimationFrame(() => setPlaced(true));
+    return () => cancelAnimationFrame(frame);
+  }, [pill, placed]);
+
+  return { navRef, pill, placed };
+}
+
 export function Sidebar({
   page,
   onNavigate,
@@ -162,10 +214,24 @@ export function Sidebar({
   const coreVersion = useStore((s) => s.coreVersion);
   const appVersion = useStore((s) => s.appVersion);
   const elevated = useStore((s) => s.status.elevated);
+  const { navRef, pill, placed } = useNavPill(page);
 
   return (
     <aside className="sidebar">
-      <nav className="nav">
+      <nav className="nav" ref={navRef}>
+        {/* The active row's backdrop lives out here rather than on the button,
+         * so switching pages slides one element instead of repainting two. */}
+        {pill && (
+          <span
+            aria-hidden="true"
+            className={`nav-pill${placed ? " sliding" : ""}`}
+            style={{
+              transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
+              width: pill.w,
+              height: pill.h,
+            }}
+          />
+        )}
         {ITEMS.map(({ id, labelKey, icon: Icon }) => (
           <button
             key={id}
