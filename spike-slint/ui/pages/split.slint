@@ -1,0 +1,208 @@
+// Страница «Раздельный туннель» и выбор запущенных приложений — SplitTunnel.tsx.
+
+import { Theme, Icons, SectionTitle, Segmented, NavIcon } from "../theme.slint";
+import {
+    Btn, IconBtn, Input, Switch, Empty, Alert, ScrollArea, ModalShell, ModalFoot
+} from "../widgets.slint";
+import { AppRow, ProcRow } from "../cards.slint";
+import { Data, Conf, Ui } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+export component SplitPage inherits ScrollArea {
+    pad: 28px;
+
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.nav-split;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Str.split-subtitle;
+                color: Theme.text-muted;
+                font-size: 12.5px;
+                wrap: word-wrap;
+            }
+        }
+        // .split-mode-head: переключатель режима и пояснение под ним, прижатые
+        // к правому краю — единственное решение верхнего уровня на странице.
+        VerticalLayout {
+            spacing: 7px;
+            max-width: 400px;
+            alignment: start;
+            HorizontalLayout {
+                alignment: end;
+                Segmented {
+                    options: [Str.split-mode-off, Str.split-mode-include, Str.split-mode-exclude];
+                    selected <=> Conf.split-mode;
+                }
+            }
+            Text {
+                text: Conf.split-mode == 0
+                    ? Str.split-mode-off-help
+                    : (Conf.split-mode == 1
+                        ? Str.split-mode-include-help
+                        : Str.split-mode-exclude-help);
+                horizontal-alignment: right;
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    if Conf.tunnel-mode != 0: VerticalLayout {
+        Alert {
+            icon: Icons.split;
+            title: Str.split-tun-only-title;
+            text: Str.split-tun-only-text;
+        }
+        Rectangle { height: 18px; }
+    }
+
+    SectionTitle { text: "\{Str.split-apps-caps} (\{Data.apps.length})"; }
+    Rectangle { height: 12px; }
+
+    HorizontalLayout {
+        spacing: 10px;
+        Btn {
+            label: Str.split-add-from-running;
+            icon: Icons.plus;
+            kind: "primary";
+            clicked => {
+                Ui.proc-query = "";
+                Ui.proc-selected = 0;
+                Ui.modal = 3;
+                Data.load-procs();
+            }
+        }
+        Btn {
+            label: Str.split-pick-exe;
+            icon: Icons.folder-open;
+            clicked => { Data.pick-exe(); }
+        }
+        Rectangle { }
+        if Data.apps.length > 0: Btn {
+            label: Str.split-clear-list;
+            kind: "ghost";
+            small: true;
+            clicked => { Data.clear-apps(); }
+        }
+    }
+    Rectangle { height: 12px; }
+
+    if Data.apps.length == 0: Empty {
+        icon: Icons.split;
+        title: Str.split-empty-title;
+        text: Str.split-empty-text;
+    }
+
+    if Data.apps.length > 0: VerticalLayout {
+        spacing: 8px;
+        for app[i] in Data.apps: AppRow {
+            app: app;
+            toggled(on) => {
+                Data.apps[i].enabled = on;
+                Data.toggle-app(i, on);
+            }
+            remove => { Data.remove-app(i); }
+        }
+    }
+}
+
+// Диалог «Запущенные приложения» — ProcessPicker из SplitTunnel.tsx.
+export component ProcessPickerModal inherits ModalShell {
+    title: Str.split-running-apps;
+    wide: true;
+    close => { Ui.modal = 0; }
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+        vertical-stretch: 0;
+
+        HorizontalLayout {
+            spacing: 10px;
+            Rectangle {
+                horizontal-stretch: 1;
+                Input {
+                    pad-left: 31px;
+                    text <=> Ui.proc-query;
+                    placeholder: Str.split-search-placeholder;
+                    edited(text) => { Data.filter-procs(); }
+                }
+                NavIcon {
+                    x: 10px;
+                    y: (parent.height - self.height) / 2;
+                    width: 14px;
+                    height: 14px;
+                    commands: Icons.search;
+                    tint: Theme.text-muted;
+                }
+            }
+            IconBtn {
+                icon: Icons.refresh;
+                clicked => { Data.load-procs(); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Switch {
+                checked <=> Ui.proc-system;
+                toggled(on) => { Data.load-procs(); }
+            }
+            Text {
+                text: Str.split-show-system-procs;
+                vertical-alignment: center;
+                font-size: 12.5px;
+                color: Theme.text-dim;
+            }
+        }
+    }
+
+    // Список занимает всё, что осталось от высоты диалога, и прокручивается.
+    ScrollArea {
+        pad-left: 18px;
+        pad-right: 18px;
+        pad-bottom: 18px;
+        content-spacing: 8px;
+        min-height: 120px;
+        if Data.procs.length == 0: Text {
+            text: Ui.proc-loading ? Str.app-loading : Str.split-nothing-found;
+            horizontal-alignment: center;
+            color: Theme.text-muted;
+            font-size: 13px;
+        }
+        for proc[i] in Data.procs: ProcRow {
+            proc: proc;
+            toggle => {
+                // Счётчик считается по старому значению — флаг переворачивается
+                // строкой ниже.
+                Ui.proc-selected = Ui.proc-selected + (proc.selected ? -1 : 1);
+                Data.procs[i].selected = !proc.selected;
+            }
+        }
+    }
+
+    ModalFoot {
+        Btn {
+            label: Str.srv-cancel;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: "\{Str.srv-add-btn} (\{Ui.proc-selected})";
+            kind: "primary";
+            enabled: Ui.proc-selected > 0;
+            clicked => { Data.add-selected-procs(); }
+        }
+    }
+}

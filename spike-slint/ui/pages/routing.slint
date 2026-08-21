@@ -1,0 +1,174 @@
+// Страница «Маршрутизация» и предпросмотр конфига — Routing.tsx.
+
+import { Theme, Icons, Card, SectionTitle, Divider } from "../theme.slint";
+import {
+    Btn, Field, TextArea, ToggleRow, ScrollArea, ModalShell, ModalFoot
+} from "../widgets.slint";
+import { Data, Conf, Ui } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+export component RoutingPage inherits ScrollArea {
+    pad: 28px;
+
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.nav-routing;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Str.route-subtitle;
+                color: Theme.text-muted;
+                font-size: 12.5px;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                label: Str.route-show-config;
+                icon: Icons.file-json;
+                clicked => { Data.preview-config(); }
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    SectionTitle { text: Str.route-presets-caps; }
+    Rectangle { height: 12px; }
+    Card {
+        ToggleRow {
+            label: Str.route-bypass-lan;
+            desc: Str.route-bypass-lan-desc;
+            checked <=> Conf.bypass-private;
+        }
+        Divider { }
+        ToggleRow {
+            label: Str.route-bypass-ru;
+            desc: Str.route-bypass-ru-desc;
+            checked <=> Conf.bypass-ru;
+        }
+        Divider { }
+        ToggleRow {
+            label: Str.route-bypass-cn;
+            desc: Str.route-bypass-cn-desc;
+            checked <=> Conf.bypass-cn;
+        }
+        Divider { }
+        ToggleRow {
+            label: Str.route-block-ads;
+            desc: Str.route-block-ads-desc;
+            checked <=> Conf.block-ads;
+        }
+    }
+
+    Rectangle { height: 30px; }
+    SectionTitle { text: Str.route-custom-rules-caps; }
+    Rectangle { height: 12px; }
+
+    // .grid-2: два столбца по 240px минимум — при ширине окна от 960 это
+    // ровно две колонки, поэтому списки разложены парами.
+    HorizontalLayout {
+        spacing: 14px;
+        Field {
+            label: Str.route-direct-domains;
+            hint: Str.route-direct-domains-hint;
+            horizontal-stretch: 1;
+            TextArea {
+                text <=> Conf.direct-domains;
+                placeholder: "gosuslugi.ru\nsberbank.ru";
+            }
+        }
+        Field {
+            label: Str.route-proxy-domains;
+            hint: Str.route-proxy-domains-hint;
+            horizontal-stretch: 1;
+            TextArea {
+                text <=> Conf.proxy-domains;
+                placeholder: "youtube.com\nopenai.com";
+            }
+        }
+    }
+    Rectangle { height: 14px; }
+    HorizontalLayout {
+        spacing: 14px;
+        Field {
+            label: Str.route-direct-ips;
+            hint: Str.route-direct-ips-hint;
+            horizontal-stretch: 1;
+            TextArea {
+                text <=> Conf.direct-ips;
+                placeholder: "192.168.1.0/24\n1.2.3.4";
+            }
+        }
+        Field {
+            label: Str.route-proxy-ips;
+            hint: Str.route-proxy-ips-hint;
+            horizontal-stretch: 1;
+            TextArea { text <=> Conf.proxy-ips; }
+        }
+    }
+    Rectangle { height: 14px; }
+    HorizontalLayout {
+        spacing: 14px;
+        Field {
+            label: Str.route-block-domains;
+            hint: Str.route-block-domains-hint;
+            horizontal-stretch: 1;
+            TextArea {
+                text <=> Conf.block-domains;
+                placeholder: "ads.example.com";
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+}
+
+// Предпросмотр собранной конфигурации sing-box.
+export component ConfigModal inherits ModalShell {
+    title: Str.route-config-title;
+    wide: true;
+    close => { Ui.modal = 0; }
+
+    // Конфиг длиннее окна, поэтому лежит в прокручиваемой области. Здесь Text,
+    // а не поле ввода: у TextInput высота не следует за числом строк, и вся
+    // разметка ниже первого экрана просто обрезалась бы.
+    ScrollArea {
+        pad: 18px;
+        vertical-stretch: 1;
+        min-height: 200px;
+        Rectangle {
+            background: Theme.sunken-deep;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            VerticalLayout {
+                padding: 12px;
+                Text {
+                    text: Ui.config-text;
+                    font-family: Theme.mono-font;
+                    font-size: 12px;
+                    color: Theme.log-text;
+                }
+            }
+        }
+    }
+
+    ModalFoot {
+        Btn {
+            label: Str.route-copy;
+            clicked => { Data.notify("success", Str.route-copied); }
+        }
+        Btn {
+            label: Str.route-close;
+            kind: "primary";
+            clicked => { Ui.modal = 0; }
+        }
+    }
+}

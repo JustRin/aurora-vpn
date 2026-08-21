@@ -1,0 +1,441 @@
+// Строки и карточки, привязанные к данным: подписка, сервер, приложение.
+// В вебе это SubscriptionCard.tsx и классы .node/.app-row из styles.css.
+
+import { Theme, Icons, Card, NavIcon, MicroRow } from "theme.slint";
+import { IconBtn, Chip, Dot, Meter, Switch, RoundRect } from "widgets.slint";
+import { ServerNode, SubInfo, AppRule, RunningApp } from "data.slint";
+import { Str } from "i18n.slint";
+
+// .sub-card: остаток срока и трафика по данным панели.
+export component SubCard inherits Card {
+    in property <SubInfo> sub;
+    in property <bool> deletable;
+    callback refresh();
+    callback remove();
+    pad-x: 18px;
+    pad-y: 16px;
+    gap: 12px;
+
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: Icons.rss;
+                tint: Theme.text-muted;
+                width: 15px;
+                height: 15px;
+            }
+        }
+        Text {
+            text: root.sub.name;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+            font-size: 13.5px;
+            font-weight: 550;
+            color: Theme.text;
+        }
+        if root.deletable: IconBtn {
+            icon: Icons.trash;
+            ghost: true;
+            compact: true;
+            clicked => { root.remove(); }
+        }
+        IconBtn {
+            icon: Icons.refresh;
+            ghost: true;
+            compact: true;
+            clicked => { root.refresh(); }
+        }
+    }
+
+    if root.sub.has-usage: HorizontalLayout {
+        spacing: 14px;
+        VerticalLayout {
+            spacing: 8px;
+            horizontal-stretch: 1;
+            MicroRow {
+                icon: Icons.calendar-clock;
+                label: Str.srv-remaining-caps;
+            }
+            Text {
+                text: root.sub.expiry;
+                font-size: 19px;
+                font-weight: 660;
+                letter-spacing: -0.4px;
+                overflow: elide;
+                color: root.sub.expiry-tier == "bad"
+                    ? Theme.danger
+                    : (root.sub.expiry-tier == "ok"
+                        ? Theme.warn
+                        : (root.sub.expiry-tier == "good" ? Theme.ok : Theme.text));
+            }
+        }
+        VerticalLayout {
+            spacing: 8px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                alignment: end;
+                Text {
+                    text: Str.srv-traffic-label-caps;
+                    font-size: 10.5px;
+                    font-weight: 640;
+                    letter-spacing: 1px;
+                    color: Theme.text-muted;
+                }
+            }
+            Text {
+                text: root.sub.traffic;
+                horizontal-alignment: right;
+                font-size: 19px;
+                font-weight: 660;
+                letter-spacing: -0.4px;
+                overflow: elide;
+                color: Theme.text;
+            }
+        }
+    }
+    if root.sub.has-usage: Meter {
+        value: root.sub.used;
+        tier: root.sub.used >= 1.0 ? "bad" : (root.sub.used > 0.85 ? "ok" : "");
+    }
+    if !root.sub.has-usage: Text {
+        text: Str.srv-no-usage-info;
+        font-size: 10.5px;
+        font-weight: 640;
+        letter-spacing: 1px;
+        color: Theme.text-muted;
+    }
+    if root.sub.warning != "": Text {
+        text: root.sub.warning;
+        font-size: 12px;
+        color: Theme.danger;
+        wrap: word-wrap;
+    }
+
+    Text {
+        text: root.sub.foot;
+        font-size: 11.5px;
+        color: Theme.text-muted;
+        overflow: elide;
+    }
+}
+
+// .node: строка сервера в списке.
+export component NodeRow inherits Rectangle {
+    in property <ServerNode> node;
+    in property <bool> active;
+    callback select();
+    callback copy-link();
+    callback edit();
+    callback remove();
+
+    height: 62px;
+    vertical-stretch: 0;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.active ? Theme.accent : Theme.border;
+    background: touch.has-hover && !root.active ? Theme.panel-hover : Theme.panel;
+    animate background { duration: 130ms; }
+    drop-shadow-blur: root.active ? 20px : 0px;
+    drop-shadow-color: root.active ? Theme.accent.transparentize(0.6) : #00000000;
+
+    // Подсветка выбранной строки. В вебе это градиент, здесь — ровная
+    // заливка: полупрозрачный Path на софтверном рендере копится слоями при
+    // частичной перерисовке (подробнее — в NavItem).
+    if root.active: Rectangle {
+        border-radius: 12px;
+        background: Theme.accent-soft;
+    }
+    Rectangle {
+        x: 12px;
+        y: 1px;
+        width: parent.width - 24px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+
+    touch := TouchArea {
+        clicked => { root.select(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 13px;
+
+        // .node-radio
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: root.active ? Theme.accent : Theme.border-strong;
+                if root.active: Rectangle {
+                    x: 4px;
+                    y: 4px;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: Theme.accent;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.node.name;
+                overflow: elide;
+                font-size: 13.5px;
+                font-weight: 550;
+                color: Theme.text;
+            }
+            HorizontalLayout {
+                spacing: 7px;
+                alignment: start;
+                Chip { label: root.node.proto; }
+                if root.node.country != "": Text {
+                    text: root.node.country;
+                    vertical-alignment: center;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                    color: Theme.text-dim;
+                }
+                if root.node.country != "": Text {
+                    text: "·";
+                    vertical-alignment: center;
+                    font-size: 11.5px;
+                    color: Theme.text-muted;
+                }
+                Text {
+                    text: root.node.transport;
+                    vertical-alignment: center;
+                    font-size: 11.5px;
+                    color: Theme.text-muted;
+                }
+                Text {
+                    text: "·";
+                    vertical-alignment: center;
+                    font-size: 11.5px;
+                    color: Theme.text-muted;
+                }
+                Text {
+                    text: root.node.address;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    font-size: 11.5px;
+                    color: Theme.text-muted;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Dot { tier: root.node.tier; }
+        }
+        VerticalLayout {
+            alignment: center;
+            min-width: 52px;
+            Text {
+                text: root.node.latency;
+                horizontal-alignment: right;
+                font-size: 12px;
+                color: Theme.text-dim;
+            }
+        }
+
+        // .node-actions: проявляются под курсором.
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 4px;
+                opacity: touch.has-hover || copy-btn.hovered || edit-btn.hovered || del-btn.hovered
+                    ? 1.0 : 0.0;
+                animate opacity { duration: 130ms; }
+                copy-btn := IconBtn {
+                    icon: Icons.copy;
+                    ghost: true;
+                    clicked => { root.copy-link(); }
+                }
+                edit-btn := IconBtn {
+                    icon: Icons.pencil;
+                    ghost: true;
+                    clicked => { root.edit(); }
+                }
+                del-btn := IconBtn {
+                    icon: Icons.trash;
+                    ghost: true;
+                    clicked => { root.remove(); }
+                }
+            }
+        }
+    }
+}
+
+// .app-icon: настоящая иконка программы, а пока её не добыли (или если её у
+// файла нет) — квадрат с первой буквой имени процесса.
+export component AppIcon inherits Rectangle {
+    in property <string> letter;
+    in property <image> icon;
+    width: 30px;
+    height: 30px;
+    // Иконка приходит из Rust ровно в тех физических пикселях, которыми и
+    // будет нарисована, поэтому масштабировать её здесь нечем и незачем —
+    // почему именно так, в src/icons.rs.
+    if root.icon.width > 0: Image {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        source: root.icon;
+        image-fit: fill;
+    }
+    if root.icon.width == 0: RoundRect {
+        radius: 8px;
+        fill: @linear-gradient(135deg, Theme.avatar-from 0%, Theme.avatar-to 100%);
+    }
+    if root.icon.width == 0: Text {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        text: root.letter;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 13px;
+        font-weight: 650;
+        color: Theme.text-dim;
+    }
+}
+
+// .app-row: приложение в списке раздельного туннеля.
+export component AppRow inherits Rectangle {
+    in property <AppRule> app;
+    callback toggled(bool);
+    callback remove();
+    height: 50px;
+    vertical-stretch: 0;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: Theme.panel;
+    Rectangle {
+        x: 10px;
+        y: 1px;
+        width: parent.width - 20px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            AppIcon { letter: root.app.initial; icon: root.app.icon; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.app.name;
+                overflow: elide;
+                font-size: 13.5px;
+                font-weight: 550;
+                color: Theme.text;
+            }
+            Text {
+                text: root.app.path == "" ? Str.split-match-by-name : root.app.path;
+                overflow: elide;
+                font-size: 11.5px;
+                color: Theme.text-muted;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Switch {
+                checked: root.app.enabled;
+                toggled(on) => { root.toggled(on); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconBtn {
+                icon: Icons.trash;
+                ghost: true;
+                clicked => { root.remove(); }
+            }
+        }
+    }
+}
+
+// Строка списка «Запущенные приложения»: та же .app-row, но с выбором.
+export component ProcRow inherits Rectangle {
+    in property <RunningApp> proc;
+    callback toggle();
+    height: 50px;
+    vertical-stretch: 0;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.proc.selected ? Theme.accent : Theme.border;
+    background: touch.has-hover && !root.proc.added ? Theme.panel-hover : Theme.panel;
+    opacity: root.proc.added ? 0.5 : 1.0;
+    animate background { duration: 130ms; }
+    Rectangle {
+        x: 10px;
+        y: 1px;
+        width: parent.width - 20px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+    touch := TouchArea {
+        enabled: !root.proc.added;
+        clicked => { root.toggle(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            AppIcon { letter: root.proc.initial; icon: root.proc.icon; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.proc.name;
+                overflow: elide;
+                font-size: 13.5px;
+                font-weight: 550;
+                color: Theme.text;
+            }
+            Text {
+                text: root.proc.path;
+                overflow: elide;
+                font-size: 11.5px;
+                color: Theme.text-muted;
+            }
+        }
+        if root.proc.instances != "": VerticalLayout {
+            alignment: center;
+            Chip { label: root.proc.instances; }
+        }
+        if root.proc.added: VerticalLayout {
+            alignment: center;
+            Chip { label: Str.split-already-added; }
+        }
+        if root.proc.selected && !root.proc.added: VerticalLayout {
+            alignment: center;
+            Chip { label: Str.split-selected-chip; kind: "accent"; }
+        }
+    }
+}

@@ -1,0 +1,573 @@
+// Страница «Настройки»: две колоды — клиент и ядро. Порт Settings.tsx.
+
+import { Theme, Icons, Card, SectionTitle, Divider, Segmented, MonoText } from "../theme.slint";
+import {
+    Btn, Field, Input, Select, ToggleRow, StackRow, Alert, ScrollArea, RoundRect,
+    ModalShell, ModalFoot
+} from "../widgets.slint";
+import { Data, Conf, Ui } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+// .theme-tile: свотч палитры и её название.
+component ThemeTile inherits Rectangle {
+    in property <string> id;
+    in property <string> label;
+    in property <color> surface;
+    in property <color> tint-a;
+    in property <color> tint-b;
+    property <bool> on: Conf.theme == root.id;
+    height: 46px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.on
+        ? Theme.accent
+        : (touch.has-hover ? Theme.border-hover : Theme.border-strong);
+    background: touch.has-hover && !root.on ? Theme.panel-hover : Theme.sunken;
+    animate background { duration: 130ms; }
+    if root.on: Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: 13px;
+        border-width: 3px;
+        border-color: Theme.accent-soft;
+    }
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            // Свотч — миниатюра амбиента палитры: заливка и два пятна света.
+            Rectangle {
+                width: 26px;
+                height: 26px;
+                RoundRect {
+                    radius: 7px;
+                    fill: root.surface;
+                }
+                Rectangle {
+                    x: 2px;
+                    y: 2px;
+                    width: 22px;
+                    height: 22px;
+                    background: @radial-gradient(circle, root.tint-a 0%, #00000000 58%);
+                }
+                Rectangle {
+                    x: 8px;
+                    y: 10px;
+                    width: 20px;
+                    height: 20px;
+                    background: @radial-gradient(circle, root.tint-b 0%, #00000000 58%);
+                }
+                Rectangle {
+                    border-radius: 7px;
+                    border-width: 1px;
+                    border-color: Theme.border-strong;
+                }
+            }
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+            font-size: 13px;
+            font-weight: 500;
+            color: root.on || touch.has-hover ? Theme.text : Theme.text-dim;
+        }
+    }
+    touch := TouchArea {
+        clicked => { Conf.theme = root.id; }
+    }
+}
+
+// Строка «подпись — моноширинное значение» (карточки ресурсов и «о программе»).
+component ValueRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> desc;
+    in property <string> value;
+    spacing: 16px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    VerticalLayout {
+        spacing: 2px;
+        alignment: center;
+        horizontal-stretch: 1;
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13.5px;
+            font-weight: 500;
+        }
+        if root.desc != "": Text {
+            text: root.desc;
+            color: Theme.text-muted;
+            font-size: 12px;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        MonoText {
+            text: root.value;
+            horizontal-alignment: right;
+        }
+    }
+}
+
+export component SettingsPage inherits ScrollArea {
+    in property <string> mem-text;
+    in property <string> ws-text;
+    pad: 28px;
+
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.nav-settings;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Str.set-subtitle;
+                color: Theme.text-muted;
+                font-size: 12.5px;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                label: Str.set-data-folder;
+                icon: Icons.folder-open;
+                clicked => { Data.open-config-dir(); }
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    HorizontalLayout {
+        Segmented {
+            options: [Str.set-tab-client, Str.set-tab-core];
+            selected <=> Ui.settings-tab;
+        }
+        Rectangle { }
+    }
+
+    // ============================================================== клиент
+    if Ui.settings-tab == 0: VerticalLayout {
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-language-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            StackRow {
+                label: Str.set-language;
+                desc: Str.set-language-desc;
+                Segmented {
+                    options: [Str.theme-system, "Русский", "English"];
+                    selected <=> Conf.language;
+                }
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-theme-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            Text {
+                text: Str.set-theme;
+                color: Theme.text;
+                font-size: 13.5px;
+                font-weight: 500;
+            }
+            Text {
+                text: Str.set-theme-desc;
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            Rectangle { height: 14px; }
+            // .theme-grid: minmax(150px, 1fr) — на ширине карточки это четыре
+            // колонки, поэтому семь плиток разложены рядами 4 + 3.
+            HorizontalLayout {
+                spacing: 9px;
+                ThemeTile {
+                    id: "dark";
+                    label: Str.theme-dark;
+                    surface: #0a0c12;
+                    tint-a: #7c3aedcc;
+                    tint-b: #22d3ee99;
+                    horizontal-stretch: 1;
+                }
+                ThemeTile {
+                    id: "midnight";
+                    label: Str.theme-midnight;
+                    surface: #050813;
+                    tint-a: #4f6bffcc;
+                    tint-b: #38bdf899;
+                    horizontal-stretch: 1;
+                }
+                ThemeTile {
+                    id: "crimson";
+                    label: Str.theme-crimson;
+                    surface: #0f080a;
+                    tint-a: #d01838cc;
+                    tint-b: #fb923c99;
+                    horizontal-stretch: 1;
+                }
+                ThemeTile {
+                    id: "emerald";
+                    label: Str.theme-emerald;
+                    surface: #040f0b;
+                    tint-a: #0f9b6ccc;
+                    tint-b: #22d3ee99;
+                    horizontal-stretch: 1;
+                }
+            }
+            Rectangle { height: 9px; }
+            HorizontalLayout {
+                spacing: 9px;
+                ThemeTile {
+                    id: "swamp";
+                    label: Str.theme-swamp;
+                    surface: #0e1005;
+                    tint-a: #76861fdd;
+                    tint-b: #9ccc6599;
+                    horizontal-stretch: 1;
+                }
+                ThemeTile {
+                    id: "light";
+                    label: Str.theme-light;
+                    surface: #eef1f8;
+                    tint-a: #7c3aed66;
+                    tint-b: #0ea5e955;
+                    horizontal-stretch: 1;
+                }
+                ThemeTile {
+                    id: "system";
+                    label: Str.theme-system;
+                    surface: #0a0c12;
+                    tint-a: #eef1f8ff;
+                    tint-b: #eef1f8cc;
+                    horizontal-stretch: 1;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-startup-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            ToggleRow {
+                label: Str.set-autostart;
+                desc: Str.set-autostart-desc;
+                checked <=> Conf.autostart;
+            }
+            if Conf.autostart: Divider { }
+            if Conf.autostart: ToggleRow {
+                label: Str.set-autostart-elevated;
+                desc: Data.elevated
+                    ? Str.set-autostart-elevated-desc
+                    : Str.set-autostart-elevated-needs-admin;
+                checked <=> Conf.autostart-elevated;
+                toggled(on) => {
+                    if (on && !Data.elevated) {
+                        Conf.autostart-elevated = false;
+                        Ui.elevate-reason = "autostart";
+                        Ui.modal = 5;
+                    }
+                }
+            }
+            if Conf.autostart && !Conf.autostart-elevated: Rectangle { height: 12px; }
+            if Conf.autostart && !Conf.autostart-elevated: Alert {
+                text: Str.set-autostart-normal-warn;
+            }
+            Divider { }
+            ToggleRow {
+                label: Str.set-auto-connect;
+                checked <=> Conf.auto-connect;
+            }
+            Divider { }
+            ToggleRow {
+                label: Str.set-start-minimized;
+                checked <=> Conf.start-minimized;
+            }
+            Divider { }
+            ToggleRow {
+                label: Str.set-close-to-tray;
+                desc: Str.set-close-to-tray-desc;
+                checked <=> Conf.close-to-tray;
+            }
+            Divider { }
+            ToggleRow {
+                label: Str.set-notifications;
+                desc: Str.set-notifications-desc;
+                checked <=> Conf.notifications;
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-resources-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            Text {
+                text: Str.set-resources-note;
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            ValueRow {
+                label: Str.set-mem-private;
+                value: root.mem-text;
+            }
+            Divider { }
+            ValueRow {
+                label: Str.set-mem-working-set;
+                value: root.ws-text;
+            }
+            Divider { }
+            ValueRow {
+                label: Str.set-res-core;
+                desc: Data.connected ? Str.set-core-processes : Str.set-core-stopped;
+                value: Data.connected ? Str.set-core-mem-demo : "—";
+            }
+            Divider { }
+            ValueRow {
+                label: Str.set-process-count;
+                value: Data.connected ? "2" : "1";
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-about-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            ValueRow {
+                label: Str.set-app-version;
+                value: Data.app-version;
+            }
+            Divider { }
+            ValueRow {
+                label: Str.set-tab-core;
+                value: Data.core-version;
+            }
+            Divider { }
+            // Лицензия базы стран (CC BY 4.0) требует указать источник.
+            ValueRow {
+                label: Str.set-country-data;
+                value: Str.set-country-source;
+            }
+        }
+        Rectangle { height: 20px; }
+    }
+
+    // ================================================================ ядро
+    if Ui.settings-tab == 1: VerticalLayout {
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-tunnel-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            StackRow {
+                label: Str.set-tunnel-mode;
+                desc: Conf.tunnel-mode == 0
+                    ? Str.set-tunnel-mode-tun-desc
+                    : Str.set-tunnel-mode-proxy-desc;
+                Segmented {
+                    options: ["TUN", Str.bar-system-proxy];
+                    selected <=> Conf.tunnel-mode;
+                }
+            }
+            if Conf.tunnel-mode == 0 && !Data.elevated: Rectangle { height: 12px; }
+            if Conf.tunnel-mode == 0 && !Data.elevated: Alert {
+                text: Str.set-tun-needs-admin;
+            }
+        }
+
+        if Conf.tunnel-mode == 0: VerticalLayout {
+            Rectangle { height: 30px; }
+            SectionTitle { text: Str.set-tun-section-caps; }
+            Rectangle { height: 12px; }
+            Card {
+                HorizontalLayout {
+                    spacing: 14px;
+                    Field {
+                        label: Str.set-tun-stack;
+                        hint: Str.set-tun-stack-hint;
+                        horizontal-stretch: 1;
+                        Select {
+                            options: [Str.set-tun-stack-mixed, "system", "gvisor"];
+                            current <=> Conf.tun-stack;
+                        }
+                    }
+                    Field {
+                        label: "MTU";
+                        hint: Str.set-mtu-hint;
+                        horizontal-stretch: 1;
+                        Input { text <=> Conf.tun-mtu; }
+                    }
+                }
+                Rectangle { height: 4px; }
+                ToggleRow {
+                    label: Str.set-strict-route;
+                    desc: Str.set-strict-route-desc;
+                    checked <=> Conf.strict-route;
+                }
+                Divider { }
+                ToggleRow {
+                    label: Str.set-ipv6;
+                    desc: Str.set-ipv6-desc;
+                    checked <=> Conf.ipv6;
+                }
+                Divider { }
+                ToggleRow {
+                    label: "Fake-IP";
+                    desc: Str.set-fake-ip-desc;
+                    checked <=> Conf.fake-ip;
+                }
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: "DNS"; }
+        Rectangle { height: 12px; }
+        Card {
+            HorizontalLayout {
+                spacing: 14px;
+                Field {
+                    label: Str.set-dns-remote;
+                    hint: Str.set-dns-remote-hint;
+                    horizontal-stretch: 1;
+                    Input {
+                        text <=> Conf.dns-remote;
+                        mono: true;
+                    }
+                }
+                Field {
+                    label: Str.set-dns-direct;
+                    hint: Str.set-dns-direct-hint;
+                    horizontal-stretch: 1;
+                    Input {
+                        text <=> Conf.dns-direct;
+                        mono: true;
+                    }
+                }
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-conn-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            HorizontalLayout {
+                spacing: 14px;
+                Field {
+                    label: Str.set-mixed-port;
+                    hint: Str.set-mixed-port-hint;
+                    horizontal-stretch: 1;
+                    Input { text <=> Conf.mixed-port; }
+                }
+                Field {
+                    label: Str.set-clash-port;
+                    hint: Str.set-clash-port-hint;
+                    horizontal-stretch: 1;
+                    Input { text <=> Conf.clash-port; }
+                }
+            }
+            Rectangle { height: 14px; }
+            HorizontalLayout {
+                spacing: 14px;
+                Field {
+                    label: Str.set-latency-url;
+                    hint: Str.set-latency-url-hint;
+                    horizontal-stretch: 1;
+                    Input {
+                        text <=> Conf.latency-url;
+                        mono: true;
+                    }
+                }
+                Field {
+                    label: Str.set-log-level;
+                    horizontal-stretch: 1;
+                    Select {
+                        options: ["trace", "debug", "info", "warn", "error"];
+                        current <=> Conf.log-level;
+                    }
+                }
+            }
+            Rectangle { height: 4px; }
+            ToggleRow {
+                label: Str.set-allow-lan;
+                desc: Str.set-allow-lan-desc;
+                checked <=> Conf.allow-lan;
+            }
+            Divider { }
+            ToggleRow {
+                label: Str.set-auto-select;
+                desc: Str.set-auto-select-desc;
+                checked <=> Conf.auto-select;
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-subs-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            StackRow {
+                label: Str.set-sub-auto;
+                desc: Str.set-sub-auto-desc;
+                Select {
+                    width: 190px;
+                    options: [Str.set-sub-every-off, Str.set-sub-every3h, Str.set-sub-every6h, Str.set-sub-every12h, Str.set-sub-every-day];
+                    current <=> Conf.sub-auto;
+                }
+            }
+        }
+        Rectangle { height: 20px; }
+    }
+}
+
+// Запрос перезапуска с правами администратора — ElevateModal.tsx.
+export component ElevateModal inherits ModalShell {
+    title: Str.elev-title;
+    close => { Ui.modal = 0; }
+    VerticalLayout {
+        padding: 18px;
+        spacing: 12px;
+        Text {
+            text: Ui.elevate-reason == "tunnel"
+                ? Str.elev-tunnel-why
+                : Str.elev-autostart-why;
+            color: Theme.text-dim;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        Text {
+            text: Ui.elevate-reason == "tunnel"
+                ? Str.elev-tunnel-alt
+                : Str.elev-autostart-once;
+            color: Theme.text-muted;
+            font-size: 12.5px;
+            wrap: word-wrap;
+        }
+    }
+    ModalFoot {
+        Btn {
+            label: Str.srv-cancel;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: Str.dash-restart;
+            kind: "primary";
+            clicked => {
+                Ui.modal = 0;
+                Data.relaunch-elevated();
+            }
+        }
+    }
+}

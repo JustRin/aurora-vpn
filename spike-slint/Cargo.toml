@@ -1,0 +1,107 @@
+[package]
+name = "aurora-spike-slint"
+version = "0.1.0"
+edition = "2021"
+description = "Aurora VPN — нативный интерфейс на Slint поверх sing-box"
+
+# Имя исполняемого файла, а не имя пакета: в диспетчере задач и в ярлыках
+# должно стоять то же, что у прежней сборки.
+[[bin]]
+name = "aurora-vpn"
+path = "src/main.rs"
+
+[dependencies]
+slint = "1"
+# Тот же winit-бэкенд, что уже внутри slint — прямой доступ ради
+# drag_window()/drag_resize_window() для безрамочного окна.
+i-slint-backend-winit = { version = "1.17", default-features = false }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+
+# Ядро приложения — то, что раньше жило в src-tauri/src и не знало про Tauri.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+parking_lot = "0.12"
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "time",
+  "process",
+  "io-util",
+  "sync",
+  "net",
+] }
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.23"
+url = "2"
+percent-encoding = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+reqwest = { version = "0.13", features = ["json"] }
+# База стран DB-IP: формат MaxMind, отдаётся упакованной.
+maxminddb = "0.26"
+flate2 = "1"
+# Разрешает выбор языка «как в системе» там, где до интерфейса ещё не дошло.
+sys-locale = "0.3"
+# Значок в трее с меню. Тот же крейт, что под капотом у Tauri, поэтому
+# поведение значка и меню в точности прежнее.
+tray-icon = "0.21"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+# Ядру нужен свой набор Win32: системный прокси (WinInet), права (Shell),
+# процессы (ProcessStatus/Threading). Крейт `windows` тянется рядом с
+# `windows-sys`, который уже использует оболочка окна.
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Networking_WinInet",
+  "Win32_System_Com",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Threading",
+  # Буфер обмена и диалог выбора файла — оба ходили через плагины Tauri.
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_UI_Controls_Dialogs",
+  # Уведомления Windows: WinRT-тосты и ярлык с AppUserModelID, без которого
+  # система их не принимает.
+  "UI_Notifications",
+  "Data_Xml_Dom",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_Storage_EnhancedStorage",
+] }
+# Приватный working set — та же цифра, что колонка «Память» в диспетчере задач
+# (sysinfo отдаёт только полный working set); Gdi и WindowsAndMessaging — ради
+# иконок из ресурсов чужих .exe (src/icons.rs).
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  # Локаль пользователя — по ней «как в системе» выбирает язык интерфейса.
+  "Win32_Globalization",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build = "1"
+# Иконка окна разбирается на пиксели на сборке — почему именно так, в build.rs.
+png = "0.18"
+# Иконка самого .exe: ресурс RT_GROUP_ICON собирается rc.exe из Windows SDK,
+# крейт лишь находит компилятор и подкладывает .res линкеру.
+embed-resource = "3"
+
+[profile.release]
+opt-level = "s"
+strip = true
+
+[patch.crates-io]
+# Софтверный рендер с правкой отрисовки текста: дробные позиции глифов,
+# хинтинг и гамма-коррекция покрытия. Без неё мелкий текст заметно жиже и с
+# рваными просветами против WebView2. Подробности и способ переналожить на
+# новую версию Slint — в vendor/i-slint-renderer-software/PATCH.md.
+i-slint-renderer-software = { path = "vendor/i-slint-renderer-software" }

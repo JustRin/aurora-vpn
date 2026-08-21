@@ -1,0 +1,466 @@
+// Окно Aurora VPN на Slint: своя шапка (no-frame), сайдбар с навигацией и
+// страницы. Токены и общие детали — в theme.slint, примитивы — в widgets.slint,
+// состояние — в data.slint.
+
+import { Theme, Icons, Divider, NavItem, NavPill, CoreLine, WinButton, NavIcon } from "theme.slint";
+import { Toast } from "widgets.slint";
+import { Data, Conf, Ui, Draft } from "data.slint";
+import { DashboardPage } from "pages/dashboard.slint";
+import { ServersPage, ImportModal, NodeEditorModal } from "pages/servers.slint";
+import { SplitPage, ProcessPickerModal } from "pages/split.slint";
+import { RoutingPage, ConfigModal } from "pages/routing.slint";
+import { LogsPage } from "pages/logs.slint";
+import { SettingsPage, ElevateModal } from "pages/settings.slint";
+import { Str } from "i18n.slint";
+
+export { Theme, Data, Conf, Ui, Draft, Str }
+
+// .update-badge: тихая строка сайдбара, которая появляется, только когда
+// опубликован релиз новее установленного.
+component UpdateBadge inherits Rectangle {
+    height: 38px;
+    border-radius: 10px;
+    clip: true;
+    // Подложка тает к правому краю, как в вебе, и по той же схеме, что у
+    // активной строки навигации (NavItem в theme.slint): скруглённая шапка
+    // шириной в радиус плюс градиент за ней — градиентную заливку софтверный
+    // рендер кладёт без скругления.
+    property <color> fill: touch.has-hover ? Theme.accent-soft.brighter(0.35) : Theme.accent-soft;
+    animate fill { duration: 150ms; }
+    Rectangle {
+        x: 0px;
+        width: 20px;
+        border-top-left-radius: 10px;
+        border-bottom-left-radius: 10px;
+        background: root.fill;
+    }
+    Rectangle {
+        x: 20px;
+        width: parent.width - 20px;
+        background: @linear-gradient(90deg,
+            root.fill 0%,
+            root.fill.transparentize(1.0) 92%);
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: Icons.download;
+                tint: Theme.accent-text;
+                width: 15px;
+                height: 15px;
+            }
+        }
+        Text {
+            text: Data.update-busy ? Str.app-loading : Str.side-update;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: Theme.accent-text;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                height: 18px;
+                border-radius: 9px;
+                background: Theme.accent-soft;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    Text {
+                        text: Data.update-busy
+                            ? "\{round(Data.update-progress * 100)}%"
+                            : Data.update-version;
+                        vertical-alignment: center;
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        color: Theme.accent-text;
+                    }
+                }
+            }
+        }
+    }
+    // Полоса загрузки по нижней кромке.
+    if Data.update-busy: Rectangle {
+        x: 0px;
+        y: parent.height - 2px;
+        width: parent.width * Data.update-progress;
+        height: 2px;
+        background: Theme.accent-hi;
+    }
+    touch := TouchArea {
+        enabled: !Data.update-busy;
+        clicked => { Data.install-update(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Aurora VPN";
+    preferred-width: 1120px;
+    preferred-height: 760px;
+    min-width: 960px;
+    min-height: 640px;
+    background: Theme.bg;
+    // Семейство, как первое в стеке body (styles.css), — «Segoe UI Variable
+    // Display». Slint 1.17 ищет шрифты через fontique поверх DirectWrite, а
+    // тот отдаёт вариативный SegUIVar под этим именем отдельным семейством и
+    // держит его ось wght рабочей, поэтому дробные веса из CSS (550…680)
+    // переносятся один в один.
+    //
+    // Оси opsz разметка Slint не касается, а fontique кладёт в вариации только
+    // wght (font.rs, FontInfo::synthesis) — оптический размер остаётся на
+    // дефолте fvar, 10.5, то есть рисуется начертание Text, а не Display с его
+    // opsz=36. Разница в ширине строки — около 1.5%.
+    //
+    // Само имя приходит из main.rs (Theme.ui-font): вариативного Segoe нет в
+    // Windows 10, а без явной подмены fontique ушёл бы не в статический
+    // Segoe UI, а в свой generic sans-serif, то есть в Arial.
+    default-font-family: Theme.ui-font;
+    default-font-size: 14px;
+    // Значка тут нет намеренно: свойство `icon` в Slint 1.17 до окна не
+    // доходит, иконку ставит main.rs напрямую по HWND (`dress_window`).
+    // Системную рамку убираем — шапка своя, как в WebView2-версии.
+    no-frame: true;
+
+    // Фактическая ширина графика для генератора координат на стороне Rust:
+    // окно − сайдбар (236) − отступы страницы (28+28). При изменении ширины
+    // Rust немедленно перегенерирует пути — иначе до следующего тика график
+    // рисуется в чужом масштабе и «уезжает».
+    out property <length> graph-w: self.width - 292px;
+    init => { Data.graph-w = self.graph-w; }
+    changed graph-w => {
+        Data.graph-w = self.graph-w;
+        Data.regen();
+    }
+
+    callback minimize();
+    callback toggle-maximize();
+    callback close-window();
+    callback start-move();
+    callback start-resize();
+
+    // Ambient-подсветка: три пятна из .ambient::before (styles.css). Проценты
+    // CSS считаются в боксе inset:-25% (×1.5 окна), поэтому в координатах окна
+    // центры: 22%→8%, 19%→3.5%, 80%→95%, 24%→11%, 46%→44%, 74%→86%; радиусы
+    // тоже ×1.5. Фиолетовое пятно фактически лежит в левом верхнем углу — под
+    // шапкой и сайдбаром. Сама геометрия и цвета теперь живут в main.rs
+    // (ambient_image), сюда приходит уже готовый слой.
+    //
+    // Тремя Rectangle с @radial-gradient рисовать нельзя: софтверный рендер
+    // считает такой градиент попиксельно, с корнем и поиском по стопам
+    // (i-slint-renderer-software 1.17.1, draw_functions.rs), а пятна накрывают
+    // всё окно — на кадр приходилось втрое больше таких пикселей, чем в окне.
+    // Полная перерисовка стоила ~53 мс (19 fps на любой странице), и прокрутка
+    // шла рывками; готовым слоем та же перерисовка укладывается в 10–15 мс.
+    // Рисунок зависит только от размера окна, поэтому считается один раз на
+    // resize, а в кадре остаётся копированием.
+    in property <image> ambient;
+    callback ambient-resize();
+    changed width => { root.ambient-resize(); }
+    changed height => { root.ambient-resize(); }
+    // Смена палитры — тоже повод пересобрать слой: заливку и цвета пятен Rust
+    // берёт из Theme, а не из своих констант.
+    property <int> palette: Theme.variant;
+    changed palette => { root.ambient-resize(); }
+    // Смена языка: строки, которые собрал Rust, надо пересобрать заново —
+    // разметка свои перечитает сама.
+    property <bool> lang-en: Str.en;
+    changed lang-en => { Data.relabel(); }
+
+    // Настройки сохраняются сами, без кнопки «Применить», — как в веб-версии.
+    // Одна строка вместо двух десятков changed: сработает на любое поле, а
+    // какое именно изменилось, Rust всё равно не спрашивает — он перечитывает
+    // форму целиком. Сохранение отложено на полсекунды: иначе набор порта
+    // перезапускал бы ядро на каждой цифре.
+    property <string> conf-digest:
+        "\{Conf.tunnel-mode}|\{Conf.tun-stack}|\{Conf.tun-mtu}|\{Conf.strict-route ? 1 : 0}"
+        + "|\{Conf.ipv6 ? 1 : 0}|\{Conf.fake-ip ? 1 : 0}|\{Conf.dns-remote}|\{Conf.dns-direct}"
+        + "|\{Conf.mixed-port}|\{Conf.clash-port}|\{Conf.latency-url}|\{Conf.log-level}"
+        + "|\{Conf.allow-lan ? 1 : 0}|\{Conf.auto-select ? 1 : 0}|\{Conf.sub-auto}|\{Conf.language}"
+        + "|\{Conf.theme}|\{Conf.autostart ? 1 : 0}|\{Conf.autostart-elevated ? 1 : 0}"
+        + "|\{Conf.auto-connect ? 1 : 0}|\{Conf.start-minimized ? 1 : 0}|\{Conf.close-to-tray ? 1 : 0}"
+        + "|\{Conf.notifications ? 1 : 0}";
+    changed conf-digest => { Data.settings-changed(); }
+
+    property <string> split-digest:
+        "\{Conf.split-mode}|\{Conf.bypass-private ? 1 : 0}|\{Conf.bypass-ru ? 1 : 0}|\{Conf.bypass-cn ? 1 : 0}"
+        + "|\{Conf.block-ads ? 1 : 0}|\{Conf.direct-domains}|\{Conf.proxy-domains}"
+        + "|\{Conf.direct-ips}|\{Conf.proxy-ips}|\{Conf.block-domains}";
+    changed split-digest => { Data.split-changed(); }
+
+    // Режим маршрутизации переключается на «Обзоре» сегментами.
+    property <int> mode-pick: Ui.mode;
+    changed mode-pick => { Data.set-mode(root.mode-pick); }
+    Image {
+        source: root.ambient;
+        width: 100%;
+        height: 100%;
+        image-fit: fill;
+    }
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // -------------------------------------------------------- titlebar
+        Rectangle {
+            height: 38px;
+            background: Theme.bg-elevated;
+            vertical-stretch: 0;
+
+            // Компенсация saturate(140%) из backdrop-filter оригинала:
+            // блюр там не просто пропускает сияние, а подкрашивает шапку.
+            Rectangle {
+                background: @linear-gradient(90deg,
+                    Theme.accent.transparentize(0.86) 0%,
+                    Theme.accent.transparentize(0.96) 45%,
+                    Theme.accent-2.transparentize(0.94) 100%);
+            }
+
+            HorizontalLayout {
+                padding: 0px;
+                spacing: 0px;
+
+                // Всё левее кнопок — зона перетаскивания окна.
+                Rectangle {
+                    drag := TouchArea {
+                        double-clicked => { root.toggle-maximize(); }
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                                root.start-move();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        spacing: 9px;
+                        alignment: start;
+                        Text {
+                            text: "Aurora VPN";
+                            vertical-alignment: center;
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            letter-spacing: 0.3px;
+                            color: Theme.text-dim;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: 19px;
+                                border-radius: 9px;
+                                border-width: 1px;
+                                border-color: Theme.border-strong;
+                                HorizontalLayout {
+                                    padding-left: 7px;
+                                    padding-right: 7px;
+                                    Text {
+                                        text: Conf.tunnel-mode == 0 ? "TUN" : Str.bar-system-proxy;
+                                        vertical-alignment: center;
+                                        font-size: 10.5px;
+                                        color: Theme.text-muted;
+                                    }
+                                }
+                            }
+                        }
+                        if !Data.connected: VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: Str.bar-disconnected;
+                                vertical-alignment: center;
+                                font-size: 11.5px;
+                                color: Theme.text-muted;
+                            }
+                        }
+                    }
+                }
+
+                WinButton { kind: "min"; activate => { root.minimize(); } }
+                WinButton { kind: "max"; activate => { root.toggle-maximize(); } }
+                WinButton { kind: "close"; activate => { root.close-window(); } }
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+
+        // ------------------------------------------------------------ body
+        HorizontalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            // -------------------------------------------------- sidebar
+            Rectangle {
+                width: 236px;
+                background: Theme.bg-elevated;
+                Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+                VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-top: 14px;
+                    padding-bottom: 14px;
+                    spacing: 3px;
+                    // Строки навигации и одна общая подложка под ними: строки держат
+                    // только свой цвет, а подложка едет к выбранной. Высота блока —
+                    // ровно шесть строк с зазорами, иначе VerticalLayout снаружи
+                    // растянул бы его на весь сайдбар.
+                    Rectangle {
+                        vertical-stretch: 0;
+                        height: 6 * Theme.nav-row-h + 5 * Theme.nav-row-gap;
+                        NavPill {
+                            x: 0px;
+                            y: Ui.page * (Theme.nav-row-h + Theme.nav-row-gap);
+                            width: parent.width;
+                            height: Theme.nav-row-h;
+                            // Лёгкий перелёт с возвратом — та же кривая, что у
+                            // .nav-pill.sliding в styles.css.
+                            animate y {
+                                duration: 360ms;
+                                easing: cubic-bezier(0.34, 1.26, 0.44, 1);
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: Theme.nav-row-gap;
+                            NavItem {
+                                label: Str.nav-dashboard;
+                                icon: Icons.gauge;
+                                active: Ui.page == 0;
+                                pressed => { Ui.page = 0; }
+                            }
+                            NavItem {
+                                label: Str.nav-servers;
+                                icon: Icons.server;
+                                badge: Data.nodes.length > 0 ? "\{Data.nodes.length}" : "";
+                                active: Ui.page == 1;
+                                pressed => { Ui.page = 1; }
+                            }
+                            NavItem {
+                                label: Str.nav-split;
+                                icon: Icons.split;
+                                active: Ui.page == 2;
+                                pressed => { Ui.page = 2; }
+                            }
+                            NavItem {
+                                label: Str.nav-routing;
+                                icon: Icons.list-tree;
+                                active: Ui.page == 3;
+                                pressed => { Ui.page = 3; }
+                            }
+                            NavItem {
+                                label: Str.nav-logs;
+                                icon: Icons.scroll-text;
+                                active: Ui.page == 4;
+                                pressed => { Ui.page = 4; }
+                            }
+                            NavItem {
+                                label: Str.nav-settings;
+                                icon: Icons.settings;
+                                active: Ui.page == 5;
+                                pressed => { Ui.page = 5; }
+                            }
+                        }
+                    }
+                    Rectangle { }
+                    if Data.update-version != "": VerticalLayout {
+                        padding-bottom: 10px;
+                        vertical-stretch: 0;
+                        UpdateBadge { }
+                    }
+                    Divider { }
+                    VerticalLayout {
+                        padding-top: 12px;
+                        spacing: 8px;
+                        vertical-stretch: 0;
+                        CoreLine { icon: Icons.info; label: "Aurora VPN \{Data.app-version}"; }
+                        CoreLine { icon: Icons.cpu; label: Data.core-version; }
+                        HorizontalLayout {
+                            spacing: 7px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 7px;
+                                    height: 7px;
+                                    border-radius: 3.5px;
+                                    background: Data.elevated ? Theme.ok : Theme.warn;
+                                }
+                            }
+                            Text {
+                                text: Data.elevated ? Str.side-admin : Str.side-user;
+                                vertical-alignment: center;
+                                font-size: 11.5px;
+                                color: Theme.text-muted;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // -------------------------------------------------- content
+            Rectangle {
+                clip: true;
+                if Ui.page == 0: DashboardPage { }
+                if Ui.page == 1: ServersPage { }
+                if Ui.page == 2: SplitPage { }
+                if Ui.page == 3: RoutingPage { }
+                if Ui.page == 4: LogsPage { }
+                if Ui.page == 5: SettingsPage {
+                    mem-text: Data.mem-text;
+                    ws-text: Data.ws-text;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------- модалки
+    if Ui.modal == 1: ImportModal { }
+    if Ui.modal == 2: NodeEditorModal { }
+    if Ui.modal == 3: ProcessPickerModal { }
+    if Ui.modal == 4: ConfigModal { }
+    if Ui.modal == 5: ElevateModal { }
+
+    // -------------------------------------------------------------- тосты
+    Rectangle {
+        x: root.width - 418px;
+        y: 0px;
+        width: 400px;
+        height: root.height - 18px;
+        VerticalLayout {
+            alignment: end;
+            spacing: 9px;
+            // Ширина по содержимому, но не шире 400px — как у .toasts в вебе.
+            for toast in Data.toasts: HorizontalLayout {
+                alignment: end;
+                Toast {
+                    kind: toast.kind;
+                    text: toast.text;
+                    detail: toast.detail;
+                    leaving: toast.leaving;
+                    max-width: 400px;
+                    dismissed => { Data.dismiss-toast(toast.id); }
+                }
+            }
+        }
+    }
+
+    // Уголок изменения размера: no-frame убирает системные края, тянуть
+    // можно за правый нижний угол (как и в Tauri-версии он самый ходовой).
+    TouchArea {
+        x: root.width - 16px;
+        y: root.height - 16px;
+        width: 16px;
+        height: 16px;
+        mouse-cursor: nwse-resize;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.start-resize();
+            }
+        }
+    }
+}

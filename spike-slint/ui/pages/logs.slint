@@ -1,0 +1,124 @@
+// Страница «Журнал ядра» — Logs.tsx.
+
+import { Theme, Icons, Segmented } from "../theme.slint";
+import { Btn, IconBtn, ScrollArea } from "../widgets.slint";
+import { Data, Ui, LogLine } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+// .log-line: уровень справа в колонке 46px, дальше текст.
+component LogRow inherits HorizontalLayout {
+    in property <LogLine> line;
+    spacing: 10px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+    Text {
+        text: root.line.level;
+        width: 46px;
+        horizontal-alignment: right;
+        font-family: Theme.mono-font;
+        font-size: 12px;
+        font-weight: 600;
+        opacity: 0.85;
+        color: root.line.level == "error" || root.line.level == "fatal" || root.line.level == "panic"
+            ? Theme.danger
+            : (root.line.level == "warn"
+                ? Theme.warn
+                : (root.line.level == "info" ? Theme.accent-2 : Theme.text-muted));
+    }
+    Text {
+        text: root.line.text;
+        horizontal-stretch: 1;
+        font-family: Theme.mono-font;
+        font-size: 12px;
+        color: Theme.log-text;
+        wrap: word-wrap;
+    }
+}
+
+export component LogsPage inherits VerticalLayout {
+    padding: 28px;
+    spacing: 0px;
+
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.logs-title;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Str.logs-subtitle;
+                color: Theme.text-muted;
+                font-size: 12.5px;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 10px;
+                Segmented {
+                    options: [Str.logs-filter-all, Str.logs-filter-info, Str.logs-filter-warn, Str.logs-filter-errors];
+                    selected <=> Ui.log-filter;
+                    changed selected => { Data.set-log-filter(Ui.log-filter); }
+                }
+                IconBtn {
+                    icon: Icons.copy;
+                    clicked => { Data.copy-logs(); }
+                }
+                IconBtn {
+                    icon: Icons.trash;
+                    clicked => { Data.clear-logs(); }
+                }
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    // .log-view
+    Rectangle {
+        vertical-stretch: 1;
+        min-height: 260px;
+        background: Theme.sunken-deep;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border;
+        view := ScrollArea {
+            pad-left: 12px;
+            pad-right: 4px;
+            pad-top: 10px;
+            pad-bottom: 10px;
+            follow: Ui.log-follow;
+            // Автопрокрутка снова включается, только когда пользователь сам
+            // вернулся к нижнему краю.
+            scrolled => {
+                Ui.log-follow = view.offset >= view.max-offset - 40px;
+            }
+            if Data.logs.length == 0: Text {
+                text: Str.logs-empty;
+                color: Theme.text-muted;
+                font-family: Theme.mono-font;
+                font-size: 12px;
+            }
+            for line in Data.logs: LogRow { line: line; }
+        }
+    }
+
+    if !Ui.log-follow: VerticalLayout {
+        padding-top: 10px;
+        HorizontalLayout {
+            alignment: center;
+            Btn {
+                label: Str.logs-to-latest;
+                icon: Icons.arrow-down;
+                small: true;
+                clicked => { Ui.log-follow = true; }
+            }
+        }
+    }
+}

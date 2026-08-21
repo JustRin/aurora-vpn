@@ -1,0 +1,432 @@
+// Страница «Серверы» и её модальные окна — порт Servers.tsx.
+
+import { Theme, Icons, SectionTitle, MonoText } from "../theme.slint";
+import {
+    Btn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
+    ModalShell, ModalFoot
+} from "../widgets.slint";
+import { SubCard, NodeRow } from "../cards.slint";
+import { Data, Ui, Draft } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+export component ServersPage inherits ScrollArea {
+    pad: 28px;
+
+    // ------------------------------------------------------------ page head
+    HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.nav-servers;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            // В вебе внутри подзаголовка стоит моноширинный кусок ссылки;
+            // одному Text две гарнитуры не задать, поэтому строка собрана
+            // из трёх кусков.
+            HorizontalLayout {
+                spacing: 5px;
+                alignment: start;
+                Text {
+                    text: Str.srv-subtitle-before;
+                    vertical-alignment: center;
+                    color: Theme.text-muted;
+                    font-size: 12.5px;
+                }
+                MonoText {
+                    text: "vless://";
+                    vertical-alignment: center;
+                    color: Theme.text-muted;
+                }
+                Text {
+                    text: Str.srv-subtitle-after;
+                    vertical-alignment: center;
+                    color: Theme.text-muted;
+                    font-size: 12.5px;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 10px;
+                Btn {
+                    label: Str.dash-test-latency;
+                    icon: Icons.gauge;
+                    busy: Data.testing;
+                    enabled: !Data.testing && Data.nodes.length > 0;
+                    clicked => { Data.test-latency(); }
+                }
+                Btn {
+                    label: Str.srv-add-btn;
+                    icon: Icons.plus;
+                    kind: "primary";
+                    clicked => { Ui.modal = 1; }
+                }
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    // --------------------------------------------------------- subscriptions
+    if Data.subs.length > 0: VerticalLayout {
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                SectionTitle { text: Str.set-subs-section-caps; }
+            }
+            Btn {
+                label: Str.srv-refresh-all;
+                icon: Icons.refresh;
+                kind: "ghost";
+                small: true;
+                busy: Data.refreshing;
+                enabled: !Data.refreshing;
+                clicked => { Data.refresh-subs(); }
+            }
+        }
+        Rectangle { height: 11px; }
+        HorizontalLayout {
+            spacing: 14px;
+            for sub in Data.subs: SubCard {
+                sub: sub;
+                deletable: true;
+                horizontal-stretch: 1;
+                refresh => { Data.refresh-sub(sub.id); }
+                remove => { Data.delete-sub(sub.id); }
+            }
+        }
+        Rectangle { height: 8px; }
+    }
+
+    // ---------------------------------------------------------------- список
+    Rectangle { height: 30px; }
+    SectionTitle {
+        text: Data.nodes.length > 0
+            ? "\{Str.nav-servers-caps} (\{Data.nodes.length})"
+            : Str.nav-servers-caps;
+    }
+    Rectangle { height: 12px; }
+
+    if Data.nodes.length == 0: Empty {
+        icon: Icons.server;
+        title: Str.srv-empty-title;
+        text: Str.srv-empty-text;
+        Btn {
+            label: Str.srv-paste-links;
+            icon: Icons.plus;
+            kind: "primary";
+            clicked => { Ui.modal = 1; }
+        }
+    }
+
+    if Data.nodes.length > 0: VerticalLayout {
+        spacing: 8px;
+        for node[i] in Data.nodes: NodeRow {
+            node: node;
+            active: node.id == Data.active-id;
+            select => { Data.select-server(node.id); }
+            copy-link => { Data.copy-link(node.id); }
+            edit => { Data.edit-server(i); }
+            remove => { Data.delete-server(node.id); }
+        }
+    }
+
+    Rectangle { height: 20px; }
+    HorizontalLayout {
+        alignment: center;
+        Btn {
+            label: Str.srv-add-manually;
+            icon: Icons.plus;
+            kind: "ghost";
+            small: true;
+            clicked => { Data.new-server(); }
+        }
+    }
+}
+
+// Вставка ссылок — ImportModal из Servers.tsx.
+export component ImportModal inherits ModalShell {
+    title: Str.srv-add-servers;
+    close => { Ui.modal = 0; }
+    VerticalLayout {
+        padding: 18px;
+        Field {
+            label: Str.srv-links-label;
+            hint: Str.srv-links-hint;
+            TextArea {
+                min-height: 190px;
+                text <=> Ui.import-text;
+                placeholder: Str.srv-link-placeholder;
+            }
+        }
+    }
+    ModalFoot {
+        Btn {
+            label: Str.srv-cancel;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: Str.srv-import-btn;
+            kind: "primary";
+            enabled: Ui.import-text != "";
+            clicked => { Data.import-links(Ui.import-text); }
+        }
+    }
+}
+
+// Редактор сервера — NodeEditor из Servers.tsx. Поля появляются по тем же
+// правилам: что нужно протоколу, транспорту и типу шифрования.
+export component NodeEditorModal inherits ModalShell {
+    title: Draft.is-new ? Str.srv-new-server : Str.srv-server-params;
+    wide: true;
+    close => { Ui.modal = 0; }
+
+    ScrollArea {
+        pad: 18px;
+        content-spacing: 14px;
+
+        HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: Str.srv-name-label;
+                horizontal-stretch: 1;
+                Input { text <=> Draft.name; }
+            }
+            Field {
+                label: Str.srv-protocol-label;
+                horizontal-stretch: 1;
+                Select {
+                    options: ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC"];
+                    current <=> Draft.protocol;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: Str.srv-address-label;
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.address;
+                    placeholder: "example.com";
+                }
+            }
+            Field {
+                label: Str.srv-port-label;
+                horizontal-stretch: 1;
+                Input { text <=> Draft.port; }
+            }
+        }
+
+        if Draft.needs-uuid || Draft.needs-password: HorizontalLayout {
+            spacing: 14px;
+            if Draft.needs-uuid: Field {
+                label: "UUID";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.uuid;
+                    mono: true;
+                }
+            }
+            if Draft.needs-password: Field {
+                label: Str.srv-password-label;
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.password;
+                    mono: true;
+                }
+            }
+            // Одинокое поле остаётся в половину ширины, как ячейка grid-2.
+            if !(Draft.needs-uuid && Draft.needs-password): Rectangle {
+                horizontal-stretch: 1;
+            }
+        }
+
+        if Draft.protocol == 3: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: Str.srv-encryption-label;
+                horizontal-stretch: 1;
+                Input { text <=> Draft.method; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        if Draft.has-transport: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: Str.srv-transport-label;
+                horizontal-stretch: 1;
+                Select {
+                    options: ["tcp", "ws", "grpc", "http", "httpupgrade"];
+                    current <=> Draft.network;
+                }
+            }
+            Field {
+                label: Str.srv-channel-encryption-label;
+                horizontal-stretch: 1;
+                Select {
+                    options: [Str.fmt-no-tls, "TLS", "REALITY"];
+                    current <=> Draft.security;
+                }
+            }
+        }
+
+        if Draft.has-transport && Draft.network != 0: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: "Path";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.path;
+                    mono: true;
+                    placeholder: "/";
+                }
+            }
+            Field {
+                label: "Host";
+                horizontal-stretch: 1;
+                Input { text <=> Draft.host; }
+            }
+        }
+
+        if Draft.has-transport && Draft.network == 2: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: "serviceName";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.service-name;
+                    mono: true;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        if Draft.security != 0: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: "SNI";
+                horizontal-stretch: 1;
+                Input { text <=> Draft.sni; }
+            }
+            Field {
+                label: Str.srv-tls-fingerprint-label;
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.fingerprint;
+                    placeholder: "chrome";
+                }
+            }
+        }
+
+        if Draft.security == 2: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: "Public key (pbk)";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.public-key;
+                    mono: true;
+                }
+            }
+            Field {
+                label: "Short id (sid)";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.short-id;
+                    mono: true;
+                }
+            }
+        }
+
+        if Draft.protocol == 0 && Draft.security != 0: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: "Flow";
+                hint: Str.srv-flow-hint;
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.flow;
+                    mono: true;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        if Draft.security == 1: HorizontalLayout {
+            spacing: 16px;
+            padding-top: 4px;
+            VerticalLayout {
+                spacing: 2px;
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: Str.srv-skip-cert-label;
+                    color: Theme.text;
+                    font-size: 13.5px;
+                    font-weight: 500;
+                }
+                Text {
+                    text: Str.srv-skip-cert-desc;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Switch { checked <=> Draft.allow-insecure; }
+            }
+        }
+
+        // Ссылка обмена не несёт флага mux, поэтому у нового сервера его нет:
+        // он появляется, когда узел уже существует.
+        if !Draft.is-new && Draft.has-transport: HorizontalLayout {
+            spacing: 16px;
+            padding-top: 4px;
+            VerticalLayout {
+                spacing: 2px;
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: Str.srv-mux-label;
+                    color: Theme.text;
+                    font-size: 13.5px;
+                    font-weight: 500;
+                }
+                Text {
+                    text: Str.srv-mux-desc;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Switch { checked <=> Draft.mux; }
+            }
+        }
+    }
+
+    ModalFoot {
+        Btn {
+            label: Str.srv-cancel;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: Str.srv-save-btn;
+            kind: "primary";
+            enabled: Draft.name != "" && Draft.address != "";
+            clicked => { Data.save-draft(); }
+        }
+    }
+}

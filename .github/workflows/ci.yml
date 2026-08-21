@@ -48,6 +48,22 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  # Нативный клиент на Slint: собирается только под Windows и живёт своим
+  # крейтом, поэтому и проверяется отдельно от Tauri-части.
+  native-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spike-slint
+
+      - name: Check native client
+        run: cargo check --manifest-path spike-slint/Cargo.toml
+
   # The Android build has its own cfg branches; `cargo check` against the
   # android target catches breakage without paying for a full APK build.
   android-check:

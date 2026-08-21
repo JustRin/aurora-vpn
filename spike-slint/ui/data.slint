@@ -1,0 +1,272 @@
+// Состояние спайка: структуры моделей и глобалы, через которые страницы
+// разговаривают с Rust. Данные демонстрационные — их наполняет main.rs, —
+// но форма ровно та же, что у настоящих типов из src/lib/types.ts.
+
+export struct ServerNode {
+    id: string,
+    name: string,
+    // Чип протокола («VLESS») и подпись транспорта («REALITY · tcp») уже
+    // собраны на стороне Rust, как это делает format.ts в вебе.
+    proto: string,
+    transport: string,
+    address: string,
+    // Двухбуквенный код страны сервера, определённый по его адресу. Пустой,
+    // пока база geoip не скачана или адрес в ней не нашёлся.
+    country: string,
+    latency: string,
+    // good | ok | bad | none — цвет точки задержки.
+    tier: string,
+}
+
+export struct SubInfo {
+    id: string,
+    name: string,
+    // Панель может не сообщать лимиты — тогда карточка показывает одну строку.
+    has-usage: bool,
+    expiry: string,
+    expiry-tier: string,
+    traffic: string,
+    used: float,
+    warning: string,
+    foot: string,
+}
+
+export struct AppRule {
+    id: string,
+    name: string,
+    // Первая буква имени для квадратика-аватара: разрезать строку в Slint
+    // нечем, поэтому её готовит Rust.
+    initial: string,
+    // Настоящая иконка программы из ресурсов её .exe. Пустая, пока поток её не
+    // добыл, и у файлов, которых на диске уже нет, — тогда рисуется буква.
+    icon: image,
+    path: string,
+    enabled: bool,
+}
+
+export struct RunningApp {
+    name: string,
+    initial: string,
+    icon: image,
+    path: string,
+    // «3 проц.» — пусто, если экземпляр один.
+    instances: string,
+    added: bool,
+    selected: bool,
+}
+
+export struct LogLine {
+    level: string,
+    text: string,
+}
+
+export struct ToastMsg {
+    id: int,
+    kind: string, // info | success | error
+    text: string,
+    detail: string,
+    // Взведён, когда сообщение уходит: строка ещё в модели, но уже сворачивается.
+    // Удаляет её Rust, когда анимация закончилась.
+    leaving: bool,
+}
+
+export struct ThemeOption {
+    id: string,
+    label: string,
+    // Свотч — миниатюра амбиента палитры: две точки света на её фоне.
+    surface: color,
+    glow-a: color,
+    glow-b: color,
+}
+
+// Всё, что приходит из Rust: модели, версии, состояние ядра.
+export global Data {
+    in-out property <[ServerNode]> nodes;
+    in-out property <[SubInfo]> subs;
+    in-out property <[AppRule]> apps;
+    in-out property <[RunningApp]> procs;
+    in-out property <[LogLine]> logs;
+    in-out property <[ToastMsg]> toasts;
+    in-out property <[ThemeOption]> themes;
+
+    in-out property <string> active-id;
+    // Выбранный сервер отдельными строками: искать строку в модели средствами
+    // Slint нечем, а шапка «Обзора» показывает именно его.
+    in-out property <string> active-name;
+    // Подпись выбранного сервера целиком: «US · VLESS · vless-Me». Собрана в
+    // Rust — склеивать её в разметке пришлось бы с проверками на каждый пустой
+    // кусок.
+    in-out property <string> active-label;
+    in-out property <string> active-latency;
+    in-out property <string> active-tier;
+
+    // Живые показания «Обзора» — их ведут таймеры в main.rs.
+    in-out property <string> state-text: "Отключено";
+    in-out property <string> uptime: "00:00";
+    in-out property <string> down-rate: "0 Б/с";
+    in-out property <string> up-rate: "0 Б/с";
+    in-out property <string> session-total: "0 Б";
+    in-out property <string> session-foot;
+    in-out property <string> conns: "0";
+    in-out property <string> peak;
+    in-out property <string> graph-down-area;
+    in-out property <string> graph-down-line;
+    in-out property <string> graph-up-area;
+    in-out property <string> graph-up-line;
+    // −1..1, ведётся таймером с ~10 к/с: непрерывный animation-tick() на
+    // программном рендере жёг почти целое ядро на перерисовке хало.
+    in-out property <float> breath;
+    // Ширина графика в пикселях: координаты Rust генерирует сразу в них.
+    in-out property <length> graph-w;
+    // Память самого процесса для карточки ресурсов.
+    in-out property <string> mem-text: "…";
+    in-out property <string> ws-text: "…";
+
+    in-out property <bool> testing;      // идёт проверка задержки
+    in-out property <bool> refreshing;   // обновляются подписки
+    in-out property <bool> connected: true;
+    in-out property <bool> elevated: true;
+    in-out property <string> app-version: "0.1.10";
+    in-out property <string> core-version: "sing-box version 1.13.19";
+    // Пусто — обновлений нет; иначе в сайдбаре появляется бейдж.
+    in-out property <string> update-version;
+    // Ссылка на установщик найденного релиза — её открывает install-update.
+    in-out property <string> update-url;
+    in-out property <bool> update-busy;
+    in-out property <float> update-progress;
+
+    callback select-server(string);
+    callback delete-server(string);
+    callback copy-link(string);
+    callback edit-server(int);
+    callback new-server();
+    callback save-draft();
+    callback import-links(string);
+    callback test-latency();
+    callback refresh-subs();
+    callback refresh-sub(string);
+    callback delete-sub(string);
+    callback remove-app(int);
+    callback clear-apps();
+    callback pick-exe();
+    callback load-procs();
+    callback filter-procs();
+    callback add-selected-procs();
+    callback clear-logs();
+    callback copy-logs();
+    callback set-log-filter(int);
+    callback preview-config();
+    callback open-config-dir();
+    callback close-conns();
+    callback install-update();
+    callback notify(string, string); // kind, text — тосты действий без бэкенда
+    callback toggle-power();
+    callback set-mode(int);
+    callback toggle-app(int, bool);
+    callback relaunch-elevated();
+    // Настройки и правила сохраняются сами: разметка сводит поля в одну строку,
+    // и changed в app.slint дёргает эти колбэки на любое изменение.
+    callback settings-changed();
+    callback split-changed();
+    // Сообщение закрыли щелчком — гасить его досрочно.
+    callback dismiss-toast(int);
+    // Ширина графика изменилась — пути надо пересобрать в том же кадре,
+    // иначе до следующего тика график рисуется в чужом масштабе.
+    callback regen();
+    // Язык переключили: Rust заново соберёт свои строки (Lang в main.rs).
+    callback relabel();
+}
+
+// Настройки: то, что в вебе лежит в store.settings и store.split.
+export global Conf {
+    in-out property <int> tunnel-mode: 0;   // 0 TUN, 1 системный прокси
+    in-out property <int> tun-stack: 0;     // 0 mixed, 1 system, 2 gvisor
+    in-out property <string> tun-mtu: "9000";
+    in-out property <bool> strict-route: true;
+    in-out property <bool> ipv6: false;
+    in-out property <bool> fake-ip: true;
+    in-out property <string> dns-remote: "https://1.1.1.1/dns-query";
+    in-out property <string> dns-direct: "https://77.88.8.8/dns-query";
+    in-out property <string> mixed-port: "2080";
+    in-out property <string> clash-port: "9191";
+    in-out property <string> latency-url: "https://www.gstatic.com/generate_204";
+    in-out property <int> log-level: 2;     // trace debug info warn error
+    in-out property <bool> allow-lan: false;
+    in-out property <bool> auto-select: false;
+    in-out property <int> sub-auto: 2;      // 0 никогда … 4 раз в сутки
+
+    in-out property <int> language: 0;      // 0 как в системе, 1 ru, 2 en
+    // Язык системы — для language == 0; ведёт main.rs по локали Windows.
+    in-out property <bool> system-en: false;
+    // dark | midnight | crimson | emerald | swamp | light | system
+    in-out property <string> theme: "dark";
+    // Тёмная ли тема у Windows — для theme == "system". Ведёт main.rs и
+    // обновляет, когда система переключается сама (в том числе по расписанию).
+    in-out property <bool> system-dark: true;
+    in-out property <bool> autostart: true;
+    in-out property <bool> autostart-elevated: true;
+    in-out property <bool> auto-connect: true;
+    in-out property <bool> start-minimized: false;
+    in-out property <bool> close-to-tray: true;
+    in-out property <bool> notifications: true;
+
+    in-out property <int> split-mode: 0;    // 0 выключен, 1 только выбранные, 2 кроме
+    in-out property <bool> bypass-private: true;
+    in-out property <bool> bypass-ru: true;
+    in-out property <bool> bypass-cn: false;
+    in-out property <bool> block-ads: true;
+    in-out property <string> direct-domains: "gosuslugi.ru\nsberbank.ru\nmos.ru";
+    in-out property <string> proxy-domains: "youtube.com\nopenai.com\nx.com";
+    in-out property <string> direct-ips: "192.168.0.0/16\n10.0.0.0/8";
+    in-out property <string> proxy-ips: "";
+    in-out property <string> block-domains: "ads.example.com";
+}
+
+// Состояние самого интерфейса: страница, открытое окно, фильтры.
+export global Ui {
+    in-out property <int> page: 0;
+    // 0 нет, 1 импорт ссылок, 2 редактор сервера, 3 запущенные приложения,
+    // 4 предпросмотр конфига, 5 запрос прав администратора.
+    in-out property <int> modal: 0;
+    in-out property <string> elevate-reason: "tunnel";
+    in-out property <string> config-text;
+    in-out property <string> import-text;
+    in-out property <int> settings-tab: 0;  // 0 клиент, 1 ядро
+    in-out property <int> log-filter: 0;
+    in-out property <bool> log-follow: true;
+    in-out property <string> proc-query;
+    in-out property <bool> proc-system: false;
+    in-out property <bool> proc-loading: false;
+    in-out property <int> proc-selected: 0;
+    in-out property <int> mode: 0;          // режим маршрутизации на «Обзоре»
+}
+
+// Форма редактора сервера. Отдельные свойства, а не одна структура: к полю
+// структуры нельзя привязаться двусторонним `<=>`, а каждому input он нужен.
+export global Draft {
+    in-out property <bool> is-new;
+    in-out property <string> name;
+    in-out property <int> protocol;    // индекс в PROTOCOLS
+    in-out property <string> address;
+    in-out property <string> port;
+    in-out property <string> uuid;
+    in-out property <string> password;
+    in-out property <string> method;
+    in-out property <int> network;     // индекс в NETWORKS
+    in-out property <int> security;    // 0 none, 1 tls, 2 reality
+    in-out property <string> path;
+    in-out property <string> host;
+    in-out property <string> service-name;
+    in-out property <string> sni;
+    in-out property <string> fingerprint;
+    in-out property <string> public-key;
+    in-out property <string> short-id;
+    in-out property <string> flow;
+    in-out property <bool> allow-insecure;
+    in-out property <bool> mux;
+
+    // Протоколы с UUID / с паролем и те, у кого вообще есть транспорт.
+    out property <bool> needs-uuid: protocol == 0 || protocol == 1 || protocol == 5;
+    out property <bool> needs-password: protocol == 2 || protocol == 3 || protocol == 4 || protocol == 5;
+    out property <bool> has-transport: protocol != 4 && protocol != 5;
+}

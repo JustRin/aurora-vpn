@@ -1,0 +1,525 @@
+// Страница «Обзор» — Dashboard.tsx: герой с кнопкой питания, графиком и
+// плитками, плюс выбор сервера и карточки подписок.
+
+import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider } from "../theme.slint";
+import { Btn, Dot, Alert, ScrollArea } from "../widgets.slint";
+import { SubCard } from "../cards.slint";
+import { Data, Conf, Ui } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+// .picker: выбор сервера прямо в шапке героя. Переключение на ходу не рвёт
+// туннель — ради этого он и живёт на главном экране, а не только в списке.
+component ServerPicker inherits Rectangle {
+    height: 30px;
+    horizontal-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: touch.has-hover || menu.is-open ? Theme.border-strong : #00000000;
+    background: touch.has-hover || menu.is-open ? Theme.sunken : #00000000;
+    animate background { duration: 130ms; }
+
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 10px;
+        spacing: 8px;
+        Text {
+            text: Data.active-label == "" ? Str.pick-no-server : Data.active-label;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 13.5px;
+            color: touch.has-hover || menu.is-open ? Theme.text : Theme.text-dim;
+        }
+        if Data.active-latency != "": VerticalLayout {
+            alignment: center;
+            Dot { tier: Data.active-tier; }
+        }
+        if Data.active-latency != "": Text {
+            text: Data.active-latency;
+            vertical-alignment: center;
+            font-size: 11.5px;
+            color: Theme.text-muted;
+        }
+        VerticalLayout {
+            alignment: center;
+            // Развёрнутое меню отмечается «галочкой» вверх: поворачивать
+            // Path в Slint нечем — rotation-angle есть только у Image.
+            NavIcon {
+                commands: menu.is-open ? Icons.chevron-up : Icons.chevron-down;
+                width: 14px;
+                height: 14px;
+                tint: Theme.text-dim;
+                opacity: 0.6;
+            }
+        }
+    }
+    touch := TouchArea {
+        clicked => { menu.show(); }
+    }
+
+    menu := PopupWindow {
+        x: -11px;
+        y: root.height + 6px;
+        width: 380px;
+        height: min(300px, Data.nodes.length * 48px + 12px) + 43px;
+        Rectangle {
+            background: Theme.elevated-solid;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-blur: 50px;
+            drop-shadow-offset-y: 18px;
+            drop-shadow-color: Theme.shadow-deep;
+            Rectangle {
+                x: 12px;
+                y: 1px;
+                width: parent.width - 24px;
+                height: 1px;
+                background: Theme.sheen;
+            }
+            VerticalLayout {
+                ScrollArea {
+                    pad: 6px;
+                    vertical-stretch: 1;
+                    for node in Data.nodes: Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        background: node.id == Data.active-id
+                            ? Theme.accent-soft
+                            : (item.has-hover ? Theme.panel-hover : #00000000);
+                        item := TouchArea {
+                            clicked => {
+                                Data.select-server(node.id);
+                                menu.close();
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                width: 14px;
+                                if node.id == Data.active-id: NavIcon {
+                                    commands: Icons.check;
+                                    width: 13px;
+                                    height: 13px;
+                                    tint: Theme.accent-text;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 1px;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: node.name;
+                                    overflow: elide;
+                                    font-size: 13.5px;
+                                    font-weight: 550;
+                                    color: node.id == Data.active-id ? Theme.accent-text : Theme.text-dim;
+                                }
+                                Text {
+                                    text: node.country == ""
+                                        ? "\{node.proto} · \{node.transport}"
+                                        : "\{node.country} · \{node.proto} · \{node.transport}";
+                                    overflow: elide;
+                                    font-size: 11.5px;
+                                    color: Theme.text-muted;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Dot { tier: node.tier; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: node.latency;
+                                    horizontal-alignment: right;
+                                    min-width: 46px;
+                                    font-size: 11.5px;
+                                    color: Theme.text-muted;
+                                }
+                            }
+                        }
+                    }
+                }
+                Divider { }
+                HorizontalLayout {
+                    padding: 7px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    alignment: end;
+                    Btn {
+                        label: Str.pick-test-all;
+                        icon: Icons.gauge;
+                        kind: "ghost";
+                        small: true;
+                        busy: Data.testing;
+                        enabled: !Data.testing;
+                        clicked => { Data.test-latency(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component DashboardPage inherits ScrollArea {
+    pad: 28px;
+
+    // ------------------------------------------------------------ page head
+    HorizontalLayout {
+        spacing: 16px;
+        VerticalLayout {
+            spacing: 5px;
+            horizontal-stretch: 1;
+            Text {
+                text: Str.nav-dashboard;
+                color: Theme.text;
+                font-size: 25px;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Str.dash-subtitle;
+                color: Theme.text-muted;
+                font-size: 12.5px;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Segmented {
+                options: [Str.dash-mode-rule, Str.dash-mode-global, Str.dash-mode-direct];
+                selected <=> Ui.mode;
+            }
+        }
+    }
+    Rectangle { height: 24px; }
+
+    // .notice: TUN без прав администратора.
+    if !Data.elevated && Conf.tunnel-mode == 0: VerticalLayout {
+        Alert {
+            icon: Icons.shield-alert;
+            text: Str.dash-tun-needs-admin;
+            VerticalLayout {
+                alignment: center;
+                Btn {
+                    label: Str.dash-restart;
+                    small: true;
+                    clicked => {
+                        Ui.elevate-reason = "tunnel";
+                        Ui.modal = 5;
+                    }
+                }
+            }
+        }
+        Rectangle { height: 16px; }
+    }
+
+    // ----------------------------------------------------------------- hero
+    Rectangle {
+        vertical-stretch: 0;
+        background: Theme.panel;
+        border-radius: 16px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 14px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: Theme.shadow-card;
+        Rectangle {
+            x: 16px;
+            y: 1px;
+            width: parent.width - 32px;
+            height: 1px;
+            background: Theme.sheen;
+        }
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+            HorizontalLayout {
+                padding-left: 28px;
+                padding-right: 28px;
+                padding-top: 26px;
+                spacing: 26px;
+
+                // Кнопка питания: кольцо + ядро; «подключено» дышит халом.
+                power := Rectangle {
+                    width: 132px;
+                    height: 132px;
+                    // Дышащее облако света вокруг всей кнопки.
+                    if Data.connected: Glow {
+                        width: 220px + 14px * Data.breath;
+                        height: self.width;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        tint: Theme.ok-glow;
+                        opacity: 0.8 + 0.2 * Data.breath;
+                    }
+                    // 6px-ореол вплотную к кольцу (0 0 0 6px ok-halo).
+                    if Data.connected: Rectangle {
+                        x: -6px;
+                        y: -6px;
+                        width: parent.width + 12px;
+                        height: parent.height + 12px;
+                        border-radius: self.width / 2;
+                        border-width: 6px;
+                        border-color: Theme.ok-halo;
+                    }
+                    // Внутренняя подсветка зазора (inset 0 0 24px -8px ok).
+                    if Data.connected: Rectangle {
+                        x: 3px;
+                        y: 3px;
+                        width: parent.width - 6px;
+                        height: parent.height - 6px;
+                        border-radius: self.width / 2;
+                        border-width: 10px;
+                        border-color: Theme.ok.transparentize(0.91);
+                    }
+                    // Само кольцо: в отключённом состоянии — просто рамка.
+                    Rectangle {
+                        border-radius: self.width / 2;
+                        border-width: 2px;
+                        border-color: Data.connected ? Theme.ok : Theme.border-strong;
+                        drop-shadow-blur: Data.connected ? 30px : 0px;
+                        drop-shadow-color: Data.connected ? Theme.ok.transparentize(0.3) : #00000000;
+                    }
+                    Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: 100px;
+                        height: 100px;
+                        border-radius: 50px;
+                        // Софтверный рендер рисует градиентный фон прямоугольником,
+                        // игнорируя border-radius (радиусы уходят только в ветку
+                        // сплошного цвета) — поэтому круг сплошной, а объём даёт
+                        // блик, который гаснет до прозрачного раньше и своих краёв,
+                        // и границы круга: квадрат градиента просто не виден.
+                        background: Data.connected ? Theme.core-ok-to : Theme.core-to;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        // Смещённый к 32%/28% свет из веб-версии.
+                        Rectangle {
+                            x: -16px;
+                            y: -20px;
+                            width: 120px;
+                            height: 120px;
+                            background: Data.connected
+                                ? @radial-gradient(circle,
+                                    Theme.core-ok-from 0%,
+                                    Theme.core-ok-from.transparentize(0.2) 20%,
+                                    Theme.core-ok-from.transparentize(1.0) 42%)
+                                : @radial-gradient(circle,
+                                    Theme.core-hover-from 0%,
+                                    Theme.core-hover-from.transparentize(0.2) 20%,
+                                    Theme.core-hover-from.transparentize(1.0) 42%);
+                        }
+                        NavIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 34px;
+                            height: 34px;
+                            commands: Icons.power;
+                            tint: Data.connected ? Theme.ok : Theme.text-dim;
+                            stroke-width: 2.2px;
+                        }
+                    }
+                    TouchArea {
+                        clicked => { Data.toggle-power(); }
+                    }
+                }
+
+                // Статус, сервер, аптайм.
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 0px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: Data.state-text;
+                        color: Theme.text;
+                        font-size: 25px;
+                        font-weight: 680;
+                        letter-spacing: -0.5px;
+                    }
+                    Rectangle { height: 6px; }
+                    HorizontalLayout {
+                        alignment: start;
+                        ServerPicker { }
+                    }
+                    Rectangle { height: 10px; }
+                    HorizontalLayout {
+                        alignment: start;
+                        if Data.connected: Rectangle {
+                            height: 22px;
+                            border-radius: 11px;
+                            border-width: 1px;
+                            border-color: Theme.border-strong;
+                            background: Theme.sunken;
+                            HorizontalLayout {
+                                padding-left: 9px;
+                                padding-right: 9px;
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    NavIcon {
+                                        commands: Icons.timer;
+                                        width: 12px;
+                                        height: 12px;
+                                        tint: Theme.text-dim;
+                                        stroke-width: 1.4px;
+                                    }
+                                }
+                                Text {
+                                    text: Data.uptime;
+                                    color: Theme.text-dim;
+                                    font-size: 11.5px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        if !Data.connected: Text {
+                            text: Data.nodes.length == 0
+                                ? Str.dash-add-server-hint
+                                : Str.dash-power-hint;
+                            color: Theme.text-muted;
+                            font-size: 12.5px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Скорости.
+                HorizontalLayout {
+                    spacing: 30px;
+                    // Фиксированная ширина колонок, чтобы смена «КБ/с»↔«МБ/с»
+                    // не таскала блоки по горизонтали.
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 5px;
+                        min-width: 128px;
+                        MicroRow { icon: Icons.arrow-down; label: Str.dash-traffic-down-caps; }
+                        Text {
+                            text: Data.down-rate;
+                            color: Theme.text;
+                            font-size: 25px;
+                            font-weight: 660;
+                            letter-spacing: -0.5px;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 5px;
+                        min-width: 128px;
+                        MicroRow { icon: Icons.arrow-up; label: Str.dash-traffic-up-caps; }
+                        Text {
+                            text: Data.up-rate;
+                            color: Theme.text;
+                            font-size: 25px;
+                            font-weight: 660;
+                            letter-spacing: -0.5px;
+                        }
+                    }
+                }
+            }
+
+            // Воздух между показаниями и графиком (.hero-spark margin-top).
+            Rectangle { height: 20px; vertical-stretch: 0; }
+
+            // График во всю ширину, прижат к скруглённому низу карточки.
+            // Координаты Rust генерирует прямо в пикселях элемента, включая
+            // скруглённый низ (см. Demo в main.rs), поэтому clip здесь не
+            // нужен: за границы фигуры не выходят.
+            graph := Rectangle {
+                height: 72px;
+                Rectangle { y: parent.height * 0.25; height: 1px; background: Theme.grid-line; }
+                Rectangle { y: parent.height * 0.50; height: 1px; background: Theme.grid-line; }
+                Rectangle { y: parent.height * 0.75; height: 1px; background: Theme.grid-line; }
+                GraphPath {
+                    commands: Data.graph-down-area;
+                    fill: @linear-gradient(180deg, Theme.chart-down-fill 0%, Theme.chart-fill-base 100%);
+                }
+                GraphPath {
+                    commands: Data.graph-up-area;
+                    fill: @linear-gradient(180deg, Theme.chart-up-fill 0%, Theme.chart-fill-base 100%);
+                }
+                GraphPath {
+                    commands: Data.graph-down-line;
+                    stroke: Theme.chart-down;
+                    fill: #00000000;
+                }
+                GraphPath {
+                    commands: Data.graph-up-line;
+                    stroke: Theme.chart-up;
+                    fill: #00000000;
+                }
+                HorizontalLayout {
+                    x: 0px;
+                    y: 6px;
+                    width: parent.width;
+                    height: 16px;
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    spacing: 16px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle { width: 9px; height: 3px; border-radius: 2px; background: Theme.chart-down; }
+                        }
+                        Text { text: Str.dash-traffic-down; font-size: 11.5px; color: Theme.text-muted; vertical-alignment: center; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle { width: 9px; height: 3px; border-radius: 2px; background: Theme.chart-up; }
+                        }
+                        Text { text: Str.dash-traffic-up; font-size: 11.5px; color: Theme.text-muted; vertical-alignment: center; }
+                    }
+                    Rectangle { }
+                    Text {
+                        text: Data.peak;
+                        font-size: 11.5px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- tiles
+    Rectangle { height: 14px; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: 14px;
+        StatTile {
+            icon: Icons.waypoints;
+            label: Str.dash-this-session-caps;
+            value: Data.session-total;
+            foot: Data.session-foot;
+        }
+        StatTile {
+            icon: Icons.link2;
+            label: Str.dash-connections-caps;
+            value: Data.conns;
+            foot: Data.connected ? Str.dash-click-to-close : Str.dash-not-connected;
+            clicked => { Data.close-conns(); }
+        }
+        StatTile {
+            icon: Icons.gauge;
+            label: Str.dash-latency-caps;
+            value: Data.active-latency == "" ? "—" : Data.active-latency;
+            foot: Data.active-name == "" ? Str.dash-no-server : Str.dash-click-to-test;
+            clicked => { Data.test-latency(); }
+        }
+    }
+
+    // ------------------------------------------------------- подписки внизу
+    for sub in Data.subs: VerticalLayout {
+        padding-top: 14px;
+        SubCard {
+            sub: sub;
+            refresh => { Data.refresh-sub(sub.id); }
+        }
+    }
+}

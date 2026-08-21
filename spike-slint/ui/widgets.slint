@@ -1,0 +1,848 @@
+// Примитивы интерфейса: кнопки, поля ввода, списки, модальные окна.
+// Всё, что в вебе описано классами .btn/.input/.node/.modal из styles.css.
+
+import { Theme, Icons, NavIcon, Divider } from "theme.slint";
+
+// Скруглённый прямоугольник фигурой, а не фоном: софтверный рендер красит
+// градиентный background прямоугольником и border-radius игнорирует, поэтому
+// всё, что должно быть одновременно скруглённым и градиентным, рисуется Path.
+export component RoundRect inherits Path {
+    in property <length> radius: 8px;
+    width: 100%;
+    height: 100%;
+    viewbox-width: self.width / 1px;
+    viewbox-height: self.height / 1px;
+    property <float> w: self.width / 1px;
+    property <float> h: self.height / 1px;
+    property <float> r: min(self.radius / 1px, self.w / 2, self.h / 2);
+    // Путь собирается из кусков, а не одной строкой: анализ выражений в
+    // компиляторе Slint 1.17 растёт по числу подстановок в одном литерале и
+    // на двух десятках срывается в переполнение стека (сборка разметки
+    // падает с STATUS_STACK_OVERFLOW). Пять коротких строк — те же команды,
+    // но каждая по три подстановки.
+    property <string> arc: " A \{self.r} \{self.r} 0 0 1 ";
+    property <string> side-top: "M \{self.r} 0 L \{self.w - self.r} 0";
+    property <string> side-right: "\{self.w} \{self.r} L \{self.w} \{self.h - self.r}";
+    property <string> side-bottom: "\{self.w - self.r} \{self.h} L \{self.r} \{self.h}";
+    property <string> side-left: "0 \{self.h - self.r} L 0 \{self.r}";
+    commands: root.side-top + root.arc + root.side-right + root.arc + root.side-bottom
+        + root.arc + root.side-left + root.arc + "\{self.r} 0 Z";
+}
+
+// .btn во всех вариантах: default | primary | ghost | danger.
+export component Btn inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <string> kind: "default";
+    in property <bool> small;
+    in property <bool> enabled: true;
+    // Иконка «занята» — в вебе это класс .spin; здесь она просто гаснет:
+    // вращение стоило бы непрерывной перерисовки на софтверном рендере.
+    in property <bool> busy;
+    callback clicked();
+
+    property <bool> primary: root.kind == "primary";
+    property <bool> ghost: root.kind == "ghost";
+    property <bool> danger: root.kind == "danger";
+    out property <bool> hovered: touch.has-hover;
+    property <bool> hot: touch.has-hover && root.enabled;
+    property <color> fg: root.primary
+        ? Theme.on-accent
+        : (root.danger
+            ? Theme.danger
+            : (root.ghost ? (root.hot ? Theme.text : Theme.text-dim) : Theme.text));
+
+    height: root.small ? 27px : 34px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    opacity: root.enabled ? 1.0 : 0.45;
+    border-radius: root.small ? 6px : 8px;
+    border-width: root.ghost || root.primary ? 0px : 1px;
+    border-color: root.danger
+        ? Theme.danger-line
+        : (root.hot ? Theme.border-hover : Theme.border-strong);
+    background: root.primary
+        ? #00000000
+        : (root.ghost
+            ? (root.hot ? Theme.panel-hover : #00000000)
+            : (root.danger
+                ? (root.hot ? Theme.danger-soft : #00000000)
+                : (root.hot ? Theme.panel-hover : Theme.panel)));
+    animate background { duration: 130ms; }
+
+    // Основная кнопка: градиент 135° по скруглённой геометрии и блик сверху.
+    if root.primary: RoundRect {
+        radius: root.small ? 6px : 8px;
+        fill: root.hot
+            ? @linear-gradient(135deg, Theme.accent-hi 0%, Theme.accent 100%)
+            : @linear-gradient(135deg, Theme.accent-hi 0%, Theme.accent-deep 100%);
+    }
+    if root.primary: Rectangle {
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: 1px;
+        background: #ffffff2e;
+    }
+
+    HorizontalLayout {
+        padding-left: root.small ? 10px : 14px;
+        padding-right: root.small ? 10px : 14px;
+        spacing: 7px;
+        alignment: center;
+        if root.icon != "": VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: root.icon;
+                tint: root.fg;
+                width: root.small ? 14px : 15px;
+                height: self.width;
+                stroke-width: 1.5px;
+                opacity: root.busy ? 0.55 : 1.0;
+            }
+        }
+        if root.label != "": Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-size: root.small ? 11.5px : 12.5px;
+            font-weight: 560;
+            color: root.fg;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// .btn.icon — квадратная кнопка с одной иконкой.
+export component IconBtn inherits Rectangle {
+    in property <string> icon;
+    in property <bool> ghost;
+    in property <bool> enabled: true;
+    in property <bool> danger;
+    in property <bool> compact;
+    callback clicked();
+    // Соседняя TouchArea теряет has-hover, когда курсор уходит на кнопку,
+    // поэтому наведение приходится отдавать наружу.
+    out property <bool> hovered: touch.has-hover;
+    property <bool> hot: touch.has-hover && root.enabled;
+    width: root.compact ? 26px : 32px;
+    height: self.width;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    opacity: root.enabled ? 1.0 : 0.45;
+    border-radius: 8px;
+    border-width: root.ghost ? 0px : 1px;
+    border-color: root.hot ? Theme.border-hover : Theme.border-strong;
+    background: root.hot ? Theme.panel-hover : (root.ghost ? #00000000 : Theme.panel);
+    animate background { duration: 130ms; }
+    NavIcon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.compact ? 14px : 15px;
+        height: self.width;
+        commands: root.icon;
+        tint: root.danger
+            ? Theme.danger
+            : (root.hot ? Theme.text : Theme.text-dim);
+        stroke-width: 1.5px;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// .chip: капсула с тонкой рамкой.
+export component Chip inherits Rectangle {
+    in property <string> label;
+    in property <string> kind: "default"; // default | accent | ok | warn
+    property <bool> accent: root.kind == "accent";
+    height: 20px;
+    horizontal-stretch: 0;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.accent
+        ? Theme.accent
+        : (root.kind == "ok" ? Theme.ok : (root.kind == "warn" ? Theme.warn : Theme.border-strong));
+    background: root.accent ? Theme.accent-soft : #00000000;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-size: 11px;
+            font-weight: 550;
+            color: root.accent
+                ? Theme.accent-text
+                : (root.kind == "ok" ? Theme.ok : (root.kind == "warn" ? Theme.warn : Theme.text-dim));
+        }
+    }
+}
+
+// .dot: точка состояния задержки.
+export component Dot inherits Rectangle {
+    in property <string> tier;
+    width: 7px;
+    height: 7px;
+    border-radius: 3.5px;
+    background: root.tier == "good"
+        ? Theme.ok
+        : (root.tier == "ok" ? Theme.warn : (root.tier == "bad" ? Theme.danger : Theme.text-muted));
+}
+
+// .field: подпись, поле, подсказка.
+export component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    spacing: 6px;
+    // Без этого колонка «сетки 2×» требует ширину своей подсказки целиком, и
+    // вместо двух равных половин выходит 70/30: раскладка сначала выдаёт всем
+    // желаемую ширину и только остаток делит по stretch.
+    min-width: 0px;
+    preferred-width: 0px;
+    // Соседние поля в строке разной высоты (подсказка в одну или в две
+    // строки); без этого более низкое растягивает свои части по высоте и его
+    // ввод съезжает вниз относительно соседа.
+    alignment: start;
+    if root.label != "": Text {
+        text: root.label;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: Theme.text-dim;
+    }
+    @children
+    if root.hint != "": Text {
+        text: root.hint;
+        font-size: 11.5px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+// .input: однострочное поле. Фокус — акцентная рамка и кольцо 3px.
+export component Input inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> mono;
+    in property <length> pad-left: 11px;
+    callback edited(string);
+    height: 34px;
+    vertical-stretch: 0;
+    // Иначе поле не даёт себя сжать уже собственного текста, и колонки
+    // «сетки 2×» разъезжаются: строка с UUID оказывается вдвое шире соседней.
+    min-width: 60px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.border-strong;
+    background: Theme.sunken;
+    if ti.has-focus: Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: 11px;
+        border-width: 3px;
+        border-color: Theme.accent-soft;
+    }
+    HorizontalLayout {
+        padding-left: root.pad-left;
+        padding-right: 11px;
+        VerticalLayout {
+            alignment: center;
+            ti := TextInput {
+                text <=> root.text;
+                font-size: 13px;
+                font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+                color: Theme.text;
+                single-line: true;
+                selection-background-color: Theme.accent;
+                selection-foreground-color: Theme.on-accent;
+                edited => { root.edited(self.text); }
+            }
+        }
+    }
+    if root.text == "" && !ti.has-focus: Text {
+        x: root.pad-left;
+        y: (parent.height - self.height) / 2;
+        text: root.placeholder;
+        font-size: 13px;
+        font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+        color: Theme.text-muted;
+    }
+}
+
+// .textarea: многострочное моноширинное поле (списки доменов, ссылки, конфиг).
+export component TextArea inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> read-only;
+    callback edited(string);
+    min-height: 108px;
+    min-width: 60px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.border-strong;
+    background: Theme.sunken;
+    clip: true;
+    if ti.has-focus: Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: 11px;
+        border-width: 3px;
+        border-color: Theme.accent-soft;
+    }
+    HorizontalLayout {
+        padding: 9px;
+        padding-left: 11px;
+        ti := TextInput {
+            text <=> root.text;
+            font-size: 12px;
+            font-family: Theme.mono-font;
+            color: Theme.text;
+            single-line: false;
+            read-only: root.read-only;
+            wrap: word-wrap;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+            edited => { root.edited(self.text); }
+        }
+    }
+    if root.text == "" && !ti.has-focus: Text {
+        x: 11px;
+        y: 9px;
+        width: parent.width - 22px;
+        text: root.placeholder;
+        font-size: 12px;
+        font-family: Theme.mono-font;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+// .select: выпадающий список. Меню — PopupWindow, поэтому его не обрезает
+// карточка и оно рисуется поверх соседей.
+export component Select inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current;
+    callback changed(int);
+    height: 34px;
+    vertical-stretch: 0;
+    min-width: 60px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: menu.is-open
+        ? Theme.accent
+        : (touch.has-hover ? Theme.border-hover : Theme.border-strong);
+    background: Theme.sunken;
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 9px;
+        spacing: 8px;
+        Text {
+            text: root.options[root.current];
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+            font-size: 13px;
+            color: Theme.text;
+        }
+        VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: Icons.chevron-down;
+                width: 14px;
+                height: 14px;
+                tint: Theme.text-muted;
+            }
+        }
+    }
+    touch := TouchArea {
+        clicked => { menu.show(); }
+    }
+    menu := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        height: root.options.length * 32px + 8px;
+        Rectangle {
+            background: Theme.elevated-solid;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border-strong;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: Theme.shadow-deep;
+            VerticalLayout {
+                padding: 4px;
+                for opt[i] in root.options: Rectangle {
+                    height: 32px;
+                    border-radius: 7px;
+                    background: i == root.current
+                        ? Theme.accent-soft
+                        : (item.has-hover ? Theme.panel-hover : #00000000);
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        Text {
+                            text: opt;
+                            vertical-alignment: center;
+                            font-size: 13px;
+                            color: i == root.current ? Theme.accent-text : Theme.text-dim;
+                        }
+                    }
+                    item := TouchArea {
+                        clicked => {
+                            root.current = i;
+                            root.changed(i);
+                            menu.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// .switch: тумблер строки настроек. Цвета из styles.css: выключенный ползунок
+// серый, включённый белый.
+export component Switch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: 40px;
+    height: 22px;
+    horizontal-stretch: 0;
+    border-radius: 11px;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.checked ? Theme.accent : Theme.switch-off;
+    animate background { duration: 160ms; }
+    Rectangle {
+        x: root.checked ? 21px : 3px;
+        y: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.checked ? Theme.on-accent : Theme.switch-knob;
+        drop-shadow-blur: 2px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: Theme.shadow-card;
+        animate x { duration: 160ms; easing: ease-out; }
+        animate background { duration: 160ms; }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+// .toggle-row: подпись с пояснением и тумблер справа.
+export component ToggleRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> desc;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    spacing: 16px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    VerticalLayout {
+        spacing: 2px;
+        alignment: center;
+        horizontal-stretch: 1;
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13.5px;
+            font-weight: 500;
+        }
+        if root.desc != "": Text {
+            text: root.desc;
+            color: Theme.text-muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            checked <=> root.checked;
+            enabled: root.enabled;
+            toggled(on) => { root.toggled(on); }
+        }
+    }
+}
+
+// Строка настройки, у которой справа не тумблер, а целый блок — селект или
+// сегментированный переключатель (.toggle-row.stack).
+export component StackRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> desc;
+    spacing: 16px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    VerticalLayout {
+        spacing: 2px;
+        alignment: center;
+        horizontal-stretch: 1;
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13.5px;
+            font-weight: 500;
+        }
+        if root.desc != "": Text {
+            text: root.desc;
+            color: Theme.text-muted;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        @children
+    }
+}
+
+// .empty: пустое состояние списка.
+export component Empty inherits VerticalLayout {
+    in property <string> icon;
+    in property <string> title;
+    in property <string> text;
+    padding-top: 46px;
+    padding-bottom: 46px;
+    padding-left: 20px;
+    padding-right: 20px;
+    spacing: 0px;
+    alignment: start;
+    HorizontalLayout {
+        alignment: center;
+        NavIcon {
+            commands: root.icon;
+            tint: Theme.text-muted;
+            width: 34px;
+            height: 34px;
+            stroke-width: 1.5px;
+        }
+    }
+    Rectangle { height: 12px; }
+    Text {
+        text: root.title;
+        horizontal-alignment: center;
+        color: Theme.text-dim;
+        font-size: 15px;
+        font-weight: 600;
+    }
+    Rectangle { height: 6px; }
+    HorizontalLayout {
+        alignment: center;
+        Text {
+            text: root.text;
+            horizontal-alignment: center;
+            max-width: 380px;
+            color: Theme.text-muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+    }
+    Rectangle { height: 16px; }
+    HorizontalLayout {
+        alignment: center;
+        @children
+    }
+}
+
+// .alert / .notice: жёлтая (или красная) полоса-предупреждение.
+export component Alert inherits Rectangle {
+    in property <string> title;
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> danger;
+    vertical-stretch: 0;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.danger ? Theme.danger-line : Theme.warn-line;
+    background: root.danger ? Theme.danger-soft : Theme.warn-soft;
+    HorizontalLayout {
+        padding: 13px;
+        padding-left: 15px;
+        padding-right: 15px;
+        spacing: 11px;
+        if root.icon != "": VerticalLayout {
+            alignment: start;
+            padding-top: 1px;
+            NavIcon {
+                commands: root.icon;
+                tint: root.danger ? Theme.danger : Theme.warn;
+                width: 17px;
+                height: 17px;
+            }
+        }
+        VerticalLayout {
+            spacing: 3px;
+            horizontal-stretch: 1;
+            alignment: center;
+            if root.title != "": Text {
+                text: root.title;
+                font-size: 13.5px;
+                font-weight: 620;
+                color: Theme.text;
+            }
+            if root.text != "": Text {
+                text: root.text;
+                font-size: 12.5px;
+                color: Theme.text-dim;
+                wrap: word-wrap;
+            }
+        }
+        @children
+    }
+}
+
+// .meter: полоса расхода трафика подписки.
+export component Meter inherits Rectangle {
+    in property <float> value;   // 0..1
+    in property <string> tier;   // "" | ok | bad
+    height: 6px;
+    border-radius: 3px;
+    background: Theme.meter-track;
+    clip: true;
+    Rectangle {
+        x: 0px;
+        width: max(parent.width * min(root.value, 1.0), 4px);
+        height: parent.height;
+        border-radius: 3px;
+        background: root.tier == "bad"
+            ? Theme.danger
+            : (root.tier == "ok" ? Theme.warn : Theme.accent);
+        animate width { duration: 300ms; easing: ease-out; }
+    }
+}
+
+// Прокручиваемая область: Flickable плюс своя полоса — как ::-webkit-scrollbar
+// в вебе (лоток 10px, ползунок 4px со скруглением).
+// Прокручиваемая область: Flickable плюс своя полоса — как ::-webkit-scrollbar
+// в вебе (лоток 10px, ползунок 4px со скруглением).
+export component ScrollArea inherits Rectangle {
+    in property <length> content-spacing: 0px;
+    in property <length> pad: 0px;
+    in property <length> pad-left: root.pad;
+    in property <length> pad-right: root.pad;
+    in property <length> pad-top: root.pad;
+    in property <length> pad-bottom: root.pad;
+    out property <length> offset: -flick.viewport-y;
+    out property <length> max-offset: max(0px, flick.viewport-height - flick.height);
+    // Пока follow включён, лента держится у нижнего края: журнал должен
+    // ехать за новыми строками, пока пользователь сам не отмотал вверх.
+    in property <bool> follow;
+    callback scrolled();
+    changed max-offset => {
+        if (root.follow) {
+            flick.viewport-y = -root.max-offset;
+        }
+    }
+    changed follow => {
+        if (root.follow) {
+            flick.viewport-y = -root.max-offset;
+        }
+    }
+    property <length> track-h: flick.height - 8px;
+    property <length> thumb-h: max(36px, flick.height / flick.viewport-height * root.track-h);
+    property <length> start-y;
+    clip: true;
+
+    flick := Flickable {
+        // Перетаскивание мышью на десктопе только мешает кликам, а колесо
+        // Flickable обрабатывает и с interactive: false.
+        interactive: false;
+        flicked => { root.scrolled(); }
+        VerticalLayout {
+            // Содержимое прижато к верху: иначе VerticalLayout раздаёт всю
+            // свободную высоту страницы своим детям и заголовки с карточками
+            // расползаются по экрану.
+            alignment: start;
+            padding-left: root.pad-left;
+            padding-right: root.pad-right;
+            padding-top: root.pad-top;
+            padding-bottom: root.pad-bottom;
+            spacing: root.content-spacing;
+            @children
+        }
+    }
+
+    if flick.viewport-height > flick.height + 1px: Rectangle {
+        x: parent.width - 10px;
+        y: 4px + (root.track-h - root.thumb-h)
+            * (root.offset / max(1px, root.max-offset));
+        width: 4px;
+        height: root.thumb-h;
+        border-radius: 2px;
+        background: bar.pressed || bar.has-hover ? Theme.scrollbar-hover : Theme.scrollbar;
+        bar := TouchArea {
+            x: -3px;
+            width: 10px;
+            moved => {
+                flick.viewport-y = -clamp(
+                    root.start-y + (self.mouse-y - self.pressed-y) * root.max-offset
+                        / max(1px, root.track-h - root.thumb-h),
+                    0px,
+                    root.max-offset);
+                root.scrolled();
+            }
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.start-y = root.offset;
+                }
+            }
+        }
+    }
+}
+// Модальное окно: подложка на всё окно и карточка по центру.
+export component ModalShell inherits Rectangle {
+    in property <string> title;
+    in property <bool> wide;
+    callback close();
+    background: Theme.backdrop;
+    // Клик мимо диалога закрывает; собственная TouchArea диалога перехватывает
+    // свои клики и до подложки они не доходят.
+    TouchArea {
+        clicked => { root.close(); }
+    }
+    VerticalLayout {
+        alignment: center;
+        padding: 24px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: min(root.wide ? 780px : 560px, root.width - 48px);
+                max-height: root.height - 48px;
+                background: Theme.elevated-solid;
+                border-radius: 20px;
+                border-width: 1px;
+                border-color: Theme.border-strong;
+                drop-shadow-blur: 40px;
+                drop-shadow-offset-y: 14px;
+                drop-shadow-color: Theme.shadow-deep;
+                TouchArea { }
+                Rectangle {
+                    x: 20px;
+                    y: 1px;
+                    width: parent.width - 40px;
+                    height: 1px;
+                    background: Theme.sheen;
+                }
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding: 16px;
+                        padding-left: 18px;
+                        padding-right: 12px;
+                        spacing: 10px;
+                        vertical-stretch: 0;
+                        Text {
+                            text: root.title;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            font-size: 15px;
+                            font-weight: 650;
+                            color: Theme.text;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconBtn {
+                                icon: Icons.close;
+                                ghost: true;
+                                clicked => { root.close(); }
+                            }
+                        }
+                    }
+                    Divider { }
+                    @children
+                }
+            }
+        }
+    }
+}
+
+// Низ модального окна: разделитель и кнопки, прижатые вправо.
+export component ModalFoot inherits VerticalLayout {
+    vertical-stretch: 0;
+    Divider { }
+    HorizontalLayout {
+        padding: 14px;
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 9px;
+        alignment: end;
+        @children
+    }
+}
+
+// Всплывающее уведомление (.toast).
+export component Toast inherits Rectangle {
+    in property <string> kind;
+    in property <string> text;
+    in property <string> detail;
+    /// Сообщение уходит: свернуться и погаснуть, а не исчезнуть рывком.
+    in property <bool> leaving;
+    callback dismissed();
+
+    /// Взводится в init: до первого кадра сообщение свёрнуто, и раскрытие
+    /// получается анимацией, а не появлением из ниоткуда.
+    property <bool> shown;
+    init => { root.shown = true; }
+
+    property <bool> visible-now: root.shown && !root.leaving;
+    // Высотой распоряжается раскладка, поэтому анимируется не она, а потолок:
+    // ограничение раскладка соблюдает, и колонка сообщений едет вместе с ним.
+    max-height: root.visible-now ? content.preferred-height : 0px;
+    opacity: root.visible-now ? 1.0 : 0.0;
+    animate max-height, opacity {
+        duration: 220ms;
+        easing: ease-out;
+    }
+    // Пока высота меньше собственной, содержимое не должно вылезать за края.
+    clip: true;
+
+    background: Theme.elevated-solid;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.kind == "success"
+        ? Theme.ok
+        : (root.kind == "error" ? Theme.danger : Theme.border-strong);
+    drop-shadow-blur: 40px;
+    drop-shadow-offset-y: 12px;
+    drop-shadow-color: Theme.shadow-deep;
+    content := VerticalLayout {
+        padding: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 3px;
+        Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: 550;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        if root.detail != "": Text {
+            text: root.detail;
+            font-size: 12px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+    }
+
+    // Щелчок закрывает: ждать, пока сообщение погаснет само, незачем.
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.dismissed(); }
+    }
+}

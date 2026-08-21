@@ -5,6 +5,8 @@ dist-ssr/
 
 # Rust / Tauri
 src-tauri/target/
+# Сборка нативного клиента: там же промежуточная папка установщика.
+spike-slint/target/
 # The Android project under gen/android IS tracked (Kotlin service, manifest,
 # gradle); only regenerated schema dumps stay out.
 src-tauri/gen/schemas/

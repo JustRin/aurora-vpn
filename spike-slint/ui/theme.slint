@@ -1,0 +1,558 @@
+// Дизайн-токены и общие детали Aurora VPN — сняты со styles.css.
+// Blur-эффектов в Slint нет: стекло имитируется полупрозрачными заливками.
+
+import { Conf } from "data.slint";
+
+export global Theme {
+    // Имена семейств выбирает main.rs (ui-font, mono-font): в font-family
+    // Slint помещается ровно одно имя, а в styles.css и у текста интерфейса,
+    // и у моноширинного стоит стек с запасными на случай, если первого в
+    // системе нет.
+    in-out property <string> ui-font;
+    in-out property <string> mono-font;
+
+    // Выбранная палитра: 0 Аврора, 1 Полночь, 2 Багровая, 3 Изумруд,
+    // 4 Болотная, 5 Светлая — тот же порядок, что у плиток в настройках и у
+    // THEMES в themes.ts. «Как в системе» разрешает Rust: он держит
+    // Conf.system-dark по настройке Windows и обновляет её на лету.
+    out property <int> variant:
+        Conf.theme == "midnight" ? 1
+        : Conf.theme == "crimson" ? 2
+        : Conf.theme == "emerald" ? 3
+        : Conf.theme == "swamp" ? 4
+        : Conf.theme == "light" ? 5
+        : Conf.theme == "system" ? (Conf.system-dark ? 0 : 5)
+        : 0;
+    // Тёмная ли текущая палитра: по ней Rust красит рамку окна и пересобирает
+    // амбиент-подложку.
+    out property <bool> dark: root.variant != 5;
+
+    // Палитра — таблица: строка на токен, колонка на тему в порядке variant.
+    // Значения сняты с блоков [data-theme=...] в styles.css; полупрозрачные
+    // записаны как #rrggbbaa, потому что в Slint нет rgba().
+    pure function p(aurora: color, night: color, crimson: color, emerald: color, swamp: color, light: color) -> color {
+        return root.variant == 1 ? night
+            : root.variant == 2 ? crimson
+            : root.variant == 3 ? emerald
+            : root.variant == 4 ? swamp
+            : root.variant == 5 ? light
+            : aurora;
+    }
+
+    // -------------------------------------------------------- поверхности
+    out property <color> bg:              p(#0a0c12, #050813, #0f080a, #040f0b, #0e1005, #eef1f8);
+    out property <color> bg-elevated:     p(#12151fb8, #0c1226bd, #1a1013bd, #0a1a15bd, #181a0cc2, #ffffffd1);
+    out property <color> panel:           p(#141824a8, #0f1630a8, #1e1217a8, #0c1e18a8, #1c1f0fad, #ffffffc2);
+    out property <color> panel-hover:     p(#1e2436d9, #182246db, #2d1b22db, #142e25db, #2a2e18e0, #fffffff2);
+    out property <color> border:          p(#5a6a9638, #5a78d238, #be5a7333, #50be9633, #a5af5a33, #3c508224);
+    out property <color> border-strong:   p(#6e82b94d, #6987e152, #cd69824d, #5fcda547, #b4be6947, #374b7d3d);
+    out property <color> border-hover:    p(#829bdc73, #7da0ff75, #e17d9670, #73e1b96b, #c8d27d6b, #32467866);
+    out property <color> sunken:          p(#090c15b3, #070b1ab8, #130b0eb8, #07140fb8, #121408bd, #f0f3fad9);
+    out property <color> sunken-deep:     p(#060910d1, #040712d6, #0c0709d6, #040d09d6, #0b0d05db, #eaeef7e6);
+    out property <color> backdrop:        p(#04060bb8, #030610bd, #0c0507bd, #030c09bd, #0a0c04bd, #1e243259);
+    // Тот же bg-elevated, но уже положенный на bg и потому непрозрачный.
+    // В вебе диалоги и меню держит backdrop-filter: blur(30px); блюра в Slint
+    // нет, и сквозь полупрозрачную панель просвечивает страница — читать её
+    // невозможно. Веб-версия так же «схлопывает» меню выбора сервера.
+    out property <color> elevated-solid:  p(#10121b, #0a0f21, #170e11, #081712, #16180a, #fcfcfe);
+
+    // -------------------------------------------------------------- текст
+    out property <color> text:            p(#e7eaf3, #e6ebff, #f5e9ec, #e4f5ee, #edeedb, #10131c);
+    out property <color> text-dim:        p(#a2aac2, #a3b0d6, #c2a5ad, #9dc2b3, #b6b89b, #414a60);
+    out property <color> text-muted:      p(#6f7893, #6d7aa3, #8a6a73, #698a7c, #808268, #6d7689);
+    out property <color> log-text:        p(#c8cfe2, #c3ccec, #ddc9ce, #c4ded4, #d3d5bd, #2a3040);
+
+    // ------------------------------------------------- акцент и состояния
+    out property <color> accent:          p(#7c3aed, #4f6bff, #d01838, #0f9b6c, #76861f, #6d28d9);
+    out property <color> accent-hi:       p(#8b5cf6, #6b83ff, #ef4060, #14b981, #8ea028, #7c3aed);
+    out property <color> accent-deep:     p(#6d28d9, #3a52d6, #a3122b, #0a7a55, #5a6716, #5b21b6);
+    out property <color> accent-2:        p(#22d3ee, #38bdf8, #fb923c, #22d3ee, #9ccc65, #0e7490);
+    out property <color> accent-soft:     p(#7c3aed29, #4f6bff2e, #d018382e, #0f9b6c2e, #76861f33, #6d28d91a);
+    out property <color> accent-text:     p(#c4b5fd, #a5b8ff, #fda4af, #6ee7b7, #d3dc7a, #5b21b6);
+    out property <color> on-accent:       p(#ffffff, #ffffff, #ffffff, #ffffff, #ffffff, #ffffff);
+    out property <color> ok:              p(#34d399, #34d399, #34d399, #7ee7b0, #34d399, #047857);
+    out property <color> warn:            p(#fbbf24, #fbbf24, #fbbf24, #fbbf24, #fbbf24, #a16207);
+    out property <color> danger:          p(#f87171, #f87171, #f87171, #f87171, #f87171, #dc2626);
+    out property <color> danger-soft:     p(#f871711f, #f871711f, #f871711f, #f871711f, #f871711f, #dc262614);
+    out property <color> warn-soft:       p(#fbbf2412, #fbbf2412, #fbbf2412, #fbbf2412, #fbbf2412, #a1620714);
+    out property <color> warn-line:       p(#fbbf2452, #fbbf2452, #fbbf2452, #fbbf2452, #fbbf2452, #a162074d);
+    out property <color> danger-line:     p(#f8717152, #f8717152, #f8717152, #f8717152, #f8717152, #dc262647);
+    out property <color> ok-glow:         p(#34d39938, #34d39938, #34d39938, #7ee7b038, #34d39938, #0478572e);
+    out property <color> ok-halo:         p(#34d39917, #34d39917, #34d39917, #7ee7b017, #34d39917, #04785714);
+    // Ховер кнопки «закрыть» — один и тот же красный во всех палитрах: в
+    // styles.css он задан литералом, а не токеном.
+    out property <color> danger-hover:    p(#d63b3b, #d63b3b, #d63b3b, #d63b3b, #d63b3b, #d63b3b);
+
+    // -------------------------------------------------- свет и поверхности
+    out property <color> sheen:           p(#ffffff0f, #bed2ff12, #ffd2d70f, #c8ffeb0f, #f0f5c80e, #ffffffd9);
+    out property <color> glow-a:          p(#7c3aed4d, #4f6bff57, #d018384d, #0f9b6c52, #76861f4d, #7c3aed24);
+    out property <color> glow-b:          p(#22d3ee1f, #38bdf833, #fb923c29, #22d3ee29, #9ccc6524, #0ea5e91f);
+    out property <color> glow-c:          p(#5820e82e, #1e3a8a57, #780a2061, #064e3b66, #343e0c70, #ec489914);
+    out property <color> grid-line:       p(#1d2434, #16203c, #2c1c23, #132a22, #262917, #e6eaf2);
+    out property <color> meter-track:     p(#1d2434, #16203c, #2c1c23, #143026, #262917, #e3e7f0);
+    out property <color> switch-off:      p(#2b3348, #24304f, #402630, #1f4437, #3b3f24, #ccd3e2);
+    out property <color> switch-knob:     p(#8a93ab, #8a93ab, #8a93ab, #8a93ab, #8a93ab, #ffffff);
+    out property <color> toggle-off:      p(#262c3f, #262c3f, #262c3f, #262c3f, #262c3f, #262c3f);
+    out property <color> scrollbar:       p(#2a3247, #253154, #462b35, #235045, #414527, #c8cfde);
+    out property <color> scrollbar-hover: p(#3a4560, #35447a, #653c4a, #327063, #5c6238, #aeb7cb);
+
+    // ------------------------------------------------- график и подложки
+    out property <color> chart-down:      p(#22d3ee, #38bdf8, #fb923c, #22d3ee, #9ccc65, #0e7490);
+    out property <color> chart-up:        p(#a78bfa, #7c8cff, #ef4060, #34d399, #d4c14a, #7c3aed);
+    out property <color> core-from:       p(#1e2436, #14203f, #2a1620, #12332a, #262a12, #ffffff);
+    out property <color> core-to:         p(#10131d, #0a1024, #170c11, #091a15, #14160a, #eef1f8);
+    out property <color> core-ok-from:    p(#16302a, #16302a, #16302a, #16302a, #16302a, #ecfdf5);
+    out property <color> core-ok-to:      p(#0e1a17, #0e1a17, #0e1a17, #0e1a17, #0e1a17, #d3f2e4);
+    out property <color> avatar-from:     p(#2a3145, #1a2547, #33202a, #17392f, #2f331b, #e6eaf4);
+    out property <color> avatar-to:       p(#1a2030, #111936, #22151b, #0f251e, #1e2110, #d8dfee);
+    out property <color> core-hover-from:  p(#262d43, #1b2a52, #371d29, #184537, #31361a, #ffffff);
+    out property <color> core-hover-to:    p(#141826, #0e1530, #1e1016, #0d241d, #1b1e0d, #e6eaf4);
+    // Тени: во всех тёмных палитрах чёрные, в светлой — синеватые и заметно
+    // слабее (--card-shadow и --shadow в styles.css). Двух хватает на всё:
+    // мягкая под карточками и плотная под тем, что всплывает над страницей.
+    out property <color> shadow-card:     p(#0000003d, #0000003d, #0000003d, #0000003d, #0000003d, #17203814);
+    out property <color> shadow-deep:     p(#000000a8, #000000a8, #000000a8, #000000a8, #000000a8, #17203824);
+    // Заливки графика — непрозрачные, хотя по макету это полупрозрачный
+    // chart-down 32% / chart-up 26% поверх карточки. Причина в софтверном
+    // рендере Slint: process_rectangle и градиенты пересекают клип с грязной
+    // областью, а process_filled_path/process_stroked_path передают клип
+    // напрямую (i-slint-renderer-software 1.17.1, lib.rs), поэтому при
+    // частичной перерисовке Path красится поверх неочищенных пикселей.
+    // Полупрозрачная заливка от этого копится слой за слоем: при наведении на
+    // плитку график за несколько кадров анимации выцветал в ядовито-бирюзовый.
+    // С непрозрачным цветом повторная отрисовка ничего не меняет.
+    // Значения посчитаны смешиванием panel → bg и заливок поверх неё; амбиент
+    // в счёт не идёт — фон под графиком меняется по ширине не более чем на
+    // 1–2/255.
+    out property <color> chart-fill-base: p(#11141e, #0c1126, #190f13, #091914, #181a0c, #fbfcfd);
+    out property <color> chart-down-fill: p(#165160, #1a4869, #613920, #115459, #425328, #afd0da);
+    out property <color> chart-up-fill:   p(#3c6088, #335a90, #863b31, #1a756a, #687031, #a2a9df);
+
+    // Шаг навигации: высота строки и зазор между строками. Этими же числами
+    // едет подложка активной строки (NavPill), поэтому они общие.
+    out property <length> nav-row-h: 38px;
+    out property <length> nav-row-gap: 3px;
+}
+
+// Пути lucide-иконок (24×24, обводка 2), сняты из node_modules/lucide-react;
+// rect/circle/line переведены в path-команды, точки «h.01» — в мини-круги.
+export global Icons {
+    out property <string> gauge: "M12 14l4-4 M3.34 19a10 10 0 1 1 17.32 0";
+    out property <string> server: "M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z M6.6 6a.6 .6 0 1 1-1.2 0 .6 .6 0 1 1 1.2 0z M6.6 18a.6 .6 0 1 1-1.2 0 .6 .6 0 1 1 1.2 0z";
+    out property <string> split: "M16 3h5v5 M8 3H3v5 M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3 M15 9l6-6";
+    out property <string> list-tree: "M8 5h13 M13 12h8 M13 19h8 M3 10a2 2 0 0 0 2 2h3 M3 5v12a2 2 0 0 0 2 2h3";
+    out property <string> scroll-text: "M15 12h-5 M15 8h-5 M19 17V5a2 2 0 0 0-2-2H4 M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3";
+    out property <string> settings: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915 M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0z";
+    out property <string> info: "M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0z M12 16v-4 M12.6 8a.6 .6 0 1 1-1.2 0 .6 .6 0 1 1 1.2 0z";
+    out property <string> cpu: "M12 20v2 M12 2v2 M17 20v2 M17 2v2 M2 12h2 M2 17h2 M2 7h2 M20 12h2 M20 17h2 M20 7h2 M7 20v2 M7 2v2 M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M9 8h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z";
+    out property <string> power: "M12 2v10 M18.4 6.6a9 9 0 1 1-12.77.04";
+    out property <string> timer: "M10 2h4 M12 14l3-3 M20 14a8 8 0 1 1-16 0 8 8 0 1 1 16 0z";
+    out property <string> waypoints: "M10.586 5.414l-5.172 5.172 M18.586 13.414l-5.172 5.172 M6 12h12 M14 20a2 2 0 1 1-4 0 2 2 0 1 1 4 0z M14 4a2 2 0 1 1-4 0 2 2 0 1 1 4 0z M22 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0z M6 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0z";
+    out property <string> link2: "M9 17H7A5 5 0 0 1 7 7h2 M15 7h2a5 5 0 1 1 0 10h-2 M8 12h8";
+    out property <string> arrow-down: "M12 17V3 M6 11l6 6 6-6 M19 21H5";
+    out property <string> arrow-up: "M18 9l-6-6-6 6 M12 3v14 M5 21h14";
+    out property <string> chevron-down: "M6 9l6 6 6-6";
+    out property <string> chevron-up: "M18 15l-6-6-6 6";
+    out property <string> copy: "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2z M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2";
+    out property <string> pencil: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z M0 0 m15 5 4 4";
+    out property <string> trash: "M10 11v6 M14 11v6 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2";
+    out property <string> plus: "M5 12h14 M12 5v14";
+    out property <string> refresh: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16 M8 16H3v5";
+    out property <string> rss: "M4 11a9 9 0 0 1 9 9 M4 4a16 16 0 0 1 16 16 M6 19a1 1 0 1 1 -2 0 a1 1 0 1 1 2 0z";
+    out property <string> calendar-clock: "M16 14v2.2l1.6 1 M16 2v3 M21 7.338V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h2.338 M3 9h5.859 M8 2v3 M22 16a6 6 0 1 1 -12 0 a6 6 0 1 1 12 0z";
+    out property <string> folder-open: "M0 0 m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2";
+    out property <string> search: "M0 0 m21 21-4.34-4.34 M19 11a8 8 0 1 1 -16 0 a8 8 0 1 1 16 0z";
+    out property <string> file-json: "M14 22h4a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v6 M14 2v5a1 1 0 0 0 1 1h5 M5 14a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 M9 22a1 1 0 0 0 1-1v-2a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-2a1 1 0 0 0-1-1";
+    out property <string> close: "M18 6 6 18 M0 0 m6 6 12 12";
+    out property <string> check: "M20 6 9 17l-5-5";
+    out property <string> download: "M12 15V3 M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M0 0 m7 10 5 5 5-5";
+    // «h.01» из lucide — точка, которую обводка нулевой длины не рисует;
+    // как и в остальных иконках здесь, она заменена мини-кругом.
+    out property <string> shield-alert: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M12 8v4 M12.6 16a.6 .6 0 1 1-1.2 0 .6 .6 0 1 1 1.2 0z";
+}
+
+export component Glow inherits Rectangle {
+    in property <color> tint;
+    background: @radial-gradient(circle, root.tint 0%, #00000000 62%);
+}
+
+export component Card inherits Rectangle {
+    // Отступы вынесены наружу: у карточки подписки они меньше (.sub-card).
+    in property <length> pad-x: 20px;
+    in property <length> pad-y: 18px;
+    in property <length> gap: 0px;
+    background: Theme.panel;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: Theme.shadow-card;
+    // inset 0 1px 0 var(--sheen): кромка отступает на радиус, чтобы не
+    // перечёркивать скруглённые углы прямой линией.
+    Rectangle {
+        x: 16px;
+        y: 1px;
+        width: parent.width - 32px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+    VerticalLayout {
+        padding-left: root.pad-x;
+        padding-right: root.pad-x;
+        padding-top: root.pad-y;
+        padding-bottom: root.pad-y;
+        spacing: root.gap;
+        @children
+    }
+}
+
+// .section-title описан в CSS одним правилом с .micro (см. MicroRow ниже),
+// поэтому и размер здесь тот же — --t-micro.
+export component SectionTitle inherits Text {
+    color: Theme.text-muted;
+    font-size: 10.5px;
+    font-weight: 640;
+    letter-spacing: 1px;
+}
+
+export component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+// .segmented: подложка --sunken, выбранная кнопка — сплошной --accent.
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> selected;
+    height: 37px;
+    border-radius: 12px;
+    background: Theme.sunken;
+    border-width: 1px;
+    border-color: Theme.border-strong;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        for opt[i] in root.options: Rectangle {
+            border-radius: 8px;
+            background: i == root.selected ? Theme.accent : (touch.has-hover ? #ffffff08 : #00000000);
+            animate background { duration: 140ms; }
+            touch := TouchArea { clicked => { root.selected = i; } }
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                Text {
+                    text: opt;
+                    vertical-alignment: center;
+                    font-size: 12.5px;
+                    font-weight: 560;
+                    color: i == root.selected
+                        ? Theme.on-accent
+                        : (touch.has-hover ? Theme.text : Theme.text-dim);
+                    animate color { duration: 140ms; }
+                }
+            }
+        }
+    }
+}
+
+// Общая геометрия фигур графика.
+//
+// stroke-width здесь задан и для заливок, у которых обводки нет. Slint
+// вписывает путь не в габарит элемента, а в габарит, уменьшенный на толщину
+// обводки, и сдвигает на её половину (i-slint-core, items/path.rs,
+// fitted_path_events). Поэтому фигура с обводкой и фигура без неё получают
+// разные трансформации: по вертикали линия уезжает на ~1px, а по горизонтали
+// сдвиг на крутом участке превращается в зазор в несколько пикселей — между
+// линией и её заливкой открывалась тёмная щель. Одинаковая толщина даёт им
+// одинаковую трансформацию.
+export component GraphPath inherits Path {
+    width: 100%;
+    height: 100%;
+    // Вьюбокс равен фактическому размеру элемента: координаты Rust генерирует
+    // сразу в пикселях, так что масштаб выходит 1:1.
+    viewbox-width: self.width / 1px;
+    viewbox-height: self.height / 1px;
+    stroke-width: 1.8px;
+}
+
+export component NavIcon inherits Path {
+    in property <color> tint;
+    width: 17px;
+    height: 17px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: root.tint;
+    stroke-width: 1.5px;
+    fill: #00000000;
+}
+
+// Подложка активной строки навигации. Лежит не внутри NavItem, а одна на весь
+// список (app.slint): при смене страницы она переезжает к выбранной строке, а
+// не вспыхивает на новом месте.
+export component NavPill inherits Rectangle {
+    border-radius: 10px;
+    // Подложка активной строки, как в вебе: linear-gradient(90deg,
+    // var(--accent-soft), transparent 92%) — слева заливка в полную силу, к
+    // правому краю она тает, и строка растворяется в сайдбаре.
+    //
+    // Двумя прямоугольниками, а не одним: градиентную заливку софтверный
+    // рендер кладёт без скругления (LinearGradientCommand радиуса не знает, а
+    // process_rounded_rectangle получает после неё прозрачный inner_color —
+    // i-slint-renderer-software 1.17.1). Поэтому левые углы, где заливка ещё
+    // почти в полную силу, закрывает ровная скруглённая шапка, а градиент
+    // начинается за ней; правым углам скруглять уже нечего, там прозрачность.
+    //
+    // Шапка шириной в два радиуса, а не в один: радиус режется до половины
+    // меньшей стороны, и на полоске в 10px от скругления осталась бы половина.
+    // Своей ровной заливкой шапка держит подложку в полную силу первые 20px,
+    // тогда как в вебе она за эти 20px теряет десятую часть — 3/255 по синему.
+    //
+    // Path вместо этой пары брать нельзя: при частичной перерисовке он
+    // получает клип напрямую, минуя пересечение с грязной областью, и
+    // полупрозрачная заливка за несколько кадров анимации цвета набирала в
+    // углу строки почти сплошной фиолетовый. Rectangle клип честно пересекает.
+    Rectangle {
+        x: 0px;
+        width: 20px;
+        border-top-left-radius: 10px;
+        border-bottom-left-radius: 10px;
+        background: Theme.accent-soft;
+    }
+    Rectangle {
+        x: 20px;
+        width: parent.width - 20px;
+        background: @linear-gradient(90deg,
+            Theme.accent-soft 0%,
+            Theme.accent-soft.transparentize(1.0) 92%);
+    }
+    // Акцентная рейка слева со свечением (.nav-item.active::before).
+    Rectangle {
+        x: 0px;
+        y: (parent.height - 18px) / 2;
+        width: 3px;
+        height: 18px;
+        border-top-right-radius: 3px;
+        border-bottom-right-radius: 3px;
+        background: Theme.accent;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: Theme.accent;
+    }
+    // inset 0 1px 0 var(--sheen): кромка идёт по верхнему краю и вместе со
+    // скруглением заворачивает в углы — в вебе это видно как скруглённый
+    // верхний правый угол у растаявшего края строки. Поэтому не полоска, а
+    // рамка в 1px у скруглённого прямоугольника, обрезанная по высоте радиуса:
+    // ниже точки касания дуги рамка пошла бы по прямым бокам, которых у
+    // inset-тени нет.
+    Rectangle {
+        y: 0px;
+        height: 10px;
+        clip: true;
+        Rectangle {
+            y: 0px;
+            height: root.height;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.sheen;
+        }
+    }
+}
+
+export component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <string> badge;
+    in property <bool> active;
+    callback pressed();
+    height: Theme.nav-row-h;
+    border-radius: 10px;
+    background: !root.active && touch.has-hover ? Theme.panel : #00000000;
+    property <color> fg: root.active
+        ? Theme.accent-text
+        : (touch.has-hover ? Theme.text : Theme.text-dim);
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 11px;
+        VerticalLayout {
+            alignment: center;
+            NavIcon { commands: root.icon; tint: root.fg; }
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: root.fg;
+            animate color { duration: 120ms; }
+        }
+        if root.badge != "": Text {
+            text: root.badge;
+            vertical-alignment: center;
+            font-size: 11px;
+            color: Theme.text-muted;
+        }
+    }
+    touch := TouchArea { clicked => { root.pressed(); } }
+}
+
+// Строка футера сайдбара (.core-line): иконка 13px + приглушённый текст.
+export component CoreLine inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> label;
+    spacing: 7px;
+    VerticalLayout {
+        alignment: center;
+        NavIcon {
+            commands: root.icon;
+            tint: Theme.text-muted;
+            width: 13px;
+            height: 13px;
+            stroke-width: 1.2px;
+        }
+    }
+    Text {
+        text: root.label;
+        vertical-alignment: center;
+        font-size: 11.5px;
+        color: Theme.text-muted;
+    }
+}
+
+export component MonoText inherits Text {
+    font-family: Theme.mono-font;
+    font-size: 12.5px;
+    color: Theme.text;
+}
+
+// Микро-подпись (.micro): иконка 12px + приглушённый разреженный капс.
+export component MicroRow inherits HorizontalLayout {
+    in property <string> icon;
+    in property <string> label;
+    spacing: 7px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        NavIcon {
+            commands: root.icon;
+            tint: Theme.text-muted;
+            width: 12px;
+            height: 12px;
+            stroke-width: 1.3px;
+        }
+    }
+    Text {
+        text: root.label;
+        vertical-alignment: center;
+        font-size: 10.5px;
+        font-weight: 640;
+        letter-spacing: 1px;
+        color: Theme.text-muted;
+    }
+}
+
+// Плитка счётчика (.stat): подпись, крупное число, приписка.
+export component StatTile inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+    in property <string> foot;
+    // В вебе две плитки из трёх — кнопки: разорвать соединения и измерить
+    // задержку. Без обработчика клик просто ничего не делает.
+    callback clicked();
+    background: Theme.panel;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.border-strong : Theme.border;
+    animate border-color { duration: 160ms; }
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: Theme.shadow-card;
+    Rectangle {
+        x: 16px;
+        y: 1px;
+        width: parent.width - 32px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+    VerticalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-top: 16px;
+        padding-bottom: 16px;
+        spacing: 0px;
+        MicroRow { icon: root.icon; label: root.label; }
+        Rectangle { height: 8px; }
+        Text {
+            text: root.value;
+            color: Theme.text;
+            font-size: 19px;
+            font-weight: 660;
+            letter-spacing: -0.4px;
+        }
+        Rectangle { height: 4px; }
+        Text {
+            text: root.foot;
+            color: Theme.text-muted;
+            font-size: 11.5px;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Кнопка системного меню шапки — размеры и ховеры из .win-button.
+export component WinButton inherits Rectangle {
+    in property <string> kind; // "min" | "max" | "close"
+    callback activate();
+    width: 46px;
+    property <bool> danger: root.kind == "close";
+    property <color> fg: touch.has-hover
+        ? (root.danger ? #ffffff : Theme.text)
+        : Theme.text-dim;
+    background: touch.has-hover
+        ? (root.danger ? Theme.danger-hover : Theme.panel-hover)
+        : #00000000;
+    animate background { duration: 120ms; }
+
+    if root.kind == "min": Rectangle {
+        Rectangle {
+            x: (parent.width - 10px) / 2;
+            y: (parent.height - 1.5px) / 2;
+            width: 10px;
+            height: 1.5px;
+            background: fg;
+        }
+    }
+    if root.kind == "max": Rectangle {
+        Rectangle {
+            x: (parent.width - 10px) / 2;
+            y: (parent.height - 10px) / 2;
+            width: 10px;
+            height: 10px;
+            border-width: 1px;
+            border-color: fg;
+            border-radius: 2px;
+        }
+    }
+    if root.kind == "close": Rectangle {
+        Path {
+            x: (parent.width - 11px) / 2;
+            y: (parent.height - 11px) / 2;
+            width: 11px;
+            height: 11px;
+            viewbox-width: 11;
+            viewbox-height: 11;
+            stroke: fg;
+            stroke-width: 1.5px;
+            MoveTo { x: 0; y: 0; }
+            LineTo { x: 11; y: 11; }
+            MoveTo { x: 11; y: 0; }
+            LineTo { x: 0; y: 11; }
+        }
+    }
+
+    touch := TouchArea { clicked => { root.activate(); } }
+}

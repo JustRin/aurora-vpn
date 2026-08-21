@@ -9,14 +9,64 @@ permissions:
   contents: write
 
 jobs:
+  # Windows собирается отдельно и не через Tauri: там интерфейс переехал на
+  # Slint, а установщик — свой NSIS-скрипт. Ключ в списке программ и папка
+  # установки те же, что у прежней сборки, поэтому она обновляется этим файлом
+  # на месте, а не встаёт второй копией.
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          PKG="$(node -p 'require("./package.json").version')"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag is v${TAG} but package.json says ${PKG} — bump package.json before tagging"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spike-slint
+
+      # Скрипт на голом node, без зависимостей — npm ci здесь не нужен.
+      - name: Fetch core binaries
+        run: node scripts/fetch-core.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build app
+        run: cargo build --release --manifest-path spike-slint/Cargo.toml
+
+      # На образе GitHub NSIS обычно уже есть; ставим, только если нет.
+      - name: Ensure NSIS
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+            choco install nsis -y --no-progress
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: ./spike-slint/installer/build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: spike-slint/target/installer/*
+          if-no-files-found: error
+
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            bundles: nsis
-            artifact: windows-x64
           - os: ubuntu-latest
             bundles: deb,rpm,appimage
             artifact: linux-x64
@@ -234,8 +284,8 @@ jobs:
   # The Android job is still the newest of the set: a failure there skips the
   # APK row of the table but must not hold the desktop release hostage.
   publish:
-    needs: [build, build-android]
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: [build-windows, build, build-android]
+    if: ${{ !cancelled() && needs.build-windows.result == 'success' }}
     runs-on: ubuntu-latest
     # `secrets` is not allowed inside step-level `if`; mirroring the token into
     # the job environment is the sanctioned way to gate steps on its presence.
