@@ -102,6 +102,9 @@ export global Data {
 
     // Живые показания «Обзора» — их ведут таймеры в main.rs.
     in-out property <string> state-text: "Отключено";
+    // Почему сорвалось: сообщение из status.message. Пустая строка —
+    // ошибки нет, под кнопкой висит обычная подсказка.
+    in-out property <string> state-detail;
     in-out property <string> uptime: "00:00";
     in-out property <string> down-rate: "0 Б/с";
     in-out property <string> up-rate: "0 Б/с";

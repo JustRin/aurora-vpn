@@ -352,10 +352,24 @@ where
     app::runtime().spawn(async move {
         let reporter = handle.clone();
         if let Err(err) = make(handle).await {
-            let text = err.to_string();
+            let text = human(err.to_string());
             reporter.with_ui(move |ui| view::toast(ui, "error", &text, ""));
         }
     });
+}
+
+/// Ошибка человеческими словами.
+///
+/// `ELEVATION_REQUIRED` — сговор ядра с интерфейсом: на него смотрят кнопка
+/// питания и переключатель автозапуска, и до всплывашки он доходить не должен.
+/// Но если дошёл, показывать константу нельзя — из неё непонятно ровно то, что
+/// она и означает.
+fn human(text: String) -> String {
+    if text.contains(crate::sys::autostart::ELEVATION_REQUIRED) {
+        return "нужны права администратора — перезапустите приложение от имени администратора"
+            .into();
+    }
+    text
 }
 
 fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {

@@ -12,6 +12,7 @@ mod bind;
 mod core;
 mod error;
 mod icons;
+mod keys;
 mod link;
 mod model;
 mod net;
@@ -276,8 +277,22 @@ fn main() -> Result<(), slint::PlatformError> {
     // Программный рендер: GL-контекст видеодрайвера один стоит ~120 МБ, а
     // статичному интерфейсу из панелей и тумблеров он не нужен.
     // (25 МБ working set против 145 МБ с femtovg/GL на этой машине.)
+    //
+    // Бэкенд собирается руками, а не переменной окружения, ещё и ради своего
+    // обработчика событий winit: через него проходят сочетания на нелатинской
+    // раскладке и PrtScn, до которых разметка иначе не добирается (keys.rs).
     if std::env::var_os("SLINT_BACKEND").is_none() {
-        std::env::set_var("SLINT_BACKEND", "winit-software");
+        match i_slint_backend_winit::Backend::builder()
+            .with_renderer_name("software")
+            .with_custom_application_handler(Box::new(keys::Shortcuts::default()))
+            .build()
+        {
+            Ok(backend) => {
+                let _ = slint::platform::set_platform(Box::new(backend));
+            }
+            // Не собрался — пусть Slint выберет сам, как раньше.
+            Err(_) => std::env::set_var("SLINT_BACKEND", "winit-software"),
+        }
     }
 
     let ui = AppWindow::new()?;
@@ -404,13 +419,11 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     });
-    ui.on_close_window({
-        let weak = ui.as_weak();
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                shell::on_close(&ui);
-            }
-        }
+    // До поднятия состояния убирать за собой нечего: окно с сообщением об
+    // ошибке уходит вместе с циклом. Настоящий крестик — со всей уборкой —
+    // встанет на место ниже, когда появится handle.
+    ui.on_close_window(|| {
+        let _ = slint::quit_event_loop();
     });
     ui.on_start_move({
         let weak = ui.as_weak();
@@ -451,6 +464,18 @@ fn main() -> Result<(), slint::PlatformError> {
             return ui.run();
         }
     };
+    // Есть чем убирать за собой — крестик уходит через общую дорогу: в трей
+    // или совсем, с остановкой ядра и возвратом прокси.
+    ui.on_close_window({
+        let weak = ui.as_weak();
+        let handle = handle.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                shell::on_close(&ui, &handle);
+            }
+        }
+    });
+
     let data = ui.global::<Data>();
 
 
@@ -497,6 +522,10 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         },
     );
+
+    // Последнее перед показом: на маленьком экране окно открывается по его
+    // рабочей области, а не по предпочтительному размеру разметки.
+    fit_to_work_area(&ui);
 
     ui.show()?;
     // Интерфейс собран — можно досылать всё, что делается после первого кадра.
@@ -833,6 +862,58 @@ fn ui_font() -> &'static str {
 fn mono_font() -> &'static str {
     ""
 }
+
+/// Ужать стартовое окно под рабочую область экрана.
+///
+/// В разметке окно просит 1120×760, и на «HD»-ноутбуке (1366×768) оно за экран
+/// выходит: под панелью задач остаётся 720 точек, а нижний край с ней не
+/// спорит. Шапка у окна своя, системной рамки нет — уехавший вниз край мышью
+/// уже не поймать.
+///
+/// Считается до показа: предпочтительный размер Slint берёт только тогда,
+/// когда его не задали руками (`has_explicit_size`), — поэтому окно сразу
+/// открывается по месту, без прыжка на глазах.
+#[cfg(windows)]
+fn fit_to_work_area(ui: &AppWindow) {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+
+    /// Те же числа, что в app.slint: предпочтительный размер окна Rust
+    /// прочитать не может, а сравнить с экраном нужно до того, как окно
+    /// появится.
+    const PREFERRED: (f32, f32) = (1120.0, 760.0);
+    /// Запас на тень окна и просто на воздух вокруг него.
+    const MARGIN: f32 = 32.0;
+
+    let mut work = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let ok = unsafe {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0)
+    };
+    if ok == 0 {
+        return;
+    }
+    // Рабочая область приходит в пикселях, разметка живёт в точках.
+    let scale = (unsafe { GetDpiForSystem() } as f32 / 96.0).max(1.0);
+    let (px_w, px_h) = (work.right - work.left, work.bottom - work.top);
+    let fits = |available: i32, want: f32| want.min(available as f32 / scale - MARGIN);
+    let (w, h) = (fits(px_w, PREFERRED.0), fits(px_h, PREFERRED.1));
+
+    // Экран просторный — пусть решает разметка.
+    if w >= PREFERRED.0 && h >= PREFERRED.1 {
+        return;
+    }
+    ui.window().set_size(slint::LogicalSize::new(w, h));
+    // Windows расставляет новые окна каскадом от левого верхнего угла, и даже
+    // ужатое окно легко уезжает под панель задач. Ставим по центру сами.
+    ui.window().set_position(slint::PhysicalPosition::new(
+        work.left + (px_w - (w * scale) as i32) / 2,
+        work.top + (px_h - (h * scale) as i32) / 2,
+    ));
+}
+
+#[cfg(not(windows))]
+fn fit_to_work_area(_ui: &AppWindow) {}
 
 /// `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND`: композитор Windows 11
 /// обрезает окно по скруглённому прямоугольнику и рисует системную кромку —

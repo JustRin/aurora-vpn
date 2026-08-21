@@ -101,6 +101,9 @@ pub fn render_status(ui: &AppWindow) {
         data.set_connected(matches!(status.state, ConnState::Connected));
         data.set_elevated(status.elevated);
         data.set_state_text(state_text(status.state).into());
+        // Причина срыва живёт рядом с состоянием: «Ошибка» без объяснения
+        // одинаково похожа на нехватку прав, мёртвый сервер и занятый порт.
+        data.set_state_detail(status.message.as_str().into());
         data.set_active_id(status.active_id.as_str().into());
         view.active_id = status.active_id.clone();
     });

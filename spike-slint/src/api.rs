@@ -962,7 +962,26 @@ async fn fetch_once(url: &str, trust_any_cert: bool) -> Result<Fetched> {
         .user_agent("Aurora-VPN/0.1 (sing-box)")
         .build()?;
 
-    let response = client.get(url).send().await?.error_for_status()?;
+    let response = client.get(url).send().await?;
+    // Ответ панели своими словами: reqwest говорит про неё «HTTP status client
+    // error (404 Not Found) for url (…)», а человеку важно другое — дошли до
+    // сервера, но по этому адресу подписки нет.
+    let status = response.status();
+    if !status.is_success() {
+        let code = status.as_u16();
+        return Err(AppError::msg(match code {
+            404 | 410 => format!(
+                "панель не знает такой ссылки ({code}) — проверьте адрес подписки, обычно его выдают заново"
+            ),
+            401 | 403 => {
+                format!("панель не пустила по этой ссылке ({code}) — подписка закрыта или просрочена")
+            }
+            _ if status.is_server_error() => {
+                format!("панель отвечает ошибкой ({code}) — попробуйте позже")
+            }
+            _ => format!("панель ответила {code}"),
+        }));
+    }
 
     // The plan status rides along in headers, so read them before the body
     // is consumed.

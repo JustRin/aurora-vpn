@@ -376,13 +376,23 @@ export component DashboardPage inherits ScrollArea {
                                 }
                             }
                         }
+                        // Сорвавшееся подключение объясняется здесь, а не
+                        // только всплывашкой: та живёт несколько секунд, а
+                        // «Ошибка» под кнопкой висит до следующей попытки —
+                        // и без причины непонятно, чинить права, сервер или
+                        // сеть. Длинную строку обрезаем: целиком она есть в
+                        // «Журнале».
                         if !Data.connected: Text {
-                            text: Data.nodes.length == 0
-                                ? Str.dash-add-server-hint
-                                : Str.dash-power-hint;
-                            color: Theme.text-muted;
+                            text: Data.state-detail == ""
+                                ? (Data.nodes.length == 0
+                                    ? Str.dash-add-server-hint
+                                    : Str.dash-power-hint)
+                                : Data.state-detail;
+                            color: Data.state-detail == "" ? Theme.text-muted : Theme.danger;
                             font-size: 12.5px;
                             vertical-alignment: center;
+                            max-width: 460px;
+                            overflow: elide;
                         }
                     }
                 }

@@ -3,6 +3,9 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::ComponentHandle;
@@ -20,8 +23,12 @@ thread_local! {
     /// Значок держим живым столько же, сколько окно: с его падением он
     /// исчезает из трея.
     static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
-    static PUMP: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
 }
+
+/// Пункты текущего меню. Не thread_local: смена языка пересобирает меню, и
+/// сверять щелчок надо с тем набором, что висит в трее сейчас, а не с тем,
+/// что был при установке значка.
+static IDS: Mutex<Option<MenuIds>> = Mutex::new(None);
 
 // ------------------------------------------------------- единственный экземпляр
 
@@ -139,55 +146,64 @@ pub fn claim_single_instance() -> bool {
 
 /// Собрать значок и подключить его события к окну.
 pub fn install(ui: &AppWindow, handle: &AppHandle) {
-    let Some(icon) = icon() else { return };
-    let menu = build_menu();
-    let ids = MenuIds::current();
+    // Показать окно по просьбе второго запуска — дорога, которой значок не
+    // нужен: она работает и когда трей собрать не удалось.
+    watch_show_flag(ui.as_weak());
 
+    // Обработчики ставятся раньше меню и значка: muda с tray-icon запоминают
+    // их в OnceLock, и первое же событие, пришедшее до установки, навсегда
+    // закрепило бы «обработчика нет» — дальше события уходили бы в канал, из
+    // которого никто не читает.
+    //
+    // Обработчик, а не опрос канала таймером: таймеры Slint живут в
+    // событийном цикле, и любая его заминка — вложенный модальный цикл
+    // Windows, затянувшийся кадр — молча съедала бы щелчки по меню. Windows
+    // зовёт эти обработчики прямо из оконной процедуры значка, в потоке
+    // интерфейса.
+    {
+        let weak = ui.as_weak();
+        let handle = handle.clone();
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            dispatch(&event.id, &weak, &handle);
+        }));
+    }
+    {
+        let weak = ui.as_weak();
+        TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+            // Левый клик по значку — то же, что «Показать окно».
+            if let TrayIconEvent::Click {
+                button: tray_icon::MouseButton::Left,
+                button_state: tray_icon::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let _ = weak.upgrade_in_event_loop(|ui| show(&ui));
+            }
+        }));
+    }
+
+    let Some(icon) = icon() else { return };
     let tray = TrayIconBuilder::new()
         .with_tooltip("Aurora VPN")
-        .with_menu(Box::new(menu))
+        .with_menu(Box::new(build_menu()))
         .with_icon(icon)
         .build();
     let Ok(tray) = tray else { return };
     TRAY.with(|slot| *slot.borrow_mut() = Some(tray));
+}
 
-    // События трея приходят в свои каналы, а не в цикл Slint: забираем их
-    // тем же таймером, что сторожит флажок второго запуска.
-    let pump = slint::Timer::default();
-    let weak = ui.as_weak();
-    let handle = handle.clone();
-    pump.start(
-        slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(250),
-        move || {
-            while let Ok(event) = MenuEvent::receiver().try_recv() {
-                let Some(ui) = weak.upgrade() else { return };
-                ids.dispatch(&event.id, &ui, &handle);
-            }
-            while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-                // Левый клик по значку — то же, что «Показать окно».
-                if let TrayIconEvent::Click {
-                    button: tray_icon::MouseButton::Left,
-                    button_state: tray_icon::MouseButtonState::Up,
-                    ..
-                } = event
-                {
-                    if let Some(ui) = weak.upgrade() {
-                        show(&ui);
-                    }
-                }
-            }
-            if let Some(flag) = show_flag() {
-                if flag.exists() {
-                    let _ = std::fs::remove_file(&flag);
-                    if let Some(ui) = weak.upgrade() {
-                        show(&ui);
-                    }
-                }
-            }
-        },
-    );
-    PUMP.with(|slot| *slot.borrow_mut() = Some(pump));
+/// Сторож флажка второго запуска. Свой поток, а не таймер интерфейса: просьба
+/// показать окно приходит редко, а зависеть она должна только от самого цикла,
+/// который окно и покажет.
+fn watch_show_flag(ui: slint::Weak<AppWindow>) {
+    let Some(flag) = show_flag() else { return };
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(300));
+        if flag.exists() {
+            let _ = std::fs::remove_file(&flag);
+            let _ = ui.upgrade_in_event_loop(|ui| show(&ui));
+        }
+    });
 }
 
 /// Пункты меню, разложенные по своим идентификаторам.
@@ -199,31 +215,26 @@ struct MenuIds {
     quit: MenuId,
 }
 
-thread_local! {
-    static IDS: RefCell<Option<MenuIds>> = const { RefCell::new(None) };
-}
+/// Щелчок по пункту меню. Идентификаторы читаются заново на каждый щелчок:
+/// смена языка пересобирает меню, а вместе с ним и их.
+fn dispatch(id: &MenuId, ui: &slint::Weak<AppWindow>, handle: &AppHandle) {
+    let ids = IDS.lock().ok().and_then(|ids| ids.clone());
+    let Some(ids) = ids else { return };
 
-impl MenuIds {
-    fn current() -> Self {
-        IDS.with(|ids| ids.borrow().clone().expect("меню трея собрано"))
-    }
-
-    fn dispatch(&self, id: &MenuId, ui: &AppWindow, handle: &AppHandle) {
-        if *id == self.show {
-            show(ui);
-        } else if *id == self.connect {
-            let handle = handle.clone();
-            app::runtime().spawn(async move {
-                let _ = api::connect(handle).await;
-            });
-        } else if *id == self.disconnect {
-            let handle = handle.clone();
-            app::runtime().spawn(async move {
-                let _ = api::disconnect(handle).await;
-            });
-        } else if *id == self.quit {
-            let _ = slint::quit_event_loop();
-        }
+    if *id == ids.show {
+        let _ = ui.upgrade_in_event_loop(|ui| show(&ui));
+    } else if *id == ids.connect {
+        let handle = handle.clone();
+        app::runtime().spawn(async move {
+            let _ = api::connect(handle).await;
+        });
+    } else if *id == ids.disconnect {
+        let handle = handle.clone();
+        app::runtime().spawn(async move {
+            let _ = api::disconnect(handle).await;
+        });
+    } else if *id == ids.quit {
+        quit(handle);
     }
 }
 
@@ -240,14 +251,14 @@ fn build_menu() -> Menu {
     let connect = MenuItem::new(&labels[1], true, None);
     let disconnect = MenuItem::new(&labels[2], true, None);
     let quit = MenuItem::new(&labels[3], true, None);
-    IDS.with(|ids| {
-        *ids.borrow_mut() = Some(MenuIds {
+    if let Ok(mut ids) = IDS.lock() {
+        *ids = Some(MenuIds {
             show: show.id().clone(),
             connect: connect.id().clone(),
             disconnect: disconnect.id().clone(),
             quit: quit.id().clone(),
-        })
-    });
+        });
+    }
 
     let menu = Menu::new();
     let _ = menu.append_items(&[
@@ -296,8 +307,56 @@ pub fn show(ui: &AppWindow) {
     crate::repaint_ambient(ui);
 }
 
+/// Единственная дорога наружу: снять значок, опустить туннель и уйти.
+///
+/// Не через `quit_event_loop()`: «Выход» обязан срабатывать всегда, а цикл
+/// может быть занят своим — вложенным модальным циклом Windows, затянувшимся
+/// кадром — или не дойти до конца уборки. Здесь всё решается вне его.
+pub fn quit(handle: &AppHandle) {
+    static QUITTING: AtomicBool = AtomicBool::new(false);
+    // Крестик и меню трея подряд, сторож и уборка — заходов может быть
+    // несколько, уход всё равно один.
+    if QUITTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    // Значок исчезает из трея только вместе со своим процессом; ушедший
+    // раньше оставляет призрака до первого наведения мыши. Из потока
+    // интерфейса он снимается сразу, из чужого — просьбой к циклу.
+    remove_tray();
+    let _ = slint::invoke_from_event_loop(remove_tray);
+    // Окно убирается сразу, не дожидаясь конца уборки: «Выход» должен
+    // отзываться мгновенно.
+    handle.with_ui(|ui| {
+        ui.window()
+            .with_winit_window(|window| window.set_visible(false));
+    });
+
+    // Уборка — в своём потоке: quit зовут и из интерфейса, и из задач tokio, а
+    // block_on внутри рантайма — паника.
+    {
+        let handle = handle.clone();
+        std::thread::spawn(move || {
+            shutdown(&handle);
+            std::process::exit(0);
+        });
+    }
+
+    // Сторож на случай, если уборка где-то заклинит: ядро не отвечает, реестр
+    // занят. Уйти без возврата прокси плохо, а остаться висеть мёртвым окном —
+    // хуже: пользователь такое приложение уже не закроет.
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(5));
+        std::process::exit(0);
+    });
+}
+
+fn remove_tray() {
+    TRAY.with(|slot| drop(slot.borrow_mut().take()));
+}
+
 /// Закрытие окна: в трей или совсем — как настроено.
-pub fn on_close(ui: &AppWindow) {
+pub fn on_close(ui: &AppWindow, handle: &AppHandle) {
     let to_tray = TRAY.with(|slot| slot.borrow().is_some())
         && ui.global::<crate::Conf>().get_close_to_tray();
     if to_tray {
@@ -308,7 +367,7 @@ pub fn on_close(ui: &AppWindow) {
         // и возвращается мгновенно.
         ui.window().with_winit_window(|window| window.set_visible(false));
     } else {
-        let _ = slint::quit_event_loop();
+        quit(handle);
     }
 }
 
