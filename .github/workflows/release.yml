@@ -197,9 +197,14 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # Версия закреплена намеренно. На Go 1.27 сборка libbox 1.13.19 рушится:
+      # go-json-experiment/json из его дерева зависимостей зовёт json.SkipFunc и
+      # json.DiscardUnknownMembers, которых в экспериментальном encoding/json
+      # больше нет. На 1.26 всё собирается — поднимать версию только вместе с
+      # проверенной версией libbox.
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: "1.26"
 
       - name: Install Android NDK
         run: |
