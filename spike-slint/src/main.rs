@@ -83,6 +83,7 @@ struct Lang {
     expired: String,
     expires_today: String,
     updated_when: String,
+    own_group: String,
     server_one: String,
     server_few: String,
     server_many: String,
@@ -146,6 +147,7 @@ impl Lang {
             expired: s.get_fmt_expired().into(),
             expires_today: s.get_fmt_expires_today().into(),
             updated_when: s.get_srv_updated_when().into(),
+            own_group: s.get_srv_own_group().into(),
             server_one: s.get_srv_server_one().into(),
             server_few: s.get_srv_server_few().into(),
             server_many: s.get_srv_server_many().into(),
@@ -258,6 +260,21 @@ fn window_icon() -> Option<i_slint_backend_winit::winit::window::Icon> {
 }
 
 fn main() -> Result<(), slint::PlatformError> {
+    // Уведомление и уход: так приложение зовёт само себя, когда поднято с
+    // правами администратора, — платформа уведомлений принимает их только от
+    // обычных процессов (sys/notify.rs). Проверка первая: ни сторожа, ни окна
+    // этому запуску не нужно.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(at) = args.iter().position(|arg| arg == sys::notify::NOTIFY_FLAG) {
+        let pick = |i: usize| args.get(at + i).map(String::as_str).unwrap_or_default();
+        let _ = sys::notify::ensure_registered();
+        sys::notify::show_now(pick(1), pick(2));
+        // Уведомление уезжает в систему асинхронно: процесс, ушедший в ту же
+        // миллисекунду, иногда забирает его с собой.
+        std::thread::sleep(Duration::from_millis(300));
+        return Ok(());
+    }
+
     // Включённый «запуск сразу с правами администратора» означает задачу
     // планировщика, которая поднимает это же приложение с правами и без UAC.
     // Обычный щелчок по ярлыку передаёт запуск ей: иначе с включённой галочкой
@@ -749,17 +766,20 @@ fn ambient_image(w: u32, h: u32, bg: slint::Color, glows: [slint::Color; 3]) -> 
     });
     // Последний стоп градиента: дальше него пятно полностью прозрачно.
     const EDGE: f32 = 0.62;
-    // Пятна размыты так, что соседние пиксели отличаются на 0–1/255, поэтому
-    // картинку держим вдвое мельче окна и растягиваем (image-fit: fill).
-    // Памяти это стоит вчетверо меньше — 0.6 МБ вместо 2.5 на окне 1120×760, —
-    // а ступеньки растяжения не шире тех, что и так даёт квантование в 1/255.
+    // Слой считается пиксель в пиксель с окном.
+    //
+    // Раньше он был вдвое мельче и растягивался (image-fit: fill) — вчетверо
+    // меньше памяти. Но растягивает его софтверный рендер, и не один раз, а на
+    // каждый кадр: под слоем лежит всё окно, и любая прокрутка списка заставляет
+    // пересчитывать миллион пикселей с интерполяцией. Полтора мегабайта памяти
+    // того не стоили — теперь это простое копирование строк.
+    //
     // Потолок в 4096 — страховка от нелепого размера окна: без него буфер
     // считается прямо от того, что пришло из системы.
-    const SHRINK: u32 = 2;
     const MAX_SIDE: u32 = 4096;
 
-    let w = (w / SHRINK).clamp(1, MAX_SIDE);
-    let h = (h / SHRINK).clamp(1, MAX_SIDE);
+    let w = w.clamp(1, MAX_SIDE);
+    let h = h.clamp(1, MAX_SIDE);
     let (fw, fh) = (w as f32, h as f32);
     let spots: Vec<(f32, f32, f32, f32, [u8; 4])> = spots
         .iter()

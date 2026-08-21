@@ -15,9 +15,11 @@ use crate::error::{AppError, Result};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-/// Keep the core headless — otherwise every start flashes a console window.
+/// Keep the core headless. CREATE_NO_WINDOW would do too, but it still
+/// materialises a hidden conhost.exe next to every engine; with all output
+/// captured through pipes there is no reason to have a console at all.
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const DETACHED_PROCESS: u32 = 0x0000_0008;
 
 /// The two engines differ only in their command line and in how they report a
 /// bad configuration, so one supervisor drives both.
@@ -85,7 +87,13 @@ impl CoreSupervisor {
         let mut cmd = Command::new(&self.exe);
         cmd.current_dir(&self.workdir);
         #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.creation_flags(DETACHED_PROCESS);
+        // Both engines are Go binaries, and Go's default GC lets the heap
+        // double between collections (GOGC=100). A core that mostly shuffles
+        // packet buffers does not need that headroom: collect earlier, and
+        // keep a soft ceiling as the backstop against runaway growth.
+        cmd.env("GOGC", "40");
+        cmd.env("GOMEMLIMIT", "128MiB");
         cmd
     }
 

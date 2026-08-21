@@ -403,6 +403,16 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
         }
     });
 
+    // Раздел подписки свернули или раскрыли.
+    data.on_toggle_group({
+        let weak = ui.as_weak();
+        move |id| {
+            if let Some(ui) = weak.upgrade() {
+                view::toggle_group(&ui, &id);
+            }
+        }
+    });
+
     data.on_close_conns({
         let handle = handle.clone();
         move || run(&handle, |h| async move { api::close_connections(h).await })
@@ -517,9 +527,9 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
     data.on_edit_server({
         let weak = ui.as_weak();
         let local = local.clone();
-        move |index| {
+        move |id| {
             let Some(ui) = weak.upgrade() else { return };
-            let node = view::with(|v| v.nodes.get(index.max(0) as usize).cloned());
+            let node = view::with(|v| v.nodes.iter().find(|node| node.id == id.as_str()).cloned());
             let Some(node) = node else { return };
             write_draft(&ui, &node, false);
             *local.editing.borrow_mut() = Some(node);

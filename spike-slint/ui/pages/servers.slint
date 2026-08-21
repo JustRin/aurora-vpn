@@ -5,7 +5,7 @@ import {
     Btn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
     ModalShell, ModalFoot
 } from "../widgets.slint";
-import { SubCard, NodeRow } from "../cards.slint";
+import { NodeGroupSection } from "../cards.slint";
 import { Data, Ui, Draft } from "../data.slint";
 import { Str } from "../i18n.slint";
 
@@ -55,7 +55,9 @@ export component ServersPage inherits ScrollArea {
             HorizontalLayout {
                 spacing: 10px;
                 Btn {
-                    label: Str.dash-test-latency;
+                    // Во время обхода — счётчик: «37 / 111». Иначе шесть секунд
+                    // тишины неотличимы от зависания.
+                    label: Data.test-progress == "" ? Str.dash-test-latency : Data.test-progress;
                     icon: Icons.gauge;
                     busy: Data.testing;
                     enabled: !Data.testing && Data.nodes.length > 0;
@@ -72,45 +74,30 @@ export component ServersPage inherits ScrollArea {
     }
     Rectangle { height: 24px; }
 
-    // --------------------------------------------------------- subscriptions
-    if Data.subs.length > 0: VerticalLayout {
-        HorizontalLayout {
-            spacing: 10px;
-            VerticalLayout {
-                alignment: center;
-                horizontal-stretch: 1;
-                SectionTitle { text: Str.set-subs-section-caps; }
-            }
-            Btn {
-                label: Str.srv-refresh-all;
-                icon: Icons.refresh;
-                kind: "ghost";
-                small: true;
-                busy: Data.refreshing;
-                enabled: !Data.refreshing;
-                clicked => { Data.refresh-subs(); }
+    // ------------------------------------------------- подписки и серверы
+    // Одним списком: подписка — заголовок раздела, её серверы раскрываются
+    // под ним. Отдельной полосы карточек больше нет — на четвёртой подписке
+    // она уезжала за край окна.
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            SectionTitle {
+                text: Data.nodes.length > 0
+                    ? "\{Str.nav-servers-caps} (\{Data.nodes.length})"
+                    : Str.nav-servers-caps;
             }
         }
-        Rectangle { height: 11px; }
-        HorizontalLayout {
-            spacing: 14px;
-            for sub in Data.subs: SubCard {
-                sub: sub;
-                deletable: true;
-                horizontal-stretch: 1;
-                refresh => { Data.refresh-sub(sub.id); }
-                remove => { Data.delete-sub(sub.id); }
-            }
+        if Data.subs.length > 0: Btn {
+            label: Str.srv-refresh-all;
+            icon: Icons.refresh;
+            kind: "ghost";
+            small: true;
+            busy: Data.refreshing;
+            enabled: !Data.refreshing;
+            clicked => { Data.refresh-subs(); }
         }
-        Rectangle { height: 8px; }
-    }
-
-    // ---------------------------------------------------------------- список
-    Rectangle { height: 30px; }
-    SectionTitle {
-        text: Data.nodes.length > 0
-            ? "\{Str.nav-servers-caps} (\{Data.nodes.length})"
-            : Str.nav-servers-caps;
     }
     Rectangle { height: 12px; }
 
@@ -127,14 +114,17 @@ export component ServersPage inherits ScrollArea {
     }
 
     if Data.nodes.length > 0: VerticalLayout {
-        spacing: 8px;
-        for node[i] in Data.nodes: NodeRow {
-            node: node;
-            active: node.id == Data.active-id;
-            select => { Data.select-server(node.id); }
-            copy-link => { Data.copy-link(node.id); }
-            edit => { Data.edit-server(i); }
-            remove => { Data.delete-server(node.id); }
+        spacing: 10px;
+        for group in Data.groups: NodeGroupSection {
+            group: group;
+            active-id: Data.active-id;
+            toggle => { Data.toggle-group(group.sub.id); }
+            refresh => { Data.refresh-sub(group.sub.id); }
+            remove => { Data.delete-sub(group.sub.id); }
+            select(id) => { Data.select-server(id); }
+            copy-link(id) => { Data.copy-link(id); }
+            edit(id) => { Data.edit-server(id); }
+            remove-node(id) => { Data.delete-server(id); }
         }
     }
 

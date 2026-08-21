@@ -186,12 +186,32 @@ export component Chip inherits Rectangle {
 // .dot: точка состояния задержки.
 export component Dot inherits Rectangle {
     in property <string> tier;
+    // Идёт замер этой строки.
+    property <bool> busy: root.tier == "busy";
     width: 7px;
     height: 7px;
     border-radius: 3.5px;
     background: root.tier == "good"
         ? Theme.ok
-        : (root.tier == "ok" ? Theme.warn : (root.tier == "bad" ? Theme.danger : Theme.text-muted));
+        : (root.tier == "ok"
+            ? Theme.warn
+            : (root.tier == "bad" ? Theme.danger : root.pulse));
+    // Цвет приезжает плавно: значение подставляется мгновенно, и без этого
+    // строка просто мигает новым цветом.
+    animate background { duration: 260ms; easing: ease-out; }
+    // Пока меряется — точка дышит. Сотня строк, замерших на несколько секунд,
+    // выглядит как зависшая программа, а не как работа.
+    //
+    // Дышит цветом, а не прозрачностью: полупрозрачное поддерево рендерер
+    // обходит целиком на каждом кадре, и сотня таких строк стоит дороже, чем
+    // сама анимация.
+    property <color> pulse: root.busy ? Theme.accent.transparentize(0.7) : Theme.text-muted;
+    animate pulse {
+        duration: root.busy ? 620ms : 260ms;
+        iteration-count: root.busy ? -1 : 1;
+        direction: alternate;
+        easing: ease-in-out;
+    }
 }
 
 // .field: подпись, поле, подсказка.
@@ -638,60 +658,86 @@ export component ScrollArea inherits Rectangle {
     in property <length> pad-right: root.pad;
     in property <length> pad-top: root.pad;
     in property <length> pad-bottom: root.pad;
-    out property <length> offset: -flick.viewport-y;
-    out property <length> max-offset: max(0px, flick.viewport-height - flick.height);
     // Пока follow включён, лента держится у нижнего края: журнал должен
     // ехать за новыми строками, пока пользователь сам не отмотал вверх.
     in property <bool> follow;
     callback scrolled();
+
+    // Куда едем и где лента сейчас. Между ними — разгон, и в этом весь смысл
+    // собственной прокрутки вместо Flickable: тот двигает ленту сам, из
+    // родного кода, и первым делом снимает с viewport-y привязку
+    // (flickable.rs, remove_binding). Анимировать его положение нельзя в
+    // принципе — колесо переставляет ленту ступеньками, десяток положений в
+    // секунду, и на мониторе в 170 Гц это читается как пятнадцать кадров.
+    property <length> target;
+    property <length> smooth: root.target;
+    animate smooth { duration: 110ms; easing: ease-out; }
+
+    out property <length> offset: root.smooth;
+    out property <length> max-offset: max(0px, content.height - self.height);
+
     changed max-offset => {
         if (root.follow) {
-            flick.viewport-y = -root.max-offset;
+            root.target = root.max-offset;
         }
     }
     changed follow => {
         if (root.follow) {
-            flick.viewport-y = -root.max-offset;
+            root.target = root.max-offset;
         }
     }
-    property <length> track-h: flick.height - 8px;
-    property <length> thumb-h: max(36px, flick.height / flick.viewport-height * root.track-h);
-    property <length> start-y;
+
+    property <length> track-h: self.height - 8px;
+    property <length> thumb-h: max(36px, self.height / max(1px, content.height) * root.track-h);
+    property <length> grab;
     clip: true;
 
-    flick := Flickable {
-        // Перетаскивание мышью на десктопе только мешает кликам, а колесо
-        // Flickable обрабатывает и с interactive: false.
-        interactive: false;
-        flicked => { root.scrolled(); }
-        VerticalLayout {
-            // Содержимое прижато к верху: иначе VerticalLayout раздаёт всю
-            // свободную высоту страницы своим детям и заголовки с карточками
-            // расползаются по экрану.
-            alignment: start;
-            padding-left: root.pad-left;
-            padding-right: root.pad-right;
-            padding-top: root.pad-top;
-            padding-bottom: root.pad-bottom;
-            spacing: root.content-spacing;
-            @children
+    // Колесо ловим сами. Строки и кнопки лежат выше и свои щелчки забирают
+    // первыми, а прокрутка до них не относится и всплывает сюда.
+    wheel := TouchArea {
+        scroll-event(event) => {
+            root.target = clamp(root.target - event.delta-y, 0px, root.max-offset);
+            root.scrolled();
+            return accept;
         }
     }
 
-    if flick.viewport-height > flick.height + 1px: Rectangle {
-        x: parent.width - 10px;
-        y: 4px + (root.track-h - root.thumb-h)
-            * (root.offset / max(1px, root.max-offset));
-        width: 4px;
-        height: root.thumb-h;
-        border-radius: 2px;
-        background: bar.pressed || bar.has-hover ? Theme.scrollbar-hover : Theme.scrollbar;
+    content := VerticalLayout {
+        y: -root.smooth;
+        width: parent.width;
+        // Своя высота, а не родительская: иначе содержимое сожмётся до видимой
+        // части и прокручивать станет нечего.
+        height: self.preferred-height;
+        alignment: start;
+        padding-left: root.pad-left;
+        padding-right: root.pad-right;
+        padding-top: root.pad-top;
+        padding-bottom: root.pad-bottom;
+        spacing: root.content-spacing;
+        @children
+    }
+
+    // Дорожка неподвижна, ползунок ездит внутри неё: события мыши слушает
+    // дорожка, поэтому смещение курсора не считается от уезжающего ползунка.
+    if content.height > self.height + 1px: Rectangle {
+        x: parent.width - 13px;
+        y: 4px;
+        width: 10px;
+        height: root.track-h;
+
+        Rectangle {
+            x: 3px;
+            y: (root.track-h - root.thumb-h) * (root.offset / max(1px, root.max-offset));
+            width: 4px;
+            height: root.thumb-h;
+            border-radius: 2px;
+            background: bar.pressed || bar.has-hover ? Theme.scrollbar-hover : Theme.scrollbar;
+        }
+
         bar := TouchArea {
-            x: -3px;
-            width: 10px;
             moved => {
-                flick.viewport-y = -clamp(
-                    root.start-y + (self.mouse-y - self.pressed-y) * root.max-offset
+                root.target = clamp(
+                    (self.mouse-y - root.grab) * root.max-offset
                         / max(1px, root.track-h - root.thumb-h),
                     0px,
                     root.max-offset);
@@ -699,7 +745,10 @@ export component ScrollArea inherits Rectangle {
             }
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down) {
-                    root.start-y = root.offset;
+                    // За какое место ползунка взялись.
+                    root.grab = self.mouse-y
+                        - (root.track-h - root.thumb-h)
+                            * (root.offset / max(1px, root.max-offset));
                 }
             }
         }

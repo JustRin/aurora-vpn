@@ -24,6 +24,10 @@ use crate::{tr, AppWindow, Data};
 pub struct View {
     pub nodes: Vec<ServerNode>,
     pub latency: HashMap<String, Option<u32>>,
+    /// Узлы, у которых замер ещё идёт: точка в строке дышит, а вместо
+    /// цифры стоит многоточие. Без этого сотня строк на шесть секунд
+    /// замирает, и выглядит это как зависшая программа.
+    pub measuring: std::collections::HashSet<String>,
     /// Адрес узла → страна. Ключ по адресу, а не по узлу: у нескольких узлов
     /// одной панели адрес обычно общий, и страна у них одна.
     pub countries: HashMap<String, Country>,
@@ -31,6 +35,11 @@ pub struct View {
     pub status: Status,
     pub traffic: Traffic,
     pub active_id: String,
+    /// Раскрытые разделы «Серверов»: id подписки, у своих серверов — пустая
+    /// строка. None — пользователь разделов ещё не трогал, и открыт тот, где
+    /// лежит выбранный сервер: на сотне узлов страница иначе начинается с
+    /// простыни. Живёт до перезапуска — это состояние экрана, не настройка.
+    pub expanded: Option<std::collections::HashSet<String>>,
     /// История скоростей для графика: те же отсчёты, что рисует TrafficGraph.
     pub graph: crate::Graph,
 }
@@ -73,7 +82,17 @@ pub fn apply(ui: &AppWindow, event: Event) {
             render_subs(ui);
         }
         Event::Latency(latency) => {
-            with(|view| view.latency.extend(latency));
+            with(|view| {
+                // Пришло значение — узел домерян, что бы в нём ни было.
+                for id in latency.keys() {
+                    view.measuring.remove(id);
+                }
+                view.latency.extend(latency);
+            });
+            render_nodes(ui);
+        }
+        Event::Measuring(ids) => {
+            with(|view| view.measuring = ids);
             render_nodes(ui);
         }
         Event::Countries(countries) => {
@@ -205,12 +224,120 @@ pub fn render_nodes(ui: &AppWindow) {
                     node,
                     view.latency.get(&node.id).copied().flatten(),
                     view.countries.get(&node.address),
+                    view.measuring.contains(&node.id),
                 )
             })
             .collect()
     });
     data.set_nodes(ModelRc::new(VecModel::from(rows)));
+    // «37 / 111» на кнопке: видно, что обход идёт, и сколько осталось.
+    data.set_test_progress(
+        with(|view| {
+            let left = view.measuring.len();
+            (left > 0).then(|| format!("{} / {}", view.nodes.len() - left, view.nodes.len()))
+        })
+        .unwrap_or_default()
+        .into(),
+    );
+    render_groups(ui);
     render_active(ui);
+}
+
+/// Серверы, разложенные по подпискам.
+///
+/// Порядок — как у подписок, свои серверы в конец: их обычно единицы, и
+/// отодвигать ими подписки незачем. Узел, чья подписка уже удалена, тоже
+/// считается своим — иначе он пропал бы с экрана, оставшись в списке.
+pub fn render_groups(ui: &AppWindow) {
+    let rows: Vec<crate::NodeGroup> = with(|view| {
+        let known: std::collections::HashSet<&str> =
+            view.subs.iter().map(|sub| sub.id.as_str()).collect();
+        // Функцией, а не замыканием: время жизни ответа привязано к узлу, а
+        // замыкание такую связь выразить не умеет.
+        fn sub_of<'a>(node: &'a ServerNode, known: &std::collections::HashSet<&str>) -> &'a str {
+            match node.subscription_id.as_deref() {
+                Some(id) if known.contains(id) => id,
+                _ => "",
+            }
+        }
+        // Пока разделы не трогали, открыт тот, где лежит выбранный сервер.
+        let active_group = view
+            .nodes
+            .iter()
+            .find(|node| node.id == view.active_id)
+            .map(|node| sub_of(node, &known))
+            .unwrap_or("");
+        let is_open = |id: &str| match &view.expanded {
+            Some(open) => open.contains(id),
+            None => id == active_group,
+        };
+        let rows_of = |id: &str| -> Vec<crate::ServerNode> {
+            view.nodes
+                .iter()
+                .filter(|node| sub_of(node, &known) == id)
+                .map(|node| {
+                    node_row(
+                        node,
+                        view.latency.get(&node.id).copied().flatten(),
+                        view.countries.get(&node.address),
+                        view.measuring.contains(&node.id),
+                    )
+                })
+                .collect()
+        };
+
+        let mut groups: Vec<crate::NodeGroup> = view
+            .subs
+            .iter()
+            .map(|sub| crate::NodeGroup {
+                sub: sub_row(sub),
+                expanded: is_open(&sub.id),
+                nodes: ModelRc::new(VecModel::from(rows_of(&sub.id))),
+            })
+            .collect();
+
+        let own = rows_of("");
+        if !own.is_empty() {
+            groups.push(crate::NodeGroup {
+                sub: crate::SubInfo {
+                    name: tr(|l| l.own_group.clone()).into(),
+                    foot: own_foot(own.len()).into(),
+                    ..Default::default()
+                },
+                expanded: is_open(""),
+                nodes: ModelRc::new(VecModel::from(own)),
+            });
+        }
+        groups
+    });
+    ui.global::<Data>().set_groups(ModelRc::new(VecModel::from(rows)));
+}
+
+/// «3 сервера» — подпись раздела своих серверов: срока и трафика у них нет.
+fn own_foot(count: usize) -> String {
+    let servers =
+        tr(|l| plural(count as i64, &l.server_one, &l.server_few, &l.server_many).to_string());
+    format!("{count} {servers}")
+}
+
+/// Раздел свернули или раскрыли. Первый же щелчок отменяет автоматику: дальше
+/// список открыт ровно так, как его оставил пользователь.
+pub fn toggle_group(ui: &AppWindow, id: &str) {
+    with(|view| {
+        let open = view.expanded.get_or_insert_with(|| {
+            let mut open = std::collections::HashSet::new();
+            // Отправная точка — то, что человек видит на экране прямо сейчас.
+            if let Some(node) = view.nodes.iter().find(|node| node.id == view.active_id) {
+                let sub = node.subscription_id.clone().unwrap_or_default();
+                open.insert(sub);
+            }
+            open
+        });
+        if !open.remove(id) {
+            open.insert(id.to_string());
+        }
+    });
+    render_groups(ui);
 }
 
 /// Шапка «Обзора» показывает выбранный узел: искать строку в модели средствами
@@ -269,7 +396,20 @@ pub fn node_row(
     node: &ServerNode,
     latency: Option<u32>,
     country: Option<&Country>,
+    measuring: bool,
 ) -> crate::ServerNode {
+    if measuring {
+        return crate::ServerNode {
+            id: node.id.as_str().into(),
+            name: node.name.as_str().into(),
+            proto: protocol_label(node.protocol).into(),
+            transport: transport_label(node.security, node.network).into(),
+            address: format!("{}:{}", node.address, node.port).into(),
+            country: country.map(|c| c.code.as_str()).unwrap_or_default().into(),
+            latency: "…".into(),
+            tier: "busy".into(),
+        };
+    }
     crate::ServerNode {
         id: node.id.as_str().into(),
         name: node.name.as_str().into(),
@@ -328,6 +468,8 @@ fn transport_label(security: Security, network: Network) -> String {
 pub fn render_subs(ui: &AppWindow) {
     let rows: Vec<crate::SubInfo> = with(|view| view.subs.iter().map(sub_row).collect());
     ui.global::<Data>().set_subs(ModelRc::new(VecModel::from(rows)));
+    // Разделы списка — это те же подписки: сменилась одна, пересобрать надо оба.
+    render_groups(ui);
 }
 
 fn sub_row(sub: &Subscription) -> crate::SubInfo {

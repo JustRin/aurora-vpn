@@ -17,6 +17,8 @@ use crate::core::geoip;
 use crate::core::log::LogLine;
 use crate::core::ruleset;
 #[cfg(not(target_os = "android"))]
+use crate::core::process::{CoreSupervisor, Engine};
+#[cfg(not(target_os = "android"))]
 use crate::core::xray;
 use crate::error::{AppError, Result};
 use crate::link;
@@ -1118,7 +1120,13 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
 
         // Preserve ids across a refresh so the pinned server and its measured
         // latency survive when the provider re-issues the same node.
-        let previous: HashMap<String, String> = nodes
+        //
+        // Каждый прежний id раздаётся не больше одного раза. Панели держат
+        // по десятку строк с одним адресом и портом — отличаются они только
+        // именем, а отпечаток у них общий, и раздача «по ключу» склеивала их
+        // все в один id. Дальше рушилось всё, что этим id адресуется: выбор
+        // сервера, задержка, удаление одной строки уносило соседние.
+        let mut previous: HashMap<String, String> = nodes
             .iter()
             .filter(|n| n.subscription_id.as_deref() == Some(id.as_str()))
             .map(|n| (n.fingerprint_key(), n.id.clone()))
@@ -1127,8 +1135,8 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
         nodes.retain(|n| n.subscription_id.as_deref() != Some(id.as_str()));
 
         for mut node in report.nodes {
-            if let Some(old_id) = previous.get(&node.fingerprint_key()) {
-                node.id = old_id.clone();
+            if let Some(old_id) = previous.remove(&node.fingerprint_key()) {
+                node.id = old_id;
             }
             node.subscription_id = Some(id.clone());
             nodes.push(node);
@@ -1277,6 +1285,191 @@ async fn tcp_ping(host: &str, port: u16, timeout: Duration) -> Option<u32> {
     }
 }
 
+/// Задержка до узла, когда ядро не поднято.
+///
+/// Сначала рукопожатие TCP: оно меряет ровно ту дорогу, по которой пойдёт
+/// трафик. Не вышло — спрашиваем ICMP: у Hysteria2 и TUIC порт на TCP молчит
+/// по устройству (они целиком на UDP), и прочерк в этих строках означал не
+/// «сервер лёг», а «мы не спрашивали».
+async fn ping(host: &str, port: u16, timeout: Duration) -> Option<u32> {
+    if let Some(ms) = tcp_ping(host, port, timeout).await {
+        return Some(ms);
+    }
+    let Ok(Ok(mut addrs)) =
+        tokio::time::timeout(timeout, tokio::net::lookup_host((host, port))).await
+    else {
+        return None;
+    };
+    let ip = addrs.find_map(|addr| match addr.ip() {
+        std::net::IpAddr::V4(ip) => Some(ip),
+        std::net::IpAddr::V6(_) => None,
+    })?;
+    // IcmpSendEcho блокирует поток на всё время ожидания — значит, не в цикле.
+    tokio::task::spawn_blocking(move || crate::sys::icmp::ping(ip, timeout))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Свободный порт: занимаем и тут же отпускаем — ядру он достанется через
+/// доли секунды, а гадать номер вслепую значило бы иногда попадать в занятый.
+#[cfg(not(target_os = "android"))]
+fn free_port() -> Option<u16> {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .ok()?
+        .local_addr()
+        .ok()
+        .map(|addr| addr.port())
+}
+
+/// Задержки, измеренные собственным ядром, поднятым на время замера.
+///
+/// Рукопожатием TCP это не меряется, и дело не только в Hysteria2 с TUIC, у
+/// которых его нет вовсе. На машине может быть поднят чужой туннель — другой
+/// клиент на sing-tun принимает рукопожатие своим стеком, у себя в памяти, и
+/// до любого сервера мира выходит 1–10 мс. Ядро же спрашивает каждый узел его
+/// собственным протоколом, и отвечает настоящее время ответа.
+///
+/// Ядро поднимается без туннеля и без правил маршрутизации: только исходящие
+/// и Clash API на свободном порту. Возвращает None, если поднять его не
+/// удалось, — тогда остаётся старая дорога.
+#[cfg(not(target_os = "android"))]
+async fn probe_delays(
+    app: &AppHandle,
+    ids: &[String],
+    tx: &tokio::sync::mpsc::UnboundedSender<(String, Option<u32>)>,
+) -> Option<HashMap<String, Option<u32>>> {
+    let (nodes, active_id, settings, exe, work_dir, rule_set_dir) = {
+        let state = app.state();
+        let nodes = effective_nodes(state);
+        if nodes.is_empty() {
+            return None;
+        }
+        (
+            nodes,
+            state.resolve_active_id(),
+            state.settings.read().clone(),
+            state.core.lock().exe().to_path_buf(),
+            state.paths.work_dir.clone(),
+            state.paths.rule_set_dir.clone(),
+        )
+    };
+
+    let mut probe = settings.clone();
+    // Ни туннеля, ни системного прокси: адаптер ради замера поднимать нельзя,
+    // а входы замеру и не нужны — ядро дозванивается само.
+    probe.tunnel_mode = TunnelMode::SystemProxy;
+    probe.mixed_port = free_port()?;
+    probe.clash_port = free_port()?;
+    probe.allow_lan = false;
+    let secret = uuid::Uuid::new_v4().to_string();
+    let cache_path = work_dir.join("probe-cache.db");
+
+    let built = config::build(&BuildInput {
+        nodes: &nodes,
+        active_id: &active_id,
+        settings: &probe,
+        // Правила разделения к замеру отношения не имеют, а ошибка в них
+        // уронила бы всю проверку.
+        split: &SplitConfig::default(),
+        clash_secret: &secret,
+        cache_path: &cache_path,
+        xray_ports: &HashMap::new(),
+        xray_exe: None,
+        rule_sets: &HashSet::new(),
+        rule_set_dir: &rule_set_dir,
+    })
+    .ok()?;
+
+    let config_path = work_dir.join("probe.json");
+    let work_dir_cache = cache_path.clone();
+    std::fs::create_dir_all(&work_dir).ok()?;
+    std::fs::write(&config_path, serde_json::to_vec(&built.json).ok()?).ok()?;
+
+    let mut core = CoreSupervisor::new(Engine::SingBox, exe, work_dir);
+    if core.start(&config_path, |_| {}).is_err() {
+        let _ = std::fs::remove_file(&config_path);
+        return None;
+    }
+
+    let api = ClashApi::new(probe.clash_port, &secret);
+    let mut measured = HashMap::new();
+    if api.wait_ready(Duration::from_secs(10)).await.is_ok() {
+        let tags: HashMap<String, String> = built.tags.into_iter().collect();
+        let mut tasks = Vec::new();
+        for node in &nodes {
+            if !ids.is_empty() && !ids.contains(&node.id) {
+                continue;
+            }
+            let Some(tag) = tags.get(&node.id).cloned() else {
+                continue;
+            };
+            let (api, url, id) = (api.clone(), probe.latency_url.clone(), node.id.clone());
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                let value = api.delay(&tag, &url, 5000).await.unwrap_or(None);
+                // Каждое измерение уходит на экран сразу, не дожидаясь соседей.
+                let _ = tx.send((id.clone(), value));
+                (id, value)
+            }));
+        }
+        for task in tasks {
+            if let Ok((id, value)) = task.await {
+                measured.insert(id, value);
+            }
+        }
+    }
+
+    core.stop();
+    let _ = std::fs::remove_file(&config_path);
+    let _ = std::fs::remove_file(work_dir_cache);
+    (!measured.is_empty()).then_some(measured)
+}
+
+/// Отправщик измерений в интерфейс.
+///
+/// Значения копятся и уезжают пачками раз в 150 мс. По событию на каждое было
+/// бы под сотню пересборок списка за шесть секунд — а список из сотни строк
+/// собирается целиком, и вместо ощущения хода вышла бы дёрганая картинка.
+fn spawn_publisher(
+    app: AppHandle,
+) -> (
+    tokio::sync::mpsc::UnboundedSender<(String, Option<u32>)>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Option<u32>)>();
+    let task = tokio::spawn(async move {
+        let mut batch: HashMap<String, Option<u32>> = HashMap::new();
+        let mut tick = tokio::time::interval(Duration::from_millis(150));
+        let flush = |batch: &mut HashMap<String, Option<u32>>| {
+            if batch.is_empty() {
+                return;
+            }
+            let ready = std::mem::take(batch);
+            {
+                let state = app.state();
+                let mut latency = state.latency.write();
+                for (id, value) in &ready {
+                    latency.insert(id.clone(), *value);
+                }
+            }
+            let _ = app.emit(Event::Latency(ready));
+        };
+        loop {
+            tokio::select! {
+                got = rx.recv() => match got {
+                    Some((id, value)) => { batch.insert(id, value); }
+                    // Отправитель закрылся — обход кончился.
+                    None => break,
+                },
+                _ = tick.tick() => flush(&mut batch),
+            }
+        }
+        flush(&mut batch);
+    });
+    (tx, task)
+}
+
 pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<String, Option<u32>>> {
     let (targets, api, tags, url) = {
         let state = app.state();
@@ -1292,17 +1485,52 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
         (wanted, api, tags, url)
     };
 
+    // Часовой «Обзора» дёргает один узел каждые десять секунд. При опущенном
+    // туннеле мерить его нечем: ядро ради одной строки поднимать дорого, а
+    // сокетом получится ложь — чужой туннель в системе (а он в системе бывает)
+    // ответит на рукопожатие сам, у себя в памяти. Честнее оставить прошлое
+    // значение.
+    if api.is_none() && !ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Строки помечаются «меряется» до начала обхода: дальше значения
+    // подъезжают по одному, и видно, что работа идёт.
+    let pending: HashSet<String> = targets.iter().map(|(id, _, _)| id.clone()).collect();
+    let _ = app.emit(Event::Measuring(pending));
+    let (tx, publisher) = spawn_publisher(app.clone());
+
+    // Туннель не поднят — поднимаем своё ядро на время замера: только оно
+    // умеет спросить каждый узел его же протоколом.
+    #[cfg(not(target_os = "android"))]
+    let probed = match api {
+        Some(_) => None,
+        None => probe_delays(&app, &ids, &tx).await,
+    };
+    #[cfg(target_os = "android")]
+    let probed: Option<HashMap<String, Option<u32>>> = None;
+
     // Probe concurrently; a serial sweep over 40 nodes would take a minute.
     let mut tasks = Vec::new();
     for (id, host, port) in targets {
         let api = api.clone();
         let tag = tags.get(&id).cloned();
         let url = url.clone();
+        let ready = probed.as_ref().and_then(|values| values.get(&id).copied());
+        let tx = tx.clone();
         tasks.push(tokio::spawn(async move {
-            let value = match (api, tag) {
-                (Some(api), Some(tag)) => api.delay(&tag, &url, 5000).await.unwrap_or(None),
-                _ => tcp_ping(&host, port, Duration::from_secs(5)).await,
+            let value = match (api, tag, ready) {
+                // Ядро-замерщик уже ответило за этот узел — и уже показало.
+                (_, _, Some(value)) => return (id, value),
+                (Some(api), Some(tag), _) => api.delay(&tag, &url, 5000).await.unwrap_or(None),
+                // Ядро поднято, но этого узла в его конфиге нет — список
+                // сменился уже после подключения. Мерить самим нечем: в режиме
+                // TUN рукопожатие TCP принимает сам туннель, у себя в памяти, и
+                // до любого сервера мира получается честные с виду 1–10 мс.
+                (Some(_), None, _) => None,
+                _ => ping(&host, port, Duration::from_secs(5)).await,
             };
+            let _ = tx.send((id.clone(), value));
             (id, value)
         }));
     }
@@ -1314,6 +1542,10 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
         }
     }
 
+    // Отправщик доживает до последней пачки и только потом закрывается.
+    drop(tx);
+    let _ = publisher.await;
+
     {
         let state = app.state();
         let mut latency = state.latency.write();
@@ -1322,6 +1554,9 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
         }
         let _ = app.emit(Event::Latency(latency.clone()));
     }
+    // Узлы, за которые никто не отчитался (ядро-замерщик их пропустило),
+    // не должны остаться дышащими навсегда.
+    let _ = app.emit(Event::Measuring(HashSet::new()));
     Ok(results)
 }
 
@@ -1850,3 +2085,5 @@ mod tests {
         }
     }
 }
+
+

@@ -169,6 +169,16 @@ export interface RunningApp {
   system: boolean;
 }
 
+/** One row of the in-app resource monitor: a group of related processes. */
+export interface ResourceGroup {
+  id: "app" | "ui" | "core" | "xray";
+  processes: number;
+  /** Resident memory, bytes. */
+  memory: number;
+  /** Share of the whole machine's CPU, percent. */
+  cpu: number;
+}
+
 export type LatencyMap = Record<string, number | null>;
 
 export interface Snapshot {

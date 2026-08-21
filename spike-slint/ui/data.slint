@@ -31,6 +31,16 @@ export struct SubInfo {
     foot: string,
 }
 
+// Раздел списка серверов: подписка со своими узлами. Собирается в Rust — там
+// же решается, чьи узлы куда попали и что сейчас раскрыто.
+export struct NodeGroup {
+    // Подписка раздела. У раздела своих серверов id пустой, а из полей
+    // заполнены только name и foot.
+    sub: SubInfo,
+    expanded: bool,
+    nodes: [ServerNode],
+}
+
 export struct AppRule {
     id: string,
     name: string,
@@ -83,6 +93,9 @@ export struct ThemeOption {
 export global Data {
     in-out property <[ServerNode]> nodes;
     in-out property <[SubInfo]> subs;
+    // Те же узлы, разложенные по подпискам: список серверов на экране
+    // строится из них, а `nodes` остаётся плоским для счётчиков.
+    in-out property <[NodeGroup]> groups;
     in-out property <[AppRule]> apps;
     in-out property <[RunningApp]> procs;
     in-out property <[LogLine]> logs;
@@ -126,6 +139,8 @@ export global Data {
     in-out property <string> ws-text: "…";
 
     in-out property <bool> testing;      // идёт проверка задержки
+    // «37 / 111», пока обход идёт. Пусто — обхода нет.
+    in-out property <string> test-progress;
     in-out property <bool> refreshing;   // обновляются подписки
     in-out property <bool> connected: true;
     in-out property <bool> elevated: true;
@@ -141,7 +156,11 @@ export global Data {
     callback select-server(string);
     callback delete-server(string);
     callback copy-link(string);
-    callback edit-server(int);
+    // По id, а не по номеру строки: в разделах плоской нумерации нет.
+    callback edit-server(string);
+    // Раздел свернули или раскрыли — состояние живёт в Rust, рядом со
+    // сборкой списка.
+    callback toggle-group(string);
     callback new-server();
     callback save-draft();
     callback import-links(string);

@@ -137,6 +137,16 @@ export const en: Record<keyof typeof ru, string> = {
   "set.closeToTray": "Closing the window minimizes to tray",
   "set.closeToTrayDesc":
     "Off — the close button quits completely and drops the connection.",
+  "set.resourcesSection": "Resource usage",
+  "set.resourcesDesc":
+    "The interface (WebView2) and the core run as separate processes, so Task Manager scatters the app across several rows. This is the whole process family combined; the figures match Task Manager's memory column.",
+  "set.resApp": "Application",
+  "set.resUi": "Interface (WebView2)",
+  "set.resCore": "sing-box core",
+  "set.resXray": "Xray core",
+  "set.resTotal": "Total",
+  "set.resProcs": "processes: {n}",
+
   "set.aboutSection": "About",
   "set.appVersion": "App version",
   "set.coreVersion": "Core",

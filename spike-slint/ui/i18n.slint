@@ -26,6 +26,9 @@ export global Str {
     out property <string> srv-server-one:        root.en ? "server" : "сервер";
     out property <string> srv-server-few:        root.en ? "servers" : "сервера";
     out property <string> srv-server-many:       root.en ? "servers" : "серверов";
+    // Раздел для серверов, добавленных руками: подписки у них нет, а место
+    // в списке разделов нужно.
+    out property <string> srv-own-group:         root.en ? "Own servers" : "Свои серверы";
     out property <string> srv-expired-warning:   root.en ? "The subscription has expired — the servers most likely no longer respond." : "Срок действия истёк — серверы, скорее всего, уже не отвечают.";
     out property <string> srv-exhausted-warning: root.en ? "Data limit reached — renew your plan in the panel." : "Трафик исчерпан — продлите тариф в панели.";
     out property <string> dash-state-connecting: root.en ? "Connecting" : "Подключение";

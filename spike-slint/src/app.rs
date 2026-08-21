@@ -36,6 +36,9 @@ pub enum Event {
     Nodes(Vec<ServerNode>),
     Subscriptions(Vec<Subscription>),
     Latency(HashMap<String, Option<u32>>),
+    /// Узлы, которые сейчас меряются. Приходит в начале обхода и пустым в
+    /// конце; значения по одному подъезжают своим чередом в Latency.
+    Measuring(std::collections::HashSet<String>),
     /// Адрес узла → страна.
     Countries(HashMap<String, crate::core::geoip::Country>),
     UpdateProgress(UpdateProgress),

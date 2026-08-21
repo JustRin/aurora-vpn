@@ -59,6 +59,9 @@ windows = { version = "0.62", features = [
   "Win32_System_Com",
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
+  # Токен оболочки: уведомление показывается от имени обычного пользователя,
+  # потому что от процесса с правами администратора система его не принимает.
+  "Win32_Security",
   # Буфер обмена и диалог выбора файла — оба ходили через плагины Tauri.
   "Win32_System_DataExchange",
   "Win32_System_Memory",
@@ -81,6 +84,8 @@ windows-sys = { version = "0.59", features = [
   # Локаль пользователя — по ней «как в системе» выбирает язык интерфейса.
   "Win32_Globalization",
   "Win32_Graphics_Dwm",
+  # ICMP-эхо: задержка до узлов, которые не отвечают на TCP (Hysteria2, TUIC).
+  "Win32_NetworkManagement_IpHelper",
   "Win32_Graphics_Gdi",
   # Масштаб экрана: стартовый размер окна считается в точках разметки.
   "Win32_UI_HiDpi",
@@ -100,6 +105,29 @@ embed-resource = "3"
 [profile.release]
 opt-level = "s"
 strip = true
+# Рендер разложен по десятку крейтов, и без LTO вызовы между ними остаются
+# вызовами — а они во внутренних циклах по пикселям.
+lto = "thin"
+
+# Рендер — единственное место, где решает скорость машинного кода: он считает
+# покрытие каждого пикселя скруглений, смешивает полупрозрачные панели и
+# растеризует глифы, и всё это на процессоре. Со сборкой «по размеру» список из
+# сотни строк ощутимо не успевал за прокруткой. Своему коду «s» остаётся:
+# он вызывается по событию, а не миллион раз за кадр.
+[profile.release.package.i-slint-core]
+opt-level = 3
+[profile.release.package.i-slint-renderer-software]
+opt-level = 3
+[profile.release.package.i-slint-common]
+opt-level = 3
+[profile.release.package.ab_glyph]
+opt-level = 3
+[profile.release.package.ab_glyph_rasterizer]
+opt-level = 3
+[profile.release.package.rustybuzz]
+opt-level = 3
+[profile.release.package.owned_ttf_parser]
+opt-level = 3
 
 [patch.crates-io]
 # Софтверный рендер с правкой отрисовки текста: дробные позиции глифов,

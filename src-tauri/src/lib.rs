@@ -74,7 +74,76 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return;
     }
+    // Closed to tray — the window was destroyed to free its WebView2, so a
+    // click means «build it again». The frontend shows it via `app_ready`.
+    if let Err(e) = create_main_window(app) {
+        eprintln!("не удалось пересоздать окно: {e}");
+    }
+}
+
+/// Build the main window. It is the expensive half of the app — WebView2 keeps
+/// half a dozen helper processes alive for it — so the window exists only
+/// while the user is looking at it: closing to tray destroys it, and the next
+/// tray click lands here to build a fresh one.
+///
+/// Created hidden: the frontend reveals it via `app_ready` once painted, and
+/// the timer below is the safety net for a frontend that fails to boot, so a
+/// broken build cannot leave an invisible, unkillable app behind.
+#[cfg(desktop)]
+fn create_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+        .title("Aurora VPN")
+        .inner_size(1120.0, 760.0)
+        .min_inner_size(960.0, 640.0)
+        .center()
+        .decorations(false)
+        .visible(false)
+        .build()?;
+
+    // Paint it in the saved theme while it is still hidden, so it never opens
+    // on the previous theme's colour.
+    if let Some(state) = app.try_state::<AppState>() {
+        let (dark, background) = {
+            let settings = state.settings.read();
+            (settings.theme_dark, settings.theme_background.clone())
+        };
+        commands::apply_window_theme(&window, dark, &background);
+    }
+
+    // WebView2 idles at ~150 MB spread over half a dozen helper processes.
+    // The Low memory-usage target keeps its caches small and collects
+    // eagerly; a UI of a few static panels never feels the difference — the
+    // Task Manager column does.
+    #[cfg(windows)]
+    let _ = window.with_webview(|webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+        };
+        use windows_core::Interface;
+
+        if let Ok(core) = webview.controller().CoreWebView2() {
+            if let Ok(v19) = core.cast::<ICoreWebView2_19>() {
+                // 1 = Low; the bindings expose no named constants.
+                let _ = v19.SetMemoryUsageTargetLevel(
+                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(1),
+                );
+            }
+        }
+    });
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        if let Some(window) = handle.get_webview_window("main") {
+            if !window.is_visible().unwrap_or(true) {
+                let _ = window.show();
+            }
+        }
+    });
+
+    Ok(window)
 }
 
 /// `system` resolved through the OS locale; anything unknown falls back to
@@ -303,13 +372,11 @@ pub fn run() {
             #[cfg(target_os = "android")]
             let state = AppState::new(config_dir, handle.clone())?;
 
-            let (auto_connect, start_minimized, theme_dark, theme_bg, has_nodes, language) = {
+            let (auto_connect, start_minimized, has_nodes, language) = {
                 let settings = state.settings.read();
                 (
                     settings.auto_connect,
                     settings.start_minimized,
-                    settings.theme_dark,
-                    settings.theme_background.clone(),
                     !state.nodes.read().is_empty(),
                     settings.language.clone(),
                 )
@@ -321,26 +388,27 @@ pub fn run() {
             #[cfg(not(desktop))]
             let _ = language;
 
-            // Paint the native window in the saved theme while it is still
-            // hidden, so it never opens on the previous theme's colour.
-            if let Some(window) = handle.get_webview_window("main") {
-                commands::apply_window_theme(&window, theme_dark, &theme_bg);
-            }
-
-            // The window is configured hidden so the user never sees an unpainted
-            // white WebView. The frontend reveals it via `app_ready`; this timer
-            // is the safety net for a frontend that fails to boot, so a broken
-            // build cannot leave an invisible, unkillable app behind.
+            // The window is the expensive half of the app (WebView2), so it
+            // only exists while the user is looking at it: a boot straight to
+            // the tray creates no window at all — `show_main_window` builds
+            // one on the first click.
+            #[cfg(desktop)]
             if !start_minimized {
-                let handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-                    if let Some(window) = handle.get_webview_window("main") {
-                        if !window.is_visible().unwrap_or(true) {
-                            let _ = window.show();
-                        }
-                    }
-                });
+                create_main_window(&handle)?;
+            }
+            #[cfg(not(desktop))]
+            let _ = start_minimized;
+
+            // On Android the window comes from tauri.android.conf.json; only
+            // the saved theme needs painting before the WebView shows.
+            #[cfg(target_os = "android")]
+            if let Some(window) = handle.get_webview_window("main") {
+                let (dark, background) = {
+                    let state = handle.state::<AppState>();
+                    let settings = state.settings.read();
+                    (settings.theme_dark, settings.theme_background.clone())
+                };
+                commands::apply_window_theme(&window, dark, &background);
             }
 
             if auto_connect && has_nodes {
@@ -376,7 +444,15 @@ pub fn run() {
                     .unwrap_or(false);
                 if close_to_tray {
                     api.prevent_close();
-                    let _ = _window.hide();
+                    // Destroy rather than hide: a hidden window still keeps
+                    // every WebView2 helper process (and their ~100 MB)
+                    // alive, and a VPN parked in the tray should cost the
+                    // app and the core — not an idle browser. The next tray
+                    // click builds a fresh window via `show_main_window`.
+                    let window = _window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = window.destroy();
+                    });
                 }
             }
         })
@@ -401,6 +477,7 @@ pub fn run() {
             commands::set_window_theme,
             commands::test_latency,
             commands::list_running_apps,
+            commands::resource_usage,
             commands::get_logs,
             commands::clear_logs,
             commands::preview_config,
@@ -415,8 +492,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("не удалось инициализировать приложение");
 
-    app.run(|app, event| {
-        if let RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        // Every window is gone, but with close-to-tray that means «parked in
+        // the tray», not «quit» — quitting goes through app.exit (the tray
+        // menu, the updater), which arrives here with an explicit code.
+        RunEvent::ExitRequested { code: None, api, .. } => {
+            let tray_resident = app
+                .try_state::<AppState>()
+                .map(|s| s.settings.read().close_to_tray)
+                .unwrap_or(false);
+            if tray_resident {
+                api.prevent_exit();
+            }
+        }
+        RunEvent::Exit => {
             // Last chance to release the virtual adapter and restore the proxy
             // settings; skipping this strands the user without networking.
             if let Some(state) = app.try_state::<AppState>() {
@@ -431,5 +520,6 @@ pub fn run() {
                 let _ = std::fs::remove_file(&state.paths.pid_file);
             }
         }
+        _ => {}
     });
 }

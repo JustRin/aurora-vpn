@@ -7,6 +7,7 @@ import type {
   ImportReport,
   LatencyMap,
   LogLine,
+  ResourceGroup,
   RunningApp,
   ServerNode,
   Settings,
@@ -59,6 +60,9 @@ export const api = {
 
   listRunningApps: (includeSystem: boolean) =>
     invoke<RunningApp[]>("list_running_apps", { includeSystem }),
+
+  /** Memory/CPU of the app's whole process family, grouped for display. */
+  resourceUsage: () => invoke<ResourceGroup[]>("resource_usage"),
 
   closeConnections: () => invoke<void>("close_connections"),
 

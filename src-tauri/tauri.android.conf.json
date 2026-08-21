@@ -1,4 +1,15 @@
 {
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Aurora VPN",
+        "theme": "Dark",
+        "backgroundColor": "#0A0C12",
+        "visible": false
+      }
+    ]
+  },
   "bundle": {
     "externalBin": []
   }

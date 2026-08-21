@@ -1,16 +1,18 @@
 import { FolderOpen } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ElevateModal } from "../components/ElevateModal";
 import { Field, Segmented, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
-import { useT } from "../lib/i18n";
+import { bytes } from "../lib/format";
+import { useT, type MsgKey } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
 import { THEMES } from "../lib/themes";
 import {
   ELEVATION_REQUIRED,
   type AutostartMode,
   type LangChoice,
+  type ResourceGroup,
   type TunStack,
   type TunnelMode,
 } from "../lib/types";
@@ -20,6 +22,15 @@ import { useStore } from "../store";
  * subscriptions) versus everything client-side (language, theme, startup,
  * about) — one flat page held all of it and finding anything took scrolling. */
 type SettingsTab = "core" | "client";
+
+/** Typed against the dictionary so a new backend group cannot silently render
+ * as a raw key. */
+const RESOURCE_LABELS: Record<ResourceGroup["id"], MsgKey> = {
+  app: "set.resApp",
+  ui: "set.resUi",
+  core: "set.resCore",
+  xray: "set.resXray",
+};
 
 export function Settings() {
   const t = useT();
@@ -33,7 +44,29 @@ export function Settings() {
   const coreVersion = useStore((s) => s.coreVersion);
 
   const [askElevate, setAskElevate] = useState(false);
-  const [tab, setTab] = useState<SettingsTab>("core");
+  const [tab, setTab] = useState<SettingsTab>("client");
+  const [usage, setUsage] = useState<ResourceGroup[]>([]);
+
+  // Live only while its tab is on screen — no point enumerating the process
+  // table for a card nobody is looking at.
+  useEffect(() => {
+    if (tab !== "client" || IS_ANDROID) return;
+    let alive = true;
+    const tick = () => {
+      api.resourceUsage().then(
+        (groups) => {
+          if (alive) setUsage(groups);
+        },
+        () => {},
+      );
+    };
+    tick();
+    const timer = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [tab]);
 
   async function changeAutostart(mode: AutostartMode) {
     try {
@@ -74,8 +107,8 @@ export function Settings() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "core", label: t("set.tabCore") },
             { value: "client", label: t("set.tabClient") },
+            { value: "core", label: t("set.tabCore") },
           ]}
         />
       </div>
@@ -87,7 +120,7 @@ export function Settings() {
             <>
               <div className="section-title">{t("set.tunnelSection")}</div>
               <div className="card">
-                <div className="toggle-row">
+                <div className="toggle-row stack">
                   <div className="grow">
                     <div className="toggle-label">{t("set.tunnelMode")}</div>
                     <div className="toggle-desc">
@@ -247,14 +280,13 @@ export function Settings() {
 
           <div className="section-title">{t("set.subsSection")}</div>
           <div className="card">
-            <div className="toggle-row">
+            <div className="toggle-row stack">
               <div className="grow">
                 <div className="toggle-label">{t("set.subAuto")}</div>
                 <div className="toggle-desc">{t("set.subAutoDesc")}</div>
               </div>
               <select
                 className="select"
-                style={{ width: 190 }}
                 value={String(settings.subAutoUpdateMin)}
                 onChange={(e) =>
                   void save({ subAutoUpdateMin: Number(e.target.value) })
@@ -275,7 +307,7 @@ export function Settings() {
         <>
           <div className="section-title">{t("set.languageSection")}</div>
           <div className="card">
-            <div className="toggle-row">
+            <div className="toggle-row stack">
               <div className="grow">
                 <div className="toggle-label">{t("set.language")}</div>
                 <div className="toggle-desc">{t("set.languageDesc")}</div>
@@ -387,6 +419,46 @@ export function Settings() {
               </>
             )}
           </div>
+
+          {usage.length > 0 && (
+            <>
+              <div className="section-title">{t("set.resourcesSection")}</div>
+              <div className="card">
+                <div className="toggle-desc" style={{ marginBottom: 4 }}>
+                  {t("set.resourcesDesc")}
+                </div>
+                {usage.map((group) => (
+                  <div className="toggle-row" key={group.id}>
+                    <div className="grow">
+                      <div className="toggle-label">
+                        {t(RESOURCE_LABELS[group.id])}
+                      </div>
+                      {group.processes > 1 && (
+                        <div className="toggle-desc">
+                          {t("set.resProcs", { n: group.processes })}
+                        </div>
+                      )}
+                    </div>
+                    <span className="mono">{group.cpu.toFixed(1)}%</span>
+                    <span className="mono" style={{ minWidth: 76, textAlign: "right" }}>
+                      {bytes(group.memory)}
+                    </span>
+                  </div>
+                ))}
+                <div className="toggle-row">
+                  <div className="grow">
+                    <div className="toggle-label">{t("set.resTotal")}</div>
+                  </div>
+                  <span className="mono">
+                    {usage.reduce((sum, g) => sum + g.cpu, 0).toFixed(1)}%
+                  </span>
+                  <span className="mono" style={{ minWidth: 76, textAlign: "right" }}>
+                    {bytes(usage.reduce((sum, g) => sum + g.memory, 0))}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* The sidebar footer with the same numbers is hidden on the phone
               layout, so this card is the only version display on Android. */}

@@ -10,23 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Aurora VPN",
-        "width": 1120,
-        "height": 760,
-        "minWidth": 960,
-        "minHeight": 640,
-        "resizable": true,
-        "decorations": false,
-        "transparent": false,
-        "center": true,
-        "theme": "Dark",
-        "backgroundColor": "#0A0C12",
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
     }

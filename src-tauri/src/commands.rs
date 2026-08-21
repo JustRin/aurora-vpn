@@ -1315,6 +1315,26 @@ pub async fn list_running_apps(
         .collect())
 }
 
+/// Live memory/CPU of the whole process family — GUI, WebView2 children, the
+/// engines — so the user does not have to reassemble the total from scattered
+/// Task Manager rows.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn resource_usage() -> Result<Vec<procs::ResourceGroup>> {
+    // Enumerating processes touches the whole process table; keep it off the UI thread.
+    tokio::task::spawn_blocking(procs::resource_usage)
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось измерить потребление ресурсов: {e}")))
+}
+
+/// On Android everything already lives in this one process (libbox is
+/// in-process) and the OS shows the app as a single entry — nothing to fold.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn resource_usage() -> Result<Vec<procs::ResourceGroup>> {
+    Ok(Vec::new())
+}
+
 #[tauri::command]
 pub async fn get_logs(app: AppHandle) -> Result<Vec<LogLine>> {
     let state = app.state::<AppState>();
@@ -1669,14 +1689,9 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
 /// empty white WebView for a beat before the dark UI replaces it.
 #[tauri::command]
 pub async fn app_ready(app: AppHandle) -> Result<()> {
-    let start_minimized = {
-        let state = app.state::<AppState>();
-        let minimized = state.settings.read().start_minimized;
-        minimized
-    };
-    if start_minimized {
-        return Ok(());
-    }
+    // Every window is created hidden, and a boot that wants the tray creates
+    // no window at all — so by the time the frontend reports it has painted,
+    // showing is always the right move.
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();

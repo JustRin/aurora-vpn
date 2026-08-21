@@ -3,7 +3,7 @@
 
 import { Theme, Icons, Card, NavIcon, MicroRow } from "theme.slint";
 import { IconBtn, Chip, Dot, Meter, Switch, RoundRect } from "widgets.slint";
-import { ServerNode, SubInfo, AppRule, RunningApp } from "data.slint";
+import { ServerNode, SubInfo, NodeGroup, AppRule, RunningApp } from "data.slint";
 import { Str } from "i18n.slint";
 
 // .sub-card: остаток срока и трафика по данным панели.
@@ -246,7 +246,11 @@ export component NodeRow inherits Rectangle {
                 text: root.node.latency;
                 horizontal-alignment: right;
                 font-size: 12px;
-                color: Theme.text-dim;
+                // Многоточие ожидания приглушено, приехавшая цифра проявляется.
+                // Цветом, а не прозрачностью: полупрозрачную строку рендерер
+                // обходит целиком каждый кадр, а таких строк на экране сотня.
+                color: root.node.tier == "busy" ? Theme.text-muted : Theme.text-dim;
+                animate color { duration: 260ms; easing: ease-out; }
             }
         }
 
@@ -255,9 +259,10 @@ export component NodeRow inherits Rectangle {
             alignment: center;
             HorizontalLayout {
                 spacing: 4px;
-                opacity: touch.has-hover || copy-btn.hovered || edit-btn.hovered || del-btn.hovered
-                    ? 1.0 : 0.0;
-                animate opacity { duration: 130ms; }
+                // visible, а не opacity: прозрачное поддерево рендерер всё
+                // равно обходит и рисует, а это три иконки на каждой из сотни
+                // строк — на прокрутке они и съедали кадры.
+                visible: touch.has-hover || copy-btn.hovered || edit-btn.hovered || del-btn.hovered;
                 copy-btn := IconBtn {
                     icon: Icons.copy;
                     ghost: true;
@@ -274,6 +279,183 @@ export component NodeRow inherits Rectangle {
                     clicked => { root.remove(); }
                 }
             }
+        }
+    }
+}
+
+// Раздел списка серверов: подписка, под ней — её серверы.
+//
+// Полосой карточек подписки жить перестали: четвёртая уже выдавливала соседей
+// за край окна, а сотня серверов одной простынёй всё равно нечитаема. Здесь
+// подписка — строка во всю ширину, и серверы раскрываются по щелчку.
+export component NodeGroupSection inherits VerticalLayout {
+    in property <NodeGroup> group;
+    in property <string> active-id;
+    callback toggle();
+    callback refresh();
+    callback remove();
+    callback select(string);
+    callback copy-link(string);
+    callback edit(string);
+    callback remove-node(string);
+
+    // У раздела своих серверов подписки нет: ни обновлять, ни удалять нечего.
+    property <bool> own: root.group.sub.id == "";
+
+    spacing: 8px;
+
+    // ---- шапка раздела
+    Rectangle {
+        vertical-stretch: 0;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.border;
+        background: head.has-hover ? Theme.panel-hover : Theme.panel;
+        animate background { duration: 130ms; }
+
+        // Ниже кнопок по порядку — те перехватывают щелчок первыми.
+        head := TouchArea {
+            clicked => { root.toggle(); }
+        }
+
+        VerticalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-top: 14px;
+            padding-bottom: 14px;
+            spacing: 10px;
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                VerticalLayout {
+                    alignment: center;
+                    NavIcon {
+                        commands: root.group.expanded ? Icons.chevron-up : Icons.chevron-down;
+                        tint: Theme.text-muted;
+                        width: 14px;
+                        height: 14px;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    NavIcon {
+                        commands: root.own ? Icons.server : Icons.rss;
+                        tint: Theme.text-muted;
+                        width: 15px;
+                        height: 15px;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: root.group.sub.name;
+                        overflow: elide;
+                        font-size: 13.5px;
+                        font-weight: 550;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: root.group.sub.foot;
+                        overflow: elide;
+                        font-size: 11.5px;
+                        color: Theme.text-muted;
+                    }
+                }
+
+                // Срок и трафик — те же цифры, что стояли на карточке, только
+                // в строку: так они не растут вместе с числом подписок.
+                if root.group.sub.has-usage: VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    MicroRow {
+                        icon: Icons.calendar-clock;
+                        label: Str.srv-remaining-caps;
+                    }
+                    Text {
+                        text: root.group.sub.expiry;
+                        font-size: 14px;
+                        font-weight: 640;
+                        letter-spacing: -0.2px;
+                        overflow: elide;
+                        color: root.group.sub.expiry-tier == "bad"
+                            ? Theme.danger
+                            : (root.group.sub.expiry-tier == "ok"
+                                ? Theme.warn
+                                : (root.group.sub.expiry-tier == "good" ? Theme.ok : Theme.text));
+                    }
+                }
+                if root.group.sub.has-usage: VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        alignment: end;
+                        Text {
+                            text: Str.srv-traffic-label-caps;
+                            font-size: 10.5px;
+                            font-weight: 640;
+                            letter-spacing: 1px;
+                            color: Theme.text-muted;
+                        }
+                    }
+                    Text {
+                        text: root.group.sub.traffic;
+                        horizontal-alignment: right;
+                        font-size: 14px;
+                        font-weight: 640;
+                        letter-spacing: -0.2px;
+                        overflow: elide;
+                        color: Theme.text;
+                    }
+                }
+
+                if !root.own: VerticalLayout {
+                    alignment: center;
+                    IconBtn {
+                        icon: Icons.refresh;
+                        ghost: true;
+                        compact: true;
+                        clicked => { root.refresh(); }
+                    }
+                }
+                if !root.own: VerticalLayout {
+                    alignment: center;
+                    IconBtn {
+                        icon: Icons.trash;
+                        ghost: true;
+                        compact: true;
+                        clicked => { root.remove(); }
+                    }
+                }
+            }
+
+            if root.group.sub.has-usage: Meter {
+                value: root.group.sub.used;
+                tier: root.group.sub.used >= 1.0 ? "bad" : (root.group.sub.used > 0.85 ? "ok" : "");
+            }
+            if root.group.sub.warning != "": Text {
+                text: root.group.sub.warning;
+                font-size: 12px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    // ---- серверы раздела
+    if root.group.expanded: VerticalLayout {
+        padding-left: 14px;
+        padding-bottom: 4px;
+        spacing: 8px;
+        for node in root.group.nodes: NodeRow {
+            node: node;
+            active: node.id == root.active-id;
+            select => { root.select(node.id); }
+            copy-link => { root.copy-link(node.id); }
+            edit => { root.edit(node.id); }
+            remove => { root.remove-node(node.id); }
         }
     }
 }

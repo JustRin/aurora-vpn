@@ -21,14 +21,135 @@ const AUMID: &str = "AuroraVPN.Client";
 /// Имя ярлыка в меню «Пуск» — оно же подпись над уведомлением.
 const SHORTCUT: &str = "Aurora VPN.lnk";
 
+/// Аргумент, с которым приложение показывает одно уведомление и уходит.
+pub const NOTIFY_FLAG: &str = "--notify";
+
 /// Показать уведомление. Тихо: если система отказала, пользователю сообщать
 /// нечего — он и так видит происходящее в самом приложении.
+///
+/// Из процесса с правами администратора уведомление идёт кружным путём — через
+/// себя же, запущенного от имени обычного пользователя. Прямой путь оттуда не
+/// работает: `Show()` отвечает успехом, на экране ничего, и приложение даже не
+/// заводится в списке источников уведомлений Windows. То же самое уведомление,
+/// отправленное обычным процессом, система принимает сразу.
 #[cfg(windows)]
 pub fn show(title: &str, body: &str) {
+    // В своём потоке: и запуск процесса, и разговор с платформой уведомлений
+    // занимают десятки миллисекунд, а зовут это из потока интерфейса — прямо
+    // в момент, когда туннель поднялся и на экране всё меняется.
+    let (title, body) = (title.to_string(), body.to_string());
+    std::thread::spawn(move || {
+        if crate::sys::elevate::is_elevated() && show_as_user(&title, &body).is_ok() {
+            return;
+        }
+        show_now(&title, &body);
+    });
+}
+
+/// Показать здесь и сейчас, не перепоручая. Этим путём идёт запуск с
+/// `--notify`: он и есть тот самый обычный процесс.
+#[cfg(windows)]
+pub fn show_now(title: &str, body: &str) {
     if let Err(err) = try_show(title, body) {
         // Единственный след — журнал ядра, куда пишет всё остальное.
         eprintln!("уведомление не показано: {err}");
     }
+}
+
+#[cfg(not(windows))]
+pub fn show_now(_title: &str, _body: &str) {}
+
+/// Запустить себя же с токеном оболочки и передать уведомление ему.
+///
+/// Токен берётся у процесса рабочего стола: он и есть «обычный пользователь»
+/// этого сеанса. Права администратора здесь как раз кстати — без них чужой
+/// токен не одолжить.
+#[cfg(windows)]
+fn show_as_user(title: &str, body: &str) -> Result<()> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        DuplicateTokenEx, SecurityImpersonation, TokenPrimary, TOKEN_ALL_ACCESS, TOKEN_DUPLICATE,
+    };
+    use windows::Win32::System::Threading::{
+        CreateProcessWithTokenW, OpenProcess, OpenProcessToken, CREATE_NO_WINDOW,
+        CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+        STARTUPINFOW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId};
+
+    let exe = std::env::current_exe()
+        .map_err(|e| AppError::msg(format!("не удалось узнать путь приложения: {e}")))?;
+
+    unsafe {
+        let shell = GetShellWindow();
+        if shell.0.is_null() {
+            return Err(AppError::msg("рабочий стол не найден"));
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(shell, Some(&mut pid));
+        if pid == 0 {
+            return Err(AppError::msg("не удалось определить процесс рабочего стола"));
+        }
+
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).map_err(win)?;
+        let mut token = HANDLE::default();
+        let opened = OpenProcessToken(process, TOKEN_DUPLICATE, &mut token);
+        let _ = CloseHandle(process);
+        opened.map_err(win)?;
+
+        let mut primary = HANDLE::default();
+        let duplicated = DuplicateTokenEx(
+            token,
+            TOKEN_ALL_ACCESS,
+            None,
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut primary,
+        );
+        let _ = CloseHandle(token);
+        duplicated.map_err(win)?;
+
+        // Кавычки вокруг кусков: и в пути, и в тексте уведомления бывают
+        // пробелы, а командная строка одна на всех.
+        let mut command: Vec<u16> = format!(
+            "\"{}\" {NOTIFY_FLAG} \"{}\" \"{}\"",
+            exe.display(),
+            quote(title),
+            quote(body)
+        )
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+        let startup = STARTUPINFOW {
+            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+            ..Default::default()
+        };
+        let mut info = PROCESS_INFORMATION::default();
+        let started = CreateProcessWithTokenW(
+            primary,
+            Default::default(),
+            None,
+            Some(PWSTR(command.as_mut_ptr())),
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+            None,
+            None,
+            &startup,
+            &mut info,
+        );
+        let _ = CloseHandle(primary);
+        started.map_err(win)?;
+        let _ = CloseHandle(info.hProcess);
+        let _ = CloseHandle(info.hThread);
+    }
+    Ok(())
+}
+
+/// Кавычка внутри аргумента разорвала бы командную строку пополам.
+#[cfg(windows)]
+fn quote(text: &str) -> String {
+    text.replace('"', "'")
 }
 
 #[cfg(not(windows))]

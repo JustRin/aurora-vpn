@@ -165,7 +165,27 @@ impl AppState {
 
         let store = Store::new(paths.config_dir.clone())?;
         let settings: Settings = store.load("settings");
-        let nodes: Vec<ServerNode> = store.load("servers");
+        let mut nodes: Vec<ServerNode> = store.load("servers");
+        // Починка на входе: id должен быть у каждой строки свой. Прежние
+        // обновления подписок раздавали один id всем узлам с общим отпечатком
+        // (у панелей это десяток строк на одном адресе), а по id адресуются и
+        // выбор сервера, и задержка, и удаление.
+        {
+            let mut seen = std::collections::HashSet::new();
+            let mut repaired = false;
+            for node in &mut nodes {
+                if !seen.insert(node.id.clone()) {
+                    node.id = uuid::Uuid::new_v4().to_string();
+                    seen.insert(node.id.clone());
+                    repaired = true;
+                }
+            }
+            // Сразу на диск: иначе каждый запуск раздавал бы дубликатам новые
+            // случайные id, и выбранный сервер переезжал бы вместе с ними.
+            if repaired {
+                let _ = store.save("servers", &nodes);
+            }
+        }
         let subs: Vec<Subscription> = store.load("subscriptions");
         let split: SplitConfig = store.load("split");
         let ui: UiState = store.load("ui");
