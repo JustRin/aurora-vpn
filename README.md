@@ -1,404 +1,102 @@
+<div align="center">
+
+<img src="docs/assets/logo.png" width="96" alt="">
+
 # Aurora VPN
 
-Клиент для серверов **VLESS**, VMess, Trojan, Shadowsocks, Hysteria2 и TUIC —
-с режимом TUN, раздельным туннелированием по приложениям и маршрутизацией по
-правилам. Работает с любыми панелями (3x-ui, Marzban и другими) и одиночными
-серверами. Windows, Linux, macOS и Android.
+**Open-source VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC.**<br>
+TUN mode, per-app split tunneling and rule-based routing — on Windows, Android, Linux and macOS.
 
-Оболочка — **Tauri v2** (Rust + React/TypeScript). Сетевых движка два:
-**sing-box** как основной и **Xray-core** для узлов, которые sing-box не умеет.
-На Android sing-box работает не отдельным процессом, а библиотекой **libbox**
-внутри `VpnService` — как в Hiddify и NekoBox.
+[![Release](https://img.shields.io/github/v/release/JustRin/aurora-vpn?style=flat-square&color=7c3aed&label=release)](https://github.com/JustRin/aurora-vpn/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/JustRin/aurora-vpn/total?style=flat-square&color=7c3aed)](https://github.com/JustRin/aurora-vpn/releases)
+[![License](https://img.shields.io/badge/license-MIT-7c3aed?style=flat-square)](LICENSE)
+[![Core](https://img.shields.io/badge/core-sing--box%20%2B%20Xray-22d3ee?style=flat-square)](docs/architecture.md)
+[![Site](https://img.shields.io/badge/site-aurora--vpn-1f2937?style=flat-square)](https://justrin.github.io/aurora-vpn/)
 
-## Загрузки
+**English** · [Русский](README.ru.md)
 
-[![Windows](https://img.shields.io/badge/Windows-установщик_x64-0078d4?style=for-the-badge)](https://github.com/JustRin/aurora-vpn/releases/latest)
-[![Android](https://img.shields.io/badge/Android-APK_arm64-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
+<img src="docs/screenshots/dashboard.png" width="840" alt="Aurora VPN — overview">
+
+</div>
+
+## Download
+
+[![Windows](https://img.shields.io/badge/Windows-x64_installer-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
+[![Android](https://img.shields.io/badge/Android-APK-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-AppImage_·_deb_·_rpm-e95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple_Silicon_·_Intel-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/JustRin/aurora-vpn/releases/latest)
 
-Свежие сборки под каждую систему — на [странице релизов](https://github.com/JustRin/aurora-vpn/releases/latest);
-там же таблица «скачайте под свою ОС» и контрольные суммы. На Windows приложение
-дальше обновляется само.
+Every build and its checksum lives on the [releases page](https://github.com/JustRin/aurora-vpn/releases/latest). On Windows the app updates itself from there.
 
-> **SmartScreen на Windows.** Сборки пока не подписаны сертификатом кода,
-> поэтому на свежескачанном установщике Defender показывает «Windows защитила
-> ваш компьютер». Это предупреждение об отсутствии подписи, а не находка
-> антивируса: «Подробнее» → «Выполнить в любом случае». Проект подаёт заявку
-> в [SignPath Foundation](https://signpath.org) (бесплатная подпись для
-> open source); CI уже готов подписывать релизы, как только заявку одобрят.
+<details>
+<summary><b>Windows says “Windows protected your PC”</b></summary>
 
-<!-- После одобрения SignPath: их условия требуют указать атрибуцию —
-     "Free code signing provided by SignPath.io, certificate by SignPath
-     Foundation" — раскомментировать и оставить эту строку в README. -->
+<br>
 
----
+Builds are not code-signed yet, so SmartScreen warns about an unknown publisher — that is a missing signature, not a malware detection. Click **More info → Run anyway**.
 
-## Что уже работает
+The project has applied to the [SignPath Foundation](https://signpath.org) (free code signing for open source); CI is already wired to sign releases once the application is approved.
+
+</details>
+
+## Features
 
 | | |
 |---|---|
-| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC |
-| **Шифрование** | REALITY (с uTLS-отпечатком), TLS, VLESS Encryption, без TLS |
-| **Транспорты** | TCP, WebSocket (+ early-data), gRPC, HTTP/2, HTTPUpgrade, XHTTP |
-| **Импорт** | ссылки `vless://` и др., подписки 3x-ui (base64 и plaintext) |
-| **Статус тарифа** | остаток дней и трафика с панели, на главном экране |
-| **Автообновление** | подписки подтягиваются в фоне, период настраивается |
-| **Режимы туннеля** | TUN (весь трафик системы) и системный прокси (без прав администратора) |
-| **Раздельный туннель** | по `.exe`: «только выбранные через VPN» / «выбранные мимо VPN» |
-| **Маршрутизация** | гео-наборы RU/CN, блокировка рекламы, свои списки доменов и подсетей |
-| **Переключение** | выбор сервера и режима Rule/Global/Direct прямо на главной, без перезапуска ядра |
-| **Оформление** | 6 палитр + режим «как в системе» |
-| **Автозапуск** | обычный и с правами администратора (без UAC при каждом входе) |
-| **Диагностика** | живой журнал ядра, замер задержки, просмотр итогового конфига |
-
-### Два движка
-
-sing-box умеет TUN, маршрутизацию, раздельное туннелирование и управляющий API,
-но не умеет двух вещей из мира Xray: **шифрование VLESS**
-(`encryption=mlkem768x25519plus…`, постквантовый слой ML-KEM-768 + X25519 из
-Xray-core 25.x) и транспорт **XHTTP**. Такого поля sing-box не знает вовсе —
-отвергает конфиг с `unknown field "encryption"`.
-
-Заменять ядро целиком было бы плохой сделкой: в Xray нет Hysteria2 и TUIC, а
-раздельное туннелирование по приложениям пришлось бы писать заново через WFP.
-Поэтому движки работают вместе:
-
-```
-[TUN / SOCKS] → sing-box (правила, split-tunnel, DNS, Clash API)
-                   ↓  узел, которого он не знает
-                127.0.0.1:24150+  →  Xray  →  сервер
-```
-
-Xray запускается только если такой узел есть, и получает по одному
-SOCKS-слушателю на узел. Для sing-box это обычные `socks`-аутбаунды, поэтому
-селектор, urltest и замеры задержки работают одинаково для обоих движков.
-Определение автоматическое: `ServerNode::needs_xray()`.
-
-#### Второй движок обязан ходить мимо туннеля
-
-`auto_detect_interface` удерживает от собственного TUN только сам sing-box.
-Xray — отдельный процесс, и его пакеты к серверу перехватываются наравне с
-трафиком любого приложения: они доходят до `final: proxy`, попадают в селектор
-и возвращаются в тот самый SOCKS-слушатель, из которого вышли. Xray звонит сам
-себе по кругу.
-
-Ломается это молча — соединение с локальным слушателем всегда успешно, поэтому
-ядро рапортует исправный туннель, интерфейс показывает «Подключено», а до
-сервера не доходит ни байта. Задержка при этом честно показывает «н/д»: замер
-идёт через тот же круг.
-
-Поэтому в маршрутизацию добавляется пара правил, отправляющих процесс Xray
-`direct` — по полному пути и по имени файла (внутри одного правила поля
-объединяются по И, поэтому нужны два). Стоят они сразу после `sniff`: раньше
-перехвата DNS, иначе по кругу пойдут ещё и запросы имён, и раньше режима
-Global, который иначе загонит в прокси всё подряд.
-
-Что по-прежнему не поддерживает никто: `kcp`, `quic` в роли транспорта VLESS и
-обфускация `headerType=http` поверх TCP. Такие ссылки отклоняются при импорте с
-объяснением, а не оседают в списке молча сломанными.
-
-### Гео-наборы кэшируются, а не скачиваются ядром
-
-`type: remote` в sing-box — жёсткая зависимость на старте: не скачался
-`.srs` — служба не поднимется. В сети, где GitHub недоступен (ровно та, ради
-которой нужен VPN), включённая блокировка рекламы или обход RU сделали бы
-туннель незапускаемым.
-
-Поэтому наборы скачивает приложение (`core/ruleset.rs`), складывает в
-`core/rulesets/` и отдаёт ядру как `type: local`. Устаревшая копия
-предпочтительнее отсутствующей; набор, которого нет, **выключает своё правило**
-вместе с парным (geosite без geoip не применяется — иначе домены шли бы мимо
-туннеля, а прямые IP-соединения в него).
-
-Если такие инбаунды нужны, ядро придётся менять на Xray-core + tun2socks —
-в этом случае раздельное туннелирование по процессам придётся реализовывать
-самостоятельно через WFP.
-
----
-
-## Про драйвер
-
-В режиме TUN sing-box поднимает виртуальный сетевой адаптер через **Wintun**
-(драйвер от авторов WireGuard). Отдельно ставить ничего не нужно: сборка
-sing-box несёт `wintun.dll` внутри себя и загружает её из памяти
-(`internal/wintun/memmod`), включая сам пакет драйвера.
-
-Единственное требование — **права администратора**: без них создать адаптер
-нельзя. Приложение это проверяет заранее и предлагает перезапуск через UAC,
-либо переключение на режим системного прокси, который работает без повышения
-прав.
-
----
-
-## Требования
-
-- Windows 10/11
-- [Node.js](https://nodejs.org/) 20+
-- [Rust](https://rustup.rs/) (stable, toolchain `x86_64-pc-windows-msvc`)
-- Visual Studio Build Tools 2022 с «Desktop development with C++» и Windows SDK
-- WebView2 Runtime (уже есть в Windows 11)
-- Python 3 — только если нужно перегенерировать иконку
-
-## Сборка
-
-```bash
-npm install
-npm run fetch-core
-npm run app
-```
-
-`fetch-core` скачивает бинарник sing-box под текущую платформу и кладёт его в
-`src-tauri/binaries/` под именем с target-triple — так Tauri подхватывает его
-как sidecar.
-
-Готовый установщик (NSIS):
-
-```bash
-npm run app:build
-```
-
-Тесты ядра приложения:
-
-```bash
-npm run test:core
-```
-
----
-
-## Как устроен проект
-
-```
-src/                     React-интерфейс
-  lib/types.ts           типы, зеркалящие serde-модели Rust
-  lib/api.ts             обёртки над invoke + подписки на события
-  store.ts               состояние приложения (zustand)
-  pages/                 Обзор, Серверы, Раздельный туннель, Маршрутизация, Журнал, Настройки
-
-src-tauri/src/
-  model.rs               модель сервера → outbound sing-box
-  link.rs                разбор ссылок и подписок
-  settings.rs            настройки, правила раздельного туннеля
-  core/config.rs         сборка конфигурации sing-box  ← основная логика
-  core/process.rs        запуск ядра, захват логов, остановка (десктоп)
-  core/android.rs        мост к VpnService/libbox (Android)
-  core/clash.rs          клиент Clash API (статистика, задержка, переключение)
-  sys/elevate.rs         проверка прав и перезапуск через UAC
-  sys/sysproxy.rs        системный прокси Windows
-  sys/procs.rs           список запущенных приложений
-  commands.rs            команды, доступные интерфейсу
-```
-
-### Порядок правил маршрутизации
-
-sing-box применяет первое совпавшее правило, поэтому порядок и есть логика
-продукта:
-
-```
-sniff → обход для Xray → перехват DNS → режим Rule/Global/Direct → блокировки
-  → локальная сеть → «всегда напрямую» → «всегда через VPN»
-  → гео-наборы → правила по приложениям → маршрут по умолчанию
-```
-
-Два следствия, которые стоит помнить:
-
-1. **Явные списки сильнее гео-наборов.** Домен из «всегда через VPN» пойдёт
-   в туннель, даже если он попадает в `geosite-ru`.
-2. **Правила по приложениям — последние.** Они определяют судьбу только того
-   трафика, который не разобрали правила выше.
-
-### Автозапуск и права администратора
-
-Записи в `HKCU\...\Run` достаточно, чтобы приложение стартовало при входе, но
-она **не может** запустить его с повышенными правами: Windows принципиально не
-поднимает привилегии без подтверждения UAC, а нажать «Да» при входе некому. В
-результате обычный автозапуск в режиме TUN каждый раз упирался бы в запрос прав.
-
-Поэтому реализованы два механизма:
-
-| Режим | Механизм | Права |
-|---|---|---|
-| Обычный | значение `AuroraVPN` в `HKCU\...\Run` | не нужны |
-| С правами администратора | задача `Aurora VPN Autostart` в планировщике, `RunLevel = HighestAvailable` | нужны один раз, при регистрации |
+| **Protocols** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC |
+| **Security** | REALITY with uTLS fingerprints, TLS, VLESS Encryption (ML-KEM-768) |
+| **Transports** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
+| **Import** | `vless://` and friends, 3x-ui / Marzban subscriptions, background auto-refresh |
+| **Plan status** | days and traffic left, read straight from the panel |
+| **Tunnel modes** | TUN for the whole system, or a system proxy that needs no admin rights |
+| **Split tunneling** | per app — *only these through the VPN* or *everything but these* |
+| **Routing** | RU/CN geo rule sets, ad blocking, your own domain and subnet lists |
+| **Switching** | server and Rule/Global/Direct mode change live, without restarting the core |
+| **Autostart** | plain, or elevated through Task Scheduler — no UAC prompt at every login |
+| **Diagnostics** | live core log, latency test, generated-config viewer |
+| **Looks** | 6 palettes plus *follow system*, English and Russian |
 
-Они взаимоисключающие — иначе приложение стартовало бы дважды. Регистрация и
-удаление задачи требуют прав администратора, поэтому при переключении
-приложение предложит однократный перезапуск через UAC.
+## Screenshots
 
-Пока задача зарегистрирована, ручной запуск тоже проходит через неё: обычный
-(неповышенный) процесс замечает задачу, запускает её через `schtasks /Run` —
-планировщик поднимает то же приложение уже с правами администратора и без
-запроса UAC — и сразу выходит. Перед передачей проверяется, что задача
-указывает на тот же исполняемый файл и что другой экземпляр ещё не запущен
-(иначе обычный путь просто сфокусирует существующее окно).
-
-Задача создаётся из XML, а не набором ключей `schtasks`: командная форма молча
-подставляет два неподходящих для VPN-клиента умолчания — останавливает задачу
-через 72 часа и запрещает старт от батареи.
-
-Источник истины — сама система, а не файл настроек: состояние читается из
-реестра и планировщика при каждом запуске, поэтому отключение автозапуска
-сторонними средствами корректно отражается в интерфейсе.
+| | |
+|:--:|:--:|
+| <img src="docs/screenshots/servers.png" alt="Servers"><br>**Servers** | <img src="docs/screenshots/routing.png" alt="Routing"><br>**Routing** |
+| <img src="docs/screenshots/split.png" alt="Split tunneling"><br>**Split tunneling** | <img src="docs/screenshots/settings.png" alt="Settings"><br>**Settings** |
 
-### Темы оформления
+## Getting started
 
-Палитры: **Аврора** (по умолчанию), **Полночь**, **Багровая**, **Изумруд**,
-**Болотная**, **Светлая** — плюс «как в системе», следующая за настройкой
-Windows, включая её расписание светлой и тёмной темы.
+1. **Install** the build for your system and launch it.
+2. **Add servers** — paste a `vless://` / `vmess://` / … link, or a subscription URL from your panel. Everything imports at once; unsupported links are rejected with a reason instead of failing silently later.
+3. **Connect.** TUN mode routes the whole system and needs administrator rights — the app offers a one-click restart through UAC. System proxy mode works without them.
 
-Интерфейс держится на трёх шкалах, заданных токенами в `:root`: геометрия
-(`--r-xs … --r-xl`), типографика (`--t-micro … --t-display`) и отступы, кратные
-четырём. Смешение радиусов 7/9/10/12 и шрифтов в диапазоне 11–15 пикселей —
-самый заметный признак интерфейса, собранного на глаз, поэтому новые элементы
-должны брать значения из шкал, а не подбирать их.
+## Documentation
 
-Иерархия строится на контрасте, а не на трёх оттенках серого: подпись — мелкая,
-прописными, с разрядкой (`.micro`), значение — крупное, полужирное, с
-табличными цифрами и отрицательным трекингом.
-
-Тема — это не только набор цветов. Под всем интерфейсом лежит слой `.ambient`:
-три мягких пятна света, медленно дрейфующих по своим траекториям, плюс лёгкое
-зерно, которое скрывает бандинг на градиентах такого размера. Все поверхности
-выше полупрозрачны и размыты (`backdrop-filter`), поэтому свечение подкрашивает
-карточки, границы и подписи, а не лежит позади них картинкой. Карточки получают
-внутренний блик по верхней кромке, активный пункт меню — акцентную полосу со
-свечением, кнопка подключения — пульсирующий ореол.
-
-Все значения вынесены в CSS-переменные на `:root`; палитра — это блок
-`[data-theme="…"]`, переопределяющий только отличающиеся токены
-(`src/styles.css`). Описания палитр для интерфейса живут в
-`src/lib/themes.ts` — там же превью для свотчей и фон окна.
-
-Два правила при добавлении палитры:
-
-1. `--on-accent` должен читаться на фоне `--accent`. Светлый акцент с белой
-   подписью — самый частый способ сделать тему нечитаемой; именно поэтому
-   акцент «Болотной» затемнён относительно настоящего мха.
-2. Координаты пятен в `.ambient::before` заданы в системе увеличенного блока
-   (`inset: -25%`), а не экрана. `22% 19%` — это левый верхний угол видимой
-   области; если считать их экранными, свет уедет за кадр.
+- **[How it works](docs/architecture.md)** — the two-engine setup, routing rule order, split tunneling and DNS, autostart, Android/libbox.
+- **[Building from source](docs/architecture.md#building-from-source)** — requirements and commands for every platform.
 
-Анимация дрейфа отключается при `prefers-reduced-motion`.
-
-Выбранная палитра дублируется в настройки как `themeDark` и `themeBackground`,
-чтобы Rust успел покрасить окно **до** загрузки WebView — иначе при старте
-мелькал бы фон предыдущей темы.
-
-### Остаток подписки
+<details>
+<summary><b>Something isn’t working</b></summary>
 
-Панель отдаёт статус тарифа не в теле ответа, а в HTTP-заголовках подписки:
-
-```
-subscription-userinfo: upload=0; download=42949672960; total=107374182400; expire=1767225600
-profile-update-interval: 12
-profile-title: base64:...
-```
-
-Клиент читает их при каждом обновлении и показывает остаток дней и трафика на
-главном экране. Если панель заголовок не присылает, вместо выдуманного «0 из 0»
-честно пишется, что лимиты неизвестны.
-
-`expire` нормализуется: некоторые панели присылают миллисекунды вместо секунд.
-
-Фоновое обновление идёт по расписанию из настроек (по умолчанию раз в сутки) и
-проверяет, не просрочен ли список, раз в минуту. `profile-update-interval` от
-провайдера сохраняется, но период задаёт пользователь — чтобы поведение было
-предсказуемым.
-
-### Раздельное туннелирование и DNS
-
-Правило по приложению дублируется в секцию DNS. Это принципиально: если
-маршрут трафика и маршрут DNS-запроса разойдутся, приложение вне туннеля
-всё равно раскроет свои домены DNS-серверу за VPN (или наоборот). Поэтому
-`process_name` попадает и в `route.rules`, и в `dns.rules`.
-
-Совпадение по имени процесса требует режима TUN — вне его ядро не знает,
-какому приложению принадлежит соединение.
-
----
-
-## Где лежат данные
-
-`%APPDATA%\com.aurora.vpn\`
-
-```
-settings.json          настройки
-servers.json           серверы
-subscriptions.json     подписки
-split.json             правила раздельного туннеля
-core/config.json       сгенерированная конфигурация sing-box
-core/cache.db          кэш ядра и гео-наборов
-```
-
-Кнопка «Папка данных» в настройках открывает её напрямую. Кнопка «Показать
-конфиг» на вкладке «Маршрутизация» показывает итоговый документ — это первое,
-что стоит смотреть при разборе проблем.
-
----
-
-## Кроссплатформенность
-
-Логика намеренно отделена от платформы: разбор ссылок, генерация конфига и
-управление ядром общие, а всё специфичное собрано в `src-tauri/src/sys/`.
-
-### Android
-
-Настольная схема «супервизор + движки-процессы» на Android невозможна:
-туннельный интерфейс выдаёт только `VpnService`, и его файловый дескриптор
-нужно передать движку внутри процесса приложения. Поэтому:
-
-- sing-box собирается в **libbox** (gomobile) и живёт внутри Kotlin-сервиса
-  (`gen/android/.../AuroraVpnService.kt`); дескриптор TUN он получает через
-  `PlatformInterface.openTun`, конфиг — тот же, что строит `core/config.rs`;
-- Rust-мост — `core/android.rs`: плагин Tauri дёргает Kotlin-команды
-  start/stop/status, а логи ядро пишет в файл, который Rust читает в «Журнал»;
-- Clash API на loopback остаётся управляющей плоскостью — статистика, задержки
-  и переключение серверов работают тем же кодом, что на десктопе;
-- раздельное туннелирование по приложениям выполняет сам `VpnService`
-  (`include_package`/`exclude_package` в tun-инбаунде), список приложений
-  вместо списка процессов отдаёт `PackageManager`;
-- Xray-узлы в первой итерации не поддерживаются: у узлов с VLESS Encryption
-  уже есть автоматический откат на классический VLESS, XHTTP-узлы честно
-  пишут причину в журнал. Сборка libxray — отдельная задача.
-
-Сборка APK локально (нужны JDK 17+, Android SDK+NDK, Go 1.24+, цели Rust
-`aarch64-linux-android` и др.):
-
-```bash
-npm run libbox          # собирает libbox.aar (~20 минут, один раз на версию)
-npm run tauri android build -- --apk
-```
-
-В CI job `build-android` делает то же самое; готовый AAR кэшируется по версии.
-Подпись релизных APK берётся из секретов `ANDROID_KEYSTORE*`; без них APK
-подписывается debug-ключом (установится, но обновления потребуют переустановки).
-
----
-
-## Если что-то не работает
-
-**Ядро сразу умирает после «Подключение…»** — откройте «Журнал». Конфигурация
-проверяется через `sing-box check` до запуска, поэтому ошибка будет с
-конкретной причиной.
-
-**Нет интернета в режиме TUN** — проверьте, не остался ли включённым системный
-прокси от другого клиента, и попробуйте выключить «Строгую маршрутизацию»
-(она конфликтует с VirtualBox, WSL и некоторыми античитами).
-
-**Другой VPN-клиент запущен одновременно** — два адаптера TUN не уживаются.
-Hiddify и всё, что построено на sing-box, берут адрес `172.19.0.1` и ставят
-свой маршрут по умолчанию — ровно те же, что и мы. Чей маршрут победит,
-предсказать нельзя, и проигравший остаётся «подключённым» без трафика.
-Второй клиент нужно выключить полностью, а не просто отключить в нём туннель:
-адаптер живёт, пока жив процесс.
-
-**Сайт не открывается только в туннеле** — включите Fake-IP, либо добавьте
-домен в «всегда напрямую».
-
-**Задержка показывается как «н/д»** — при отключённом ядре измеряется время
-TCP-рукопожатия до сервера; «н/д» означает, что порт недоступен. При активном
-подключении замер идёт уже через прокси и учитывает реальный маршрут.
-
-**Не видно остатка подписки** — панель не прислала заголовок
-`subscription-userinfo`. В 3x-ui он появляется только у подписок; для серверов,
-добавленных отдельной ссылкой, статуса тарифа не существует в принципе.
+<br>
+
+**The core dies right after “Connecting…”** — open the **Log**. The config is validated with `sing-box check` before launch, so the failure comes with a concrete reason.
+
+**No internet in TUN mode** — make sure another client hasn’t left a system proxy behind, and try turning off *Strict routing* (it conflicts with VirtualBox, WSL and some anti-cheats).
+
+**Another VPN client is running** — two TUN adapters don’t coexist. Hiddify and anything else built on sing-box claim the same `172.19.0.1` and the same default route; the loser stays “connected” with no traffic. Quit the other client completely — its adapter lives as long as its process does.
+
+**A site only fails inside the tunnel** — enable Fake-IP, or add the domain to *always direct*.
+
+**Latency shows “n/a”** — with the core off it measures a TCP handshake to the server, so “n/a” means the port is unreachable. While connected, the probe goes through the proxy and reflects the real route.
+
+**No subscription status** — the panel didn’t send the `subscription-userinfo` header. In 3x-ui it exists for subscriptions only, never for servers added as a single link.
+
+</details>
+
+## Built on
+
+[sing-box](https://github.com/SagerNet/sing-box) · [Xray-core](https://github.com/XTLS/Xray-core) · [Wintun](https://www.wintun.net/) · [Slint](https://slint.dev) · [Tauri](https://tauri.app)
+
+## License
+
+[MIT](LICENSE) © JustRin
