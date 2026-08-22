@@ -222,21 +222,76 @@ export component Divider inherits Rectangle {
 }
 
 // .segmented: подложка --sunken, выбранная кнопка — сплошной --accent.
+//
+// Акцент вынесен из кнопок и лежит один на весь переключатель: выбор его
+// перевозит, а не перекрашивает две кнопки разом (.seg-pill в styles.css).
+// Тот же приём, что у NavPill в сайдбаре, но там строки одной высоты и y
+// считается умножением, а здесь ширины разные — снаружи их взять неоткуда,
+// поэтому геометрию сообщает сама кнопка, когда выбор пришёлся на неё.
 export component Segmented inherits Rectangle {
     in property <[string]> options;
     in-out property <int> selected;
+    // Геометрия выбранной кнопки; заливка занимает ровно её место.
+    property <length> pill-x;
+    property <length> pill-w;
+    property <bool> animated;
+    property <bool> measured;
+
+    // pick — выбор перешёл на другую кнопку, вот тогда заливка едет.
+    // Перекладка разметки (ширина окна, смена языка) переставляет её без
+    // анимации, и первая укладка тоже: страницы пересоздаются на каждом
+    // заходе, так что иначе заливка влетала бы из левого угла всякий раз.
+    callback place(length, length, bool);
+    place(nx, nw, pick) => {
+        root.animated = pick && root.measured;
+        root.measured = true;
+        root.pill-x = nx;
+        root.pill-w = nw;
+    }
+
     height: 37px;
     border-radius: 12px;
     background: Theme.sunken;
     border-width: 1px;
     border-color: Theme.border-strong;
+
+    Rectangle {
+        x: root.pill-x;
+        y: 3px;
+        width: root.pill-w;
+        height: root.height - 6px;
+        border-radius: 8px;
+        background: Theme.accent;
+        // Без перелёта: по краям трека всего 3px, и возврат пружины на
+        // крайних вариантах читался бы как удар о стенку.
+        animate x, width {
+            duration: root.animated ? 340ms : 0ms;
+            easing: cubic-bezier(0.22, 1, 0.36, 1);
+        }
+    }
+
     HorizontalLayout {
         padding: 3px;
         spacing: 2px;
         for opt[i] in root.options: Rectangle {
+            property <bool> on: i == root.selected;
             border-radius: 8px;
-            background: i == root.selected ? Theme.accent : (touch.has-hover ? #ffffff08 : #00000000);
+            // Кнопки лежат поверх заливки, так что подсветка наведения
+            // достаётся только невыбранным: у выбранной она закрасила бы акцент.
+            background: !self.on && touch.has-hover ? #ffffff08 : #00000000;
             animate background { duration: 140ms; }
+            // Первая укладка достаётся таймером: отслеживание изменений
+            // молчит на первом вычислении свойства (x и width выбранной
+            // кнопки так и остались бы неучтёнными), а к моменту init
+            // разметка ещё не посчитана.
+            Timer {
+                interval: 1ms;
+                running: parent.on && !root.measured;
+                triggered => { root.place(parent.x, parent.width, false); }
+            }
+            changed on => { if (self.on) { root.place(self.x, self.width, true); } }
+            changed x => { if (self.on) { root.place(self.x, self.width, false); } }
+            changed width => { if (self.on) { root.place(self.x, self.width, false); } }
             touch := TouchArea { clicked => { root.selected = i; } }
             HorizontalLayout {
                 padding-left: 14px;
@@ -249,7 +304,8 @@ export component Segmented inherits Rectangle {
                     color: i == root.selected
                         ? Theme.on-accent
                         : (touch.has-hover ? Theme.text : Theme.text-dim);
-                    animate color { duration: 140ms; }
+                    // Цвет идёт вровень с заливкой, а не вспыхивает впереди неё.
+                    animate color { duration: 280ms; }
                 }
             }
         }

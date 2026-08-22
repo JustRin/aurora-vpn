@@ -1,6 +1,8 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { useSlidingPill } from "../lib/pill";
+
 export function Switch({
   checked,
   onChange,
@@ -73,8 +75,24 @@ export function Segmented<T extends string>({
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
 }) {
+  const { hostRef, pill, placed } = useSlidingPill<HTMLDivElement>("button.on", value);
+
   return (
-    <div className="segmented">
+    <div className="segmented" ref={hostRef}>
+      {/* The accent fill lives out here rather than on the chosen button, so a
+       * pick slides one element across the track instead of two buttons
+       * swapping colours in place. */}
+      {pill && (
+        <span
+          aria-hidden="true"
+          className={`seg-pill${placed ? " sliding" : ""}`}
+          style={{
+            transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
+            width: pill.w,
+            height: pill.h,
+          }}
+        />
+      )}
       {options.map((option) => (
         <button
           key={option.value}

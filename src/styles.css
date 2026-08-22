@@ -482,7 +482,8 @@ textarea {
   .ambient::before {
     animation: none;
   }
-  .nav-pill.sliding {
+  .nav-pill.sliding,
+  .seg-pill.sliding {
     transition: none;
   }
 }
@@ -989,6 +990,8 @@ textarea {
 
 /* segmented control */
 .segmented {
+  /* The offsetParent the pill below is measured against. */
+  position: relative;
   display: inline-flex;
   padding: 3px;
   gap: 2px;
@@ -996,7 +999,31 @@ textarea {
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
 }
+
+/* The selection itself, sized and positioned from JS onto the chosen option
+ * (see useSlidingPill). Keeping it out of the buttons is what lets a pick read
+ * as the accent flowing across the track. */
+.seg-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  pointer-events: none;
+}
+/* Added a frame after the first measurement: the opening position is not
+ * something to animate into. No overshoot on the travel — the track clips it
+ * at 3px of padding, so a spring would look like it hit a wall. */
+.seg-pill.sliding {
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .segmented button {
+  /* Above the pill, which shares this stacking context. */
+  position: relative;
+  z-index: 1;
   padding: 6px 14px;
   border-radius: var(--r-sm);
   border: 0;
@@ -1010,13 +1037,16 @@ textarea {
      would double its height and reflow the page — the neighbour text is the
      part that may wrap. */
   white-space: nowrap;
-  transition: background 0.13s, color 0.13s;
+  /* Colour eases over roughly the pill's travel, so a label lights up as the
+   * fill arrives under it rather than well ahead of it. */
+  transition: color 0.28s ease;
 }
 .segmented button:hover:not(.on) {
   color: var(--text);
 }
+/* The pill paints this option; a fill on the button would race it. */
 .segmented button.on {
-  background: var(--accent);
+  background: transparent;
   color: var(--on-accent);
 }
 
