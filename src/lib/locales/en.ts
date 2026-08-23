@@ -174,7 +174,9 @@ export const en: Record<keyof typeof ru, string> = {
   "dash.stateError": "Error",
   "dash.modeRule": "Rules",
   "dash.modeGlobal": "Everything via VPN",
-  "dash.modeDirect": "Direct",
+  "dash.modeRuleHelp":
+    "Everyday mode: what goes through the VPN is decided by the “Split tunneling” and “Routing” pages.",
+  "dash.modeGlobalHelp": "Every connection goes through the VPN, ignoring those pages.",
   "dash.tunNeedsAdmin":
     "TUN mode requires administrator rights — otherwise only the system proxy is available.",
   "dash.restart": "Restart",

@@ -38,21 +38,29 @@ export component SplitPage inherits ScrollArea {
             alignment: start;
             HorizontalLayout {
                 alignment: end;
-                Segmented {
+                seg := Segmented {
                     options: [Str.split-mode-off, Str.split-mode-include, Str.split-mode-exclude];
                     selected <=> Conf.split-mode;
                 }
             }
-            Text {
-                text: Conf.split-mode == 0
-                    ? Str.split-mode-off-help
-                    : (Conf.split-mode == 1
-                        ? Str.split-mode-include-help
-                        : Str.split-mode-exclude-help);
-                horizontal-alignment: right;
-                color: Theme.text-muted;
-                font-size: 12px;
-                wrap: word-wrap;
+            // Подпись рассказывает про вариант под курсором, а без курсора —
+            // про выбранный. Высота фиксирована: строки разной длины иначе
+            // дёргали бы страницу вверх-вниз на каждое движение мыши.
+            Rectangle {
+                height: 32px;
+                property <int> shown: seg.hovered >= 0 ? seg.hovered : Conf.split-mode;
+                Text {
+                    width: 100%;
+                    text: parent.shown == 0
+                        ? Str.split-mode-off-help
+                        : (parent.shown == 1
+                            ? Str.split-mode-include-help
+                            : Str.split-mode-exclude-help);
+                    horizontal-alignment: right;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
             }
         }
     }

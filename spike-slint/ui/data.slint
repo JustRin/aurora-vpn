@@ -170,6 +170,9 @@ export global Data {
     callback delete-sub(string);
     callback remove-app(int);
     callback clear-apps();
+    // Зайти на страницу раздельного туннеля — заодно попробовать добыть
+    // иконки, которых в прошлый раз не нашлось.
+    callback refresh-icons();
     callback pick-exe();
     callback load-procs();
     callback filter-procs();

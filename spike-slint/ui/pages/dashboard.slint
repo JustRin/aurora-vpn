@@ -186,11 +186,35 @@ export component DashboardPage inherits ScrollArea {
                 font-size: 12.5px;
             }
         }
+        // .mode-head: переключатель режима и пояснение под ним — то же, что на
+        // «Раздельном туннеле». Подпись рассказывает про вариант под курсором,
+        // а без курсора — про выбранный.
         VerticalLayout {
-            alignment: center;
-            Segmented {
-                options: [Str.dash-mode-rule, Str.dash-mode-global, Str.dash-mode-direct];
-                selected <=> Ui.mode;
+            spacing: 7px;
+            max-width: 400px;
+            alignment: start;
+            HorizontalLayout {
+                alignment: end;
+                seg := Segmented {
+                    options: [Str.dash-mode-rule, Str.dash-mode-global];
+                    selected <=> Ui.mode;
+                }
+            }
+            // Высота фиксирована: подпись меняется под курсором, и от разной
+            // длины строк шапка дёргала бы всю страницу вверх-вниз.
+            Rectangle {
+                height: 32px;
+                property <int> shown: seg.hovered >= 0 ? seg.hovered : Ui.mode;
+                Text {
+                    width: 100%;
+                    text: parent.shown == 0
+                        ? Str.dash-mode-rule-help
+                        : Str.dash-mode-global-help;
+                    horizontal-alignment: right;
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
             }
         }
     }

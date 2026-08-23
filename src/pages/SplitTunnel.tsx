@@ -26,6 +26,8 @@ export function SplitTunnel() {
   const toast = useStore((s) => s.toast);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The help line follows the cursor, so a mode can be read before it is picked.
+  const [hoveredMode, setHoveredMode] = useState<SplitMode | null>(null);
 
   const apps = split.apps ?? [];
 
@@ -58,17 +60,20 @@ export function SplitTunnel() {
         {/* The mode switcher lives in the header — the space to the right of
             the title is otherwise empty, and the mode is the page's one
             top-level decision. */}
-        <div className="split-mode-head">
+        <div className="mode-head">
           <Segmented<SplitMode>
             value={split.mode ?? "off"}
             onChange={(mode) => void saveSplit({ mode })}
+            onHover={setHoveredMode}
             options={[
               { value: "off", label: t("split.modeOff") },
               { value: "include", label: t("split.modeInclude") },
               { value: "exclude", label: t("split.modeExclude") },
             ]}
           />
-          <div className="split-mode-help">{t(MODE_HELP[split.mode ?? "off"])}</div>
+          <div className="mode-help">
+            {t(MODE_HELP[hoveredMode ?? split.mode ?? "off"])}
+          </div>
         </div>
       </div>
 

@@ -250,6 +250,7 @@ settings.json          настройки
 servers.json           серверы
 subscriptions.json     подписки
 split.json             правила раздельного туннеля
+icons/                 иконки программ из списка раздельного туннеля
 core/config.json       сгенерированная конфигурация sing-box
 core/cache.db          кэш ядра и гео-наборов
 ```

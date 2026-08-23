@@ -2003,9 +2003,10 @@ textarea {
   color: var(--text-muted);
 }
 
-/* The split-tunnel mode switcher sits in the page header: the page's one
-   top-level decision, in the space the title leaves empty. */
-.split-mode-head {
+/* A mode switcher sitting in the page header — the page's one top-level
+   decision, in the space the title leaves empty — with the line that explains
+   whichever mode is chosen or hovered. */
+.mode-head {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -2013,11 +2014,14 @@ textarea {
   max-width: 400px;
 }
 
-.split-mode-help {
+.mode-help {
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-muted);
   text-align: right;
+  /* Two lines' worth, held whatever the text: the line changes as the cursor
+     crosses the switch, and a shorter one would jerk the page up. */
+  min-height: 35px;
 }
 
 /* ============================================================ narrow screens
@@ -2122,12 +2126,15 @@ textarea {
     animation-name: picker-in-centred;
   }
 
-  .split-mode-head {
+  .mode-head {
     align-items: flex-start;
     width: 100%;
   }
-  .split-mode-help {
+  .mode-help {
     text-align: left;
+    /* No cursor to follow on a phone, so the line only changes on a tap —
+       reserving a second line would just leave a gap. */
+    min-height: 0;
   }
 
   /* A phone cannot have both halves of the desktop rule — a track sized to its

@@ -231,6 +231,11 @@ export component Divider inherits Rectangle {
 export component Segmented inherits Rectangle {
     in property <[string]> options;
     in-out property <int> selected;
+    // Вариант под курсором, −1 — курсора на переключателе нет. По нему подпись
+    // под переключателем рассказывает про тот вариант, на который человек
+    // смотрит, а не только про уже выбранный: иначе, чтобы узнать, что делает
+    // «Напрямую», пришлось бы сперва туда переключиться.
+    out property <int> hovered: -1;
     // Геометрия выбранной кнопки; заливка занимает ровно её место.
     property <length> pill-x;
     property <length> pill-w;
@@ -292,7 +297,19 @@ export component Segmented inherits Rectangle {
             changed on => { if (self.on) { root.place(self.x, self.width, true); } }
             changed x => { if (self.on) { root.place(self.x, self.width, false); } }
             changed width => { if (self.on) { root.place(self.x, self.width, false); } }
-            touch := TouchArea { clicked => { root.selected = i; } }
+            touch := TouchArea {
+                clicked => { root.selected = i; }
+                // Уход отмечается только своим вариантом: курсор, перешедший на
+                // соседний, успевает записать себя раньше, и обнулять после
+                // него нечего.
+                changed has-hover => {
+                    if (self.has-hover) {
+                        root.hovered = i;
+                    } else if (root.hovered == i) {
+                        root.hovered = -1;
+                    }
+                }
+            }
             HorizontalLayout {
                 padding-left: 14px;
                 padding-right: 14px;

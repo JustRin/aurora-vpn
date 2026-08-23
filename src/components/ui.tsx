@@ -70,10 +70,14 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  onHover,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  /** The option under the cursor, or null once it leaves the track. Lets the
+   *  caller explain the option being looked at, not just the chosen one. */
+  onHover?: (value: T | null) => void;
 }) {
   const { hostRef, pill, placed } = useSlidingPill<HTMLDivElement>("button.on", value);
 
@@ -99,6 +103,10 @@ export function Segmented<T extends string>({
           type="button"
           className={option.value === value ? "on" : ""}
           onClick={() => onChange(option.value)}
+          onMouseEnter={() => onHover?.(option.value)}
+          onMouseLeave={() => onHover?.(null)}
+          onFocus={() => onHover?.(option.value)}
+          onBlur={() => onHover?.(null)}
         >
           {option.label}
         </button>

@@ -17,10 +17,27 @@
 //! процессов набегают заметные доли секунды прямо в кадре. Поэтому добыча
 //! живёт на отдельном потоке, а UI спрашивает только кэш и получает `None`,
 //! пока иконки нет, — строка в это время рисует букву.
+//!
+//! У строк раздельного туннеля есть только имя процесса: правило ловит
+//! программу по нему, чтобы пережить обновление с переездом бинарника. Путь к
+//! .exe для такой строки берётся из таблицы запущенного — а значит пропадает
+//! вместе с программой. Клиент, поднятый автозапуском раньше браузера и почты,
+//! не находил ни одной и рисовал буквы весь сеанс. Поэтому раз добытая иконка
+//! остаётся на диске (`keep`): в записи лежит и путь, по которому её взяли, —
+//! по нему картинка перечитывается в любом размере, — и её снимок 96×96 на тот
+//! случай, если программу успели снести или обновление увело её в другую папку.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{LazyLock, Mutex, OnceLock};
+
+/// Сторона снимка, который остаётся на диске. 96 — «родной» размер иконки,
+/// которого хватает строке в 30 точек даже на трёхкратном масштабе экрана.
+const KEEP_SIDE: u32 = 96;
+/// Сколько записей держать в папке. Строку из списка удаляют, а её файл
+/// остаётся — этот предел не даёт папке расти без конца.
+const KEEP_LIMIT: usize = 128;
 
 /// Заявка потоку. `key` — под каким ключом класть результат; `path` — путь к
 /// .exe, он может быть пустым или уже несуществующим; `name` — имя процесса на
@@ -31,6 +48,11 @@ struct Job {
     name: String,
     path: String,
     size: u32,
+    /// Строка списка раздельного туннеля: её иконку надо сохранить на диск и
+    /// оттуда же брать, когда программы нет ни на месте, ни в живых. Строкам
+    /// окна «Запущенные приложения» это не нужно — их путь всегда настоящий, а
+    /// самих строк сотни.
+    keep: bool,
 }
 
 #[derive(Default)]
@@ -46,15 +68,25 @@ struct Store {
 
 static STORE: LazyLock<Mutex<Store>> = LazyLock::new(|| Mutex::new(Store::default()));
 static JOBS: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
+/// Папка с сохранёнными иконками. Пусто — сохранять некуда, и всё работает
+/// как прежде: живая добыча и буква, когда программы нет.
+static KEEP_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Запускает поток-добытчик. `notify` зовётся из него каждый раз, когда в кэше
-/// появилась очередная пачка, — по этому сигналу UI перечитывает кэш.
-pub fn init(notify: impl Fn() + Send + 'static) {
+/// Запускает поток-добытчик. `dir` — папка для иконок, переживающих перезапуск;
+/// `notify` зовётся из потока каждый раз, когда в кэше появилась очередная
+/// пачка, — по этому сигналу UI перечитывает кэш.
+pub fn init(dir: Option<PathBuf>, notify: impl Fn() + Send + 'static) {
     let (tx, rx) = mpsc::channel::<Job>();
     if JOBS.set(Mutex::new(tx)).is_err() {
         return;
     }
+    if let Some(dir) = dir {
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let _ = KEEP_DIR.set(dir);
+        }
+    }
     let worker = move || {
+        prune();
         // Одна пачка — одно пробуждение UI: при первом показе списка сюда
         // прилетает сразу сотня заявок, и будить событийный цикл на каждую
         // значило бы сотню лишних перерисовок.
@@ -74,15 +106,26 @@ pub fn init(notify: impl Fn() + Send + 'static) {
             let ready: Vec<(String, Option<Vec<u8>>)> = jobs
                 .into_iter()
                 .map(|job| {
+                    // Путь, по которому иконка нашлась: по нему же её кладут на
+                    // диск, чтобы следующий запуск обошёлся без поиска.
+                    let mut source = None;
                     let mut bits = if job.path.is_empty() {
                         None
                     } else {
-                        extract(&job.path, job.size)
+                        extract(&job.path, job.size).inspect(|_| source = Some(job.path.clone()))
                     };
                     if bits.is_none() && !job.name.is_empty() {
                         let table = running.get_or_insert_with(running_paths);
                         if let Some(path) = table.get(&job.name.to_lowercase()) {
-                            bits = extract(path, job.size);
+                            bits = extract(path, job.size).inspect(|_| source = Some(path.clone()));
+                        }
+                    }
+                    if job.keep {
+                        match &source {
+                            Some(path) => keep(&job.name, path),
+                            // Программы нет ни на своём месте, ни среди живых:
+                            // остаётся то, что сохранено с прошлого раза.
+                            None => bits = recall(&job.name, job.size),
                         }
                     }
                     (job.key, bits)
@@ -104,6 +147,31 @@ pub fn init(notify: impl Fn() + Send + 'static) {
 /// либо её ещё нет (тогда файл встаёт в очередь и придёт со следующим
 /// `notify`), либо у него её и не будет.
 pub fn get(name: &str, path: &str, size: u32) -> Option<slint::Image> {
+    request(name, path, size, false)
+}
+
+/// То же для строки раздельного туннеля: её иконка переживает перезапуск —
+/// добытая однажды, она остаётся на диске и приходит оттуда, когда программы
+/// нет среди запущенных.
+pub fn get_rule(name: &str, path: &str, size: u32) -> Option<slint::Image> {
+    request(name, path, size, true)
+}
+
+/// Забыть, что иконку уже искали и не нашли. Отрицательный ответ кэшируется
+/// навсегда — иначе список из сотни процессов ходил бы на диск за каждой
+/// перерисовкой, — но для списка программ это значит «буква до конца сеанса»
+/// у всего, что не было запущено в момент старта. Заход на страницу снимает
+/// приговор: пока пользователь читал другую вкладку, программу могли открыть.
+pub fn forget_missing() {
+    let Ok(mut store) = STORE.lock() else { return };
+    store.done.retain(|_, bits| bits.is_some());
+    let known: HashSet<String> = store.done.keys().cloned().collect();
+    // Ключи, ещё висящие в очереди, тоже уходят: заявка вернётся второй раз и
+    // просто перезапишет тот же ответ.
+    store.queued.retain(|key| known.contains(key));
+}
+
+fn request(name: &str, path: &str, size: u32, keep: bool) -> Option<slint::Image> {
     if name.is_empty() && path.is_empty() {
         return None;
     }
@@ -126,7 +194,7 @@ pub fn get(name: &str, path: &str, size: u32) -> Option<slint::Image> {
     }
     drop(store);
     if let Some(jobs) = JOBS.get() {
-        let job = Job { key, name: name.into(), path: path.into(), size };
+        let job = Job { key, name: name.into(), path: path.into(), size, keep };
         let _ = jobs.lock().map(|jobs| jobs.send(job));
     }
     None
@@ -136,6 +204,140 @@ fn to_image(bits: &[u8], size: u32) -> slint::Image {
     let mut buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(size, size);
     buffer.make_mut_bytes().copy_from_slice(bits);
     slint::Image::from_rgba8_premultiplied(buffer)
+}
+
+// ----------------------------------------------------- иконки, лежащие на диске
+
+/// Подпись файла записи, её версия и длина заголовка: подпись, версия, сторона
+/// снимка (u16) и длина пути (u16). Дальше идут сам путь и пиксели.
+const KEEP_MAGIC: [u8; 4] = *b"AVIC";
+const KEEP_VERSION: u8 = 1;
+const KEEP_HEAD: usize = 9;
+
+/// Файл записи для имени программы. Имя приводится к нижнему регистру и
+/// чистится от всего, чему в имени файла не место; хвост из хэша разводит
+/// программы, у которых после чистки остаётся одно и то же имя.
+fn entry(name: &str) -> Option<PathBuf> {
+    let dir = KEEP_DIR.get()?;
+    if name.is_empty() {
+        return None;
+    }
+    let lower = name.to_lowercase();
+    let safe: String = lower
+        .chars()
+        .take(64)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // FNV-1a: хэш здесь только разводит имена, стойкость ни при чём.
+    let tag = lower
+        .bytes()
+        .fold(0x811c_9dc5_u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    Some(dir.join(format!("{safe}-{tag:08x}.icon")))
+}
+
+/// Сохранённая запись: путь, сторона снимка и его пиксели.
+fn saved(name: &str) -> Option<(String, u32, Vec<u8>)> {
+    decode(&std::fs::read(entry(name)?).ok()?)
+}
+
+/// Разбор записи. `None` — файл не наш, от другой версии или недописан;
+/// разбирать такой нельзя: обрезанный снимок ушёл бы в буфер картинки.
+fn decode(blob: &[u8]) -> Option<(String, u32, Vec<u8>)> {
+    if blob.len() < KEEP_HEAD || blob[..4] != KEEP_MAGIC || blob[4] != KEEP_VERSION {
+        return None;
+    }
+    let side = u16::from_le_bytes([blob[5], blob[6]]) as u32;
+    let path_len = u16::from_le_bytes([blob[7], blob[8]]) as usize;
+    let pixels = KEEP_HEAD + path_len;
+    // Сторона считается в u64 и с потолком: файл мог побиться, а квадрат
+    // шестнадцатибитного числа из u32 уже вываливается.
+    if side == 0 || side > 1024 || blob.len() as u64 != pixels as u64 + side as u64 * side as u64 * 4
+    {
+        return None;
+    }
+    let path = String::from_utf8(blob[KEEP_HEAD..pixels].to_vec()).ok()?;
+    Some((path, side, blob[pixels..].to_vec()))
+}
+
+/// Сборка записи: подпись, версия, сторона снимка, длина пути — и следом сам
+/// путь с пикселями.
+fn encode(path: &str, side: u32, bits: &[u8]) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(KEEP_HEAD + path.len() + bits.len());
+    blob.extend_from_slice(&KEEP_MAGIC);
+    blob.push(KEEP_VERSION);
+    blob.extend_from_slice(&(side as u16).to_le_bytes());
+    blob.extend_from_slice(&(path.len() as u16).to_le_bytes());
+    blob.extend_from_slice(path.as_bytes());
+    blob.extend_from_slice(bits);
+    blob
+}
+
+/// Оставить иконку программы на диске: путь, по которому она взялась, и снимок
+/// на случай, если по этому пути её больше не окажется. Перезапись — только
+/// когда путь сменился: обычно файл уже лежит, и трогать его незачем.
+fn keep(name: &str, path: &str) {
+    let Some(file) = entry(name) else { return };
+    if path.len() > u16::MAX as usize {
+        return;
+    }
+    if saved(name).is_some_and(|(old, _, _)| old.eq_ignore_ascii_case(path)) {
+        return;
+    }
+    let Some(bits) = extract(path, KEEP_SIDE) else { return };
+    // Через временный файл: оборванная запись оставила бы обрезанную картинку,
+    // а следующий запуск принял бы её за настоящую.
+    let tmp = file.with_extension("tmp");
+    if std::fs::write(&tmp, encode(path, KEEP_SIDE, &bits)).is_ok()
+        && std::fs::rename(&tmp, &file).is_err()
+    {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Иконка из сохранённой записи. Сначала — по запомненному пути: программа
+/// может быть просто не запущена, и тогда картинка возьмётся из её файла в
+/// нужном размере. Не вышло (снесли, обновление увело в другую папку) — в дело
+/// идёт снимок; он крупнее строки, и его достаточно усреднить.
+fn recall(name: &str, size: u32) -> Option<Vec<u8>> {
+    let (path, side, bits) = saved(name)?;
+    if let Some(bits) = extract(&path, size) {
+        return Some(bits);
+    }
+    match side.cmp(&size) {
+        std::cmp::Ordering::Equal => Some(bits),
+        std::cmp::Ordering::Greater => Some(shrink(&bits, side, side, size)),
+        // Строка крупнее снимка — такое бывает разве что на экране с
+        // трёхкратным масштабом. Растянутая картинка выглядит хуже буквы.
+        std::cmp::Ordering::Less => None,
+    }
+}
+
+/// Записи программ, вычеркнутых из списка, никто не убирает — их выносит эта
+/// уборка, когда файлов в папке становится больше, чем разумно держать.
+fn prune() {
+    let Some(dir) = KEEP_DIR.get() else { return };
+    let Ok(dir) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = dir
+        .flatten()
+        .filter_map(|item| {
+            let meta = item.metadata().ok()?;
+            meta.is_file().then_some(())?;
+            Some((meta.modified().ok()?, item.path()))
+        })
+        .collect();
+    if files.len() <= KEEP_LIMIT {
+        return;
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    for (_, file) in &files[..files.len() - KEEP_LIMIT] {
+        let _ = std::fs::remove_file(file);
+    }
 }
 
 /// Имя процесса (в нижнем регистре) → путь к его .exe. Нужна правилам, которые
@@ -324,7 +526,6 @@ unsafe fn read_dib(
 
 /// Уменьшение до стороны `size`: пиксель результата — среднее того
 /// прямоугольника исходника, который в него попал.
-#[cfg(windows)]
 fn shrink(src: &[u8], sw: u32, sh: u32, size: u32) -> Vec<u8> {
     let mut out = vec![0u8; (size * size * 4) as usize];
     for y in 0..size {
@@ -350,4 +551,65 @@ fn shrink(src: &[u8], sw: u32, sh: u32, size: u32) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blob(side: u32) -> Vec<u8> {
+        encode(r"C:\Program Files\App\app.exe", side, &vec![7u8; (side * side * 4) as usize])
+    }
+
+    #[test]
+    fn record_round_trips() {
+        let (path, side, bits) = decode(&blob(KEEP_SIDE)).unwrap();
+        assert_eq!(path, r"C:\Program Files\App\app.exe");
+        assert_eq!(side, KEEP_SIDE);
+        assert_eq!(bits.len(), (KEEP_SIDE * KEEP_SIDE * 4) as usize);
+    }
+
+    /// Недописанный файл — это оборванная запись, а не иконка: разобрав её,
+    /// строка получила бы наполовину пустой квадрат.
+    #[test]
+    fn truncated_record_is_refused() {
+        let full = blob(KEEP_SIDE);
+        assert!(decode(&full[..full.len() - 1]).is_none());
+        assert!(decode(&full[..4]).is_none());
+        assert!(decode(&[]).is_none());
+    }
+
+    #[test]
+    fn foreign_record_is_refused() {
+        let mut wrong_magic = blob(KEEP_SIDE);
+        wrong_magic[0] = b'X';
+        assert!(decode(&wrong_magic).is_none());
+
+        let mut wrong_version = blob(KEEP_SIDE);
+        wrong_version[4] = KEEP_VERSION + 1;
+        assert!(decode(&wrong_version).is_none());
+    }
+
+    /// Сторона из побитого заголовка не должна ни пройти проверку, ни
+    /// переполнить счёт пикселей.
+    #[test]
+    fn absurd_side_is_refused() {
+        let mut huge = blob(KEEP_SIDE);
+        huge[5..7].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(decode(&huge).is_none());
+
+        let mut zero = blob(KEEP_SIDE);
+        zero[5..7].copy_from_slice(&0u16.to_le_bytes());
+        assert!(decode(&zero).is_none());
+    }
+
+    /// Снимок крупнее строки усредняется до её размера — ровно теми пикселями,
+    /// которыми строка и будет нарисована.
+    #[test]
+    fn snapshot_shrinks_to_the_row() {
+        let src = vec![64u8; (KEEP_SIDE * KEEP_SIDE * 4) as usize];
+        let out = shrink(&src, KEEP_SIDE, KEEP_SIDE, 30);
+        assert_eq!(out.len(), 30 * 30 * 4);
+        assert!(out.iter().all(|px| *px == 64));
+    }
 }

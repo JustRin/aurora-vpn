@@ -174,7 +174,9 @@ export const ru = {
   "dash.stateError": "Ошибка",
   "dash.modeRule": "По правилам",
   "dash.modeGlobal": "Всё через VPN",
-  "dash.modeDirect": "Напрямую",
+  "dash.modeRuleHelp":
+    "Обычный режим: что идёт через VPN, решают страницы «Раздельный туннель» и «Маршрутизация».",
+  "dash.modeGlobalHelp": "Через VPN идёт всё подряд, эти страницы не учитываются.",
   "dash.tunNeedsAdmin":
     "Режим TUN требует прав администратора — иначе доступен только системный прокси.",
   "dash.restart": "Перезапустить",

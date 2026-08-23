@@ -164,9 +164,16 @@ export global Str {
     out property <string> set-app-version:                    root.en ? "App version" : "Версия приложения";
     out property <string> fmt-no-tls:                         root.en ? "no TLS" : "без TLS";
     out property <string> dash-subtitle:                      root.en ? "Tunnel state, speed, and routing mode." : "Состояние туннеля, скорость и режим маршрутизации.";
+    // Третьего режима, «Напрямую», на переключателе нет: он и означал «трафик
+    // мимо VPN», а для этого проще выключить туннель кнопкой питания. Ядро его
+    // понимает по-прежнему (route-правило clash_mode), так что внешний
+    // клиент Clash API им пользоваться может.
     out property <string> dash-mode-rule:                     root.en ? "Rules" : "По правилам";
     out property <string> dash-mode-global:                   root.en ? "Everything via VPN" : "Всё через VPN";
-    out property <string> dash-mode-direct:                   root.en ? "Direct" : "Напрямую";
+    // Подпись под переключателем режима: без неё два слова ничего не говорят
+    // тому, кто открыл клиент впервые.
+    out property <string> dash-mode-rule-help:                root.en ? "Everyday mode: what goes through the VPN is decided by the “Split tunneling” and “Routing” pages." : "Обычный режим: что идёт через VPN, решают страницы «Раздельный туннель» и «Маршрутизация».";
+    out property <string> dash-mode-global-help:              root.en ? "Every connection goes through the VPN, ignoring those pages." : "Через VPN идёт всё подряд, эти страницы не учитываются.";
     out property <string> dash-tun-needs-admin:               root.en ? "TUN mode requires administrator rights — otherwise only the system proxy is available." : "Режим TUN требует прав администратора — иначе доступен только системный прокси.";
     out property <string> dash-restart:                       root.en ? "Restart" : "Перезапустить";
     out property <string> dash-add-server-hint:               root.en ? "Add a server on the Servers tab to get started." : "Добавьте сервер на вкладке «Серверы», чтобы начать.";

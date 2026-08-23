@@ -222,7 +222,7 @@ fn sync_icons(ui: &AppWindow) {
         if row.icon.size().width == size {
             continue;
         }
-        if let Some(icon) = icons::get(&row.name, &row.path, size) {
+        if let Some(icon) = icons::get_rule(&row.name, &row.path, size) {
             apps.set_row_data(i, AppRule { icon, ..row });
         }
     }
@@ -320,8 +320,10 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     // Иконки программ добываются на отдельном потоке; сюда он стучится, когда
-    // очередная пачка готова, — строки списков забирают её из кэша.
-    icons::init({
+    // очередная пачка готова, — строки списков забирают её из кэша. Иконки
+    // строк раздельного туннеля он же держит в папке рядом с настройками:
+    // программы, которой нет в живых, иначе взять их неоткуда.
+    icons::init(app::config_dir().ok().map(|dir| dir.join("icons")), {
         let weak = ui.as_weak();
         move || {
             let _ = weak.upgrade_in_event_loop(|ui| sync_icons(&ui));

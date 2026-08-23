@@ -556,7 +556,10 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "protocol": "dns", "action": "hijack-dns" }));
     }
 
-    // Clash-API mode switch, so the tray can force Direct/Global without a restart.
+    // The Clash-API mode switch, applied without restarting the core. The app's
+    // own switch only offers Global (Direct is what disconnecting already does),
+    // but the mode belongs to the API, and a Clash dashboard pointed at it can
+    // still ask for either.
     rules.push(json!({ "clash_mode": "Direct", "outbound": TAG_DIRECT }));
     rules.push(json!({ "clash_mode": "Global", "outbound": TAG_PROXY }));
 

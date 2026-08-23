@@ -250,6 +250,7 @@ settings.json          settings
 servers.json           servers
 subscriptions.json     subscriptions
 split.json             split tunneling rules
+icons/                 icons of the split tunneling apps
 core/config.json       the generated sing-box configuration
 core/cache.db          core and geo set cache
 ```

@@ -28,6 +28,23 @@ const STATE_KEY: Record<string, MsgKey> = {
   error: "dash.stateError",
 };
 
+// The core's third mode, Direct, is not offered: "everything past the VPN" is
+// what turning the tunnel off already does, and the power button says it more
+// plainly. Should it arrive from outside (the Clash API is open to any
+// dashboard), the switch falls back to showing Rules.
+type SwitchMode = Exclude<ClashMode, "Direct">;
+
+// Two words on a switch say nothing to someone opening the client for the first
+// time, so the chosen — or merely hovered — mode explains itself below.
+const MODE_HELP: Record<SwitchMode, MsgKey> = {
+  Rule: "dash.modeRuleHelp",
+  Global: "dash.modeGlobalHelp",
+};
+
+function switchMode(mode: ClashMode): SwitchMode {
+  return mode === "Global" ? "Global" : "Rule";
+}
+
 export function Dashboard() {
   const t = useT();
   const status = useStore((s) => s.status);
@@ -45,6 +62,7 @@ export function Dashboard() {
   const toast = useStore((s) => s.toast);
 
   const [askElevate, setAskElevate] = useState(false);
+  const [hoveredMode, setHoveredMode] = useState<SwitchMode | null>(null);
   const [, forceTick] = useState(0);
 
   // The uptime counter derives from a timestamp, so it needs its own heartbeat.
@@ -89,15 +107,20 @@ export function Dashboard() {
           <h1 className="page-title">{t("dash.title")}</h1>
           <p className="page-sub">{t("dash.subtitle")}</p>
         </div>
-        <Segmented<ClashMode>
-          value={status.mode}
-          onChange={(mode) => void setMode(mode)}
-          options={[
-            { value: "Rule", label: t("dash.modeRule") },
-            { value: "Global", label: t("dash.modeGlobal") },
-            { value: "Direct", label: t("dash.modeDirect") },
-          ]}
-        />
+        <div className="mode-head">
+          <Segmented<SwitchMode>
+            value={switchMode(status.mode)}
+            onChange={(mode) => void setMode(mode)}
+            onHover={setHoveredMode}
+            options={[
+              { value: "Rule", label: t("dash.modeRule") },
+              { value: "Global", label: t("dash.modeGlobal") },
+            ]}
+          />
+          <div className="mode-help">
+            {t(MODE_HELP[hoveredMode ?? switchMode(status.mode)])}
+          </div>
+        </div>
       </div>
 
       {!status.elevated && status.tunnelMode === "tun" && (

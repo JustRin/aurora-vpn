@@ -42,7 +42,11 @@ const NETWORKS: [Network; 5] = [
 const LOG_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 /// Значения выпадающего списка автообновления подписок, в минутах.
 const SUB_AUTO_MINUTES: [u32; 5] = [0, 180, 360, 720, 1440];
-const MODES: [&str; 3] = ["Rule", "Global", "Direct"];
+/// Режимы переключателя на «Обзоре». Третий режим ядра, `Direct`, сюда не
+/// вынесен: «весь трафик мимо VPN» — это и есть выключенный туннель, а кнопка
+/// питания говорит об этом понятнее. Придёт он снаружи (Clash API) — строка
+/// просто не найдётся, и переключатель покажет «По правилам».
+const MODES: [&str; 2] = ["Rule", "Global"];
 /// Пауза перед сохранением настроек после последней правки.
 const SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
 /// Как часто спрашивать GitHub о новом релизе. API без токена лимитируется по
@@ -595,6 +599,17 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
     });
 
     // ---- раздельный туннель ----------------------------------------------
+    // Заход на страницу — повод поискать иконки, которых не нашлось раньше:
+    // программу, не запущенную при старте клиента, за это время могли открыть.
+    data.on_refresh_icons({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            crate::icons::forget_missing();
+            crate::sync_icons(&ui);
+        }
+    });
+
     data.on_remove_app({
         let handle = handle.clone();
         let weak = ui.as_weak();

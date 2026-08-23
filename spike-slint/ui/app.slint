@@ -410,7 +410,12 @@ export component AppWindow inherits Window {
                 clip: true;
                 if Ui.page == 0: DashboardPage { }
                 if Ui.page == 1: ServersPage { }
-                if Ui.page == 2: SplitPage { }
+                // Страницы пересоздаются на каждом заходе, так что init тут —
+                // это «страницу открыли»: подходящий момент поискать иконки,
+                // которых не нашлось при запуске.
+                if Ui.page == 2: SplitPage {
+                    init => { Data.refresh-icons(); }
+                }
                 if Ui.page == 3: RoutingPage { }
                 if Ui.page == 4: LogsPage { }
                 if Ui.page == 5: SettingsPage {
