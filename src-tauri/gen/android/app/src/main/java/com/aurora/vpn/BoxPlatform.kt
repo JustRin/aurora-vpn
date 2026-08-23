@@ -187,8 +187,17 @@ class BoxPlatform(private val service: AuroraVpnService) : PlatformInterface {
                     box.name = raw.name
                     box.index = raw.index
                     box.mtu = raw.mtu
+                    // Java renders IPv6 link-local addresses with their scope
+                    // attached (fe80::…%dummy0), and libbox pushes every entry
+                    // straight through netip.MustParsePrefix, which panics on a
+                    // zone. That panic is a Go abort(): it takes the whole
+                    // process down, not just the tunnel. Strip the zone.
                     box.addresses = StringList(
-                        raw.interfaceAddresses.map { "${it.address.hostAddress}/${it.networkPrefixLength}" },
+                        raw.interfaceAddresses.mapNotNull { entry ->
+                            entry.address.hostAddress
+                                ?.substringBefore('%')
+                                ?.let { "$it/${entry.networkPrefixLength}" }
+                        },
                     )
                     box.flags = rawFlags(raw)
                     box.type = guessType(raw.name)
