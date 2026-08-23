@@ -34,7 +34,17 @@ private const val NOTIFICATION_ID = 1
  */
 class AuroraVpnService : VpnService(), CommandServerHandler {
 
+    // Both are written on the `libbox-start` thread and read by `closeBox` on
+    // the main one. Today a happens-before edge exists by accident — the start
+    // thread writes the volatile `VpnState.running` afterwards — but teardown is
+    // the last place to lean on an accident: a stale `null` here is a tunnel
+    // left up with every route still pointing into it.
+    @Volatile
     private var server: CommandServer? = null
+
+    /** Kept because it owns the TUN descriptor that [closeBox] has to release. */
+    @Volatile
+    private var platform: BoxPlatform? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -73,8 +83,11 @@ class AuroraVpnService : VpnService(), CommandServerHandler {
         thread(name = "libbox-start") {
             try {
                 val content = File(configPath).readText()
-                val server = this.server ?: Libbox.newCommandServer(this, BoxPlatform(this))
-                    .also { this.server = it }
+                val server = this.server ?: run {
+                    val platform = BoxPlatform(this)
+                    this.platform = platform
+                    Libbox.newCommandServer(this, platform).also { this.server = it }
+                }
                 server.startOrReloadService(content, OverrideOptions())
                 VpnState.running = true
                 VpnState.lastError = ""
@@ -114,18 +127,27 @@ class AuroraVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun closeBox() {
-        val server = this.server ?: return
-        this.server = null
-        try {
-            server.closeService()
-        } catch (e: Exception) {
-            Log.w(TAG, "closeService: ${e.message}")
+        val server = this.server
+        if (server != null) {
+            this.server = null
+            try {
+                server.closeService()
+            } catch (e: Exception) {
+                Log.w(TAG, "closeService: ${e.message}")
+            }
+            try {
+                server.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "close: ${e.message}")
+            }
         }
-        try {
-            server.close()
-        } catch (e: Exception) {
-            Log.w(TAG, "close: ${e.message}")
-        }
+        // After the engine, never before: stopping the box is what releases
+        // libbox's own copy of the descriptor, and the interface only goes down
+        // once both are gone. Deliberately outside the `server != null` guard —
+        // a start that failed partway can leave an interface with no engine
+        // behind it, and that must still come down.
+        platform?.closeTun()
+        platform = null
         VpnState.running = false
     }
 

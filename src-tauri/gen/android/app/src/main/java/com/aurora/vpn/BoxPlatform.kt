@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
 import io.nekohasekai.libbox.ConnectionOwner
@@ -43,6 +44,31 @@ class BoxPlatform(private val service: AuroraVpnService) : PlatformInterface {
         service.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     // ------------------------------------------------------------------ TUN
+
+    /**
+     * The live TUN interface. Android keeps it up while *any* descriptor for it
+     * is open, and libbox works on a dup of what [openTun] hands back — so this
+     * side has to keep its own handle and close it, or the tunnel outlives the
+     * engine by the whole life of the process.
+     *
+     * Only ever touched through [swapTun]: libbox opens the interface on its own
+     * thread while the stop path closes it from the main one, and a descriptor
+     * closed twice is worse than one closed never — by then the number can
+     * belong to some other file entirely.
+     */
+    private var tun: ParcelFileDescriptor? = null
+
+    @Synchronized
+    private fun swapTun(next: ParcelFileDescriptor?) {
+        val previous = tun
+        tun = next
+        if (previous == null) return
+        try {
+            previous.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "closeTun: ${e.message}")
+        }
+    }
 
     override fun openTun(options: TunOptions): Int {
         val builder = service.Builder()
@@ -99,8 +125,20 @@ class BoxPlatform(private val service: AuroraVpnService) : PlatformInterface {
 
         val pfd = builder.establish()
             ?: throw IllegalStateException("VpnService.establish() вернул null — разрешение отозвано?")
-        return pfd.detachFd()
+
+        // `establish()` has already replaced any previous interface; drop our
+        // handle on the old one so a reload does not pile them up.
+        swapTun(pfd)
+        // Lend the descriptor instead of `detachFd()`. libbox dups whatever it
+        // is given and closes only its own copy, so a detached original ends up
+        // owned by nobody: the engine stops, the UI says «отключено», and the
+        // interface stays up with every route still pointing into it until the
+        // process dies. Keeping the handle here is what makes stopping real.
+        return pfd.fd
     }
+
+    /** Takes the interface down. Idempotent — stop and destroy both call it. */
+    fun closeTun() = swapTun(null)
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (!service.protect(fd)) {
