@@ -737,6 +737,14 @@ textarea {
 /* ============================================================ content */
 .content {
   min-height: 0;
+  /* A grid item defaults to `min-width: auto`, i.e. it refuses to be narrower
+     than its widest child. Without this, one over-wide element anywhere on a
+     page — a long log line, an unbroken URL, a control that does not fit a
+     phone — widens this column, and with it the window: the whole app starts
+     scrolling sideways instead of the one element that overflowed. Pinned to
+     0, the column always matches the viewport and the overflow stays here,
+     where `overflow-y: auto` already makes it scrollable. */
+  min-width: 0;
   overflow-y: auto;
   padding: 28px 32px 40px;
 }
@@ -1894,6 +1902,17 @@ textarea {
     transform: translateY(10px) scale(0.985);
   }
 }
+
+/* Same entrance as `modal-in`, for the phone-width server picker, which has to
+   hold a `translateX(-50%)` of its own to stay centred. A keyframe replaces
+   `transform` outright rather than composing with it, so the centring has to be
+   repeated here or the menu jumps a half-width sideways while it opens. */
+@keyframes picker-in-centred {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.985);
+  }
+}
 .modal.wide {
   max-width: 780px;
 }
@@ -2090,22 +2109,62 @@ textarea {
   .toggle-row.stack > .select {
     width: 100%;
   }
-  .toggle-row.stack > .segmented {
-    display: flex;
-  }
-  .toggle-row.stack > .segmented button {
-    flex: 1;
+  /* The desktop menu is a 340px slab hung off the trigger's left edge. The hero
+     centres that trigger on a phone, so the slab ran off the right of a 360pt
+     screen — one of the things that made the page draggable sideways. Centre it
+     under the trigger instead and cap it at the content column. */
+  .picker-menu {
+    left: 50%;
+    transform: translateX(-50%);
     min-width: 0;
+    width: max-content;
+    max-width: calc(100vw - 28px);
+    animation-name: picker-in-centred;
   }
 
   .split-mode-head {
     align-items: flex-start;
+    width: 100%;
   }
   .split-mode-help {
     text-align: left;
   }
-  /* Non-wrapping labels must instead earn their fit on a phone width. */
+
+  /* A phone cannot have both halves of the desktop rule — a track sized to its
+     labels and every label on one line. Sized to its labels, «Кроме выбранных»
+     makes the track wider than the screen and the whole page starts scrolling
+     sideways. Squeezed into equal columns instead, a label that does not fit
+     spills past its own button — and since the pill is measured from that
+     button, the text visibly runs out of the selection.
+     So: the track takes the column and a label that does not fit wraps to a
+     second line. Buttons stretch to a shared height, so the pill keeps matching
+     whichever one is chosen. */
+  .segmented {
+    display: flex;
+    width: 100%;
+    /* Last resort. A large system font scales the labels but not the screen,
+       and past some size not even wrapping saves them. Scrolling the track
+       keeps that inside the control rather than widening the whole page.
+       `min-width` is what makes it reachable: the track is itself a flex item,
+       and at the `auto` default it would be pushed out to its own min-content
+       and drag the page wide before it ever thought about scrolling. */
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .segmented::-webkit-scrollbar {
+    display: none;
+  }
   .segmented button {
+    /* Grow from the label's own width rather than from an equal share: equal
+       thirds send «Как в системе» onto a second line while «Все» sits in an
+       empty box. And no `min-width: 0` — a flex item that may shrink below its
+       longest word breaks that word mid-letter («Выключе/н»); stopping at
+       min-content means labels only ever wrap where there is a space. */
+    flex: 1 1 auto;
     padding: 6px 9px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
   }
 }
