@@ -257,10 +257,22 @@ jobs:
             echo "No ANDROID_KEYSTORE secret — falling back to the debug key."
           fi
 
-      - name: Build APKs
+      - name: Build per-ABI APKs
         run: npm run tauri android build -- --apk --split-per-abi
 
-      # Tauri's per-abi flavors are named arm64 / arm / x86_64 / x86.
+      # A second Gradle pass over the `universal` flavour, which carries all
+      # four ABIs in one file. The per-ABI builds are the ones worth installing
+      # — a quarter of the size — but picking one requires knowing what a phone
+      # runs, and the wrong pick fails with «несовместимо с вашим телефоном»
+      # rather than anything that names the real problem. This is the answer for
+      # anyone who does not want to find out which ABI they have.
+      # Rust is already compiled for every target by the pass above, so this
+      # costs Gradle time only, and the flavour writes to its own output
+      # directory — the per-ABI APKs stay where they are.
+      - name: Build universal APK
+        run: npm run tauri android build -- --apk
+
+      # Tauri's flavors are named universal / arm64 / arm / x86_64 / x86.
       - name: Collect artifacts
         shell: bash
         run: |
@@ -270,12 +282,18 @@ jobs:
           for f in $(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk'); do
             name=$(basename "$f")
             case "$name" in
+              # Before the arch cases: this one is every arch at once.
+              *universal*) cp "$f" "upload/AuroraVPN-${VER}-android-universal.apk" ;;
               *x86_64*) cp "$f" "upload/AuroraVPN-${VER}-android-x64.apk" ;;
               *arm64*)  cp "$f" "upload/AuroraVPN-${VER}-android-arm64.apk" ;;
               *arm*)    cp "$f" "upload/AuroraVPN-${VER}-android-arm32.apk" ;;
             esac
           done
           ls -la upload
+          for want in universal arm64 arm32 x64; do
+            [ -f "upload/AuroraVPN-${VER}-android-${want}.apk" ] ||
+              echo "::warning::no ${want} APK was produced"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -348,7 +366,12 @@ jobs:
             [ -n "$3" ] && logo="&logo=$3&logoColor=white"
             echo -n "[![](https://img.shields.io/badge/${1}-${2}?style=for-the-badge${logo})](${BASE}/${4}) "
           }
-          WIN="" LINUX="" MAC="" ANDROID=""
+          # `ls` is alphabetical, which would open the Android row with arm32
+          # and bury the universal APK in the middle. Each variant is collected
+          # on its own so the row can be ordered by who needs it: the one that
+          # cannot be picked wrongly, then the common phone, then the rest.
+          WIN="" LINUX="" MAC=""
+          AND_ANY="" AND_64="" AND_32="" AND_X64=""
           for f in $(ls artifacts); do
             case "$f" in
               *windows-x64-setup.exe) WIN+="$(badge 'Installer_x64' '0078d4' '' "$f")" ;;
@@ -357,9 +380,14 @@ jobs:
               *linux-x64.rpm)         LINUX+="$(badge 'RPM_x64' '294172' 'fedora' "$f")" ;;
               *macos-arm64.dmg)       MAC+="$(badge 'DMG_Apple_Silicon' '000000' 'apple' "$f")" ;;
               *macos-x64.dmg)         MAC+="$(badge 'DMG_Intel' '4a4a4a' 'apple' "$f")" ;;
-              *android-arm64.apk)     ANDROID+="$(badge 'APK_arm64' '3ddc84' 'android' "$f")" ;;
-              *android-arm32.apk)     ANDROID+="$(badge 'APK_arm32' '6f9c3d' 'android' "$f")" ;;
-              *android-x64.apk)       ANDROID+="$(badge 'APK_x64' '9aa0a6' 'android' "$f")" ;;
+              # `--` is how shields.io escapes a literal dash. Parentheses would
+              # render too, but they sit inside a Markdown link destination and
+              # only survive there while they stay balanced — not a thing to
+              # leave resting on a label someone may reword later.
+              *android-universal.apk) AND_ANY+="$(badge 'APK_universal_--_any_phone' '3ddc84' 'android' "$f")" ;;
+              *android-arm64.apk)     AND_64+="$(badge 'APK_arm64' '2e9c68' 'android' "$f")" ;;
+              *android-arm32.apk)     AND_32+="$(badge 'APK_arm32' '6f9c3d' 'android' "$f")" ;;
+              *android-x64.apk)       AND_X64+="$(badge 'APK_x64' '9aa0a6' 'android' "$f")" ;;
             esac
           done
           {
@@ -368,12 +396,13 @@ jobs:
             echo "| System | Download |"
             echo "| --- | --- |"
             [ -n "$WIN" ]     && echo "| **Windows 10/11** | $WIN|"
+            ANDROID="$AND_ANY$AND_64$AND_32$AND_X64"
             [ -n "$ANDROID" ] && echo "| **Android 7+** | $ANDROID|"
             [ -n "$LINUX" ]   && echo "| **Linux** | $LINUX|"
             [ -n "$MAC" ]     && echo "| **macOS** | $MAC|"
             echo ""
             echo "**Windows** keeps itself updated: when a new version is out, a button shows up in the app's bottom-left corner. A SmartScreen warning on a fresh download means the build is not code-signed yet, not that it is malicious: \"More info\" → \"Run anyway\" («Подробнее» → «Выполнить в любом случае»)."
-            echo "**Android**: modern phones need APK_arm64; arm32 is for older devices, x64 for emulators."
+            echo "**Android**: take the first APK if you are not sure — it fits every phone, it is just larger because it carries all four architectures. The rest are a quarter of the size but must match the device: arm64 for anything modern, arm32 for older phones, x64 for emulators. A mismatch installs as «Приложение не установлено, так как оно несовместимо с вашим телефоном»."
             echo "**macOS**: the image is unsigned — on first launch right-click → \"Open\"."
             echo "**Linux**: TUN mode needs root; make the AppImage executable (\`chmod +x\`)."
             echo ""
