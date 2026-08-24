@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.util.Log
 import androidx.activity.result.ActivityResult
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -43,9 +44,18 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
             ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            ActivityCompat.requestPermissions(
-                activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001,
-            )
+            try {
+                ActivityCompat.requestPermissions(
+                    activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001,
+                )
+            } catch (e: Exception) {
+                // Tauri hands every plugin the first activity and never swaps it
+                // (PluginManager.onActivityCreate returns early on the second
+                // one), so after Android recreated the activity this one is
+                // dead and cannot host a dialog. Cosmetic means cosmetic: the
+                // tunnel still starts.
+                Log.w("VpnPlugin", "notification permission prompt skipped: ${e.message}")
+            }
         }
 
         val intent = VpnService.prepare(activity)
