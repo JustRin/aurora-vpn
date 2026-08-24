@@ -104,13 +104,22 @@ pub fn claim_single_instance() -> bool {
     // Мьютекс намеренно течёт: он должен жить всё время работы процесса, а
     // закрывать его при выходе незачем — система сделает это сама.
     let name = HSTRING::from(MUTEX_NAME);
-    let Ok(handle) = (unsafe { CreateMutexW(None, true, &name) }) else {
-        // Не смогли проверить — лучше запуститься, чем не запуститься.
-        return true;
-    };
+    let created = unsafe { CreateMutexW(None, true, &name) };
     // Дескриптор не закрываем: сторож должен жить всё время работы процесса, а
     // на выходе система закроет его сама — и мьютекс станет «брошенным».
-    let taken = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+    let taken = match &created {
+        Ok(_) => (unsafe { GetLastError() }) == ERROR_ALREADY_EXISTS,
+        // Отказ — тоже ответ, и чаще всего он значит «занято». CreateMutexW
+        // просит права на запись, а объект, созданный процессом с правами
+        // администратора, помечен его уровнем целостности: вверх такие права
+        // не выдают. Раньше здесь стояло «не смогли проверить — запускаемся», и
+        // обычный щелчок по ярлыку при поднятом экземпляре открывал второй.
+        // Два экземпляра — два ядра на один cache.db и один адаптер.
+        //
+        // Перепроверяем чтением: OpenMutexW просит только SYNCHRONIZE, а его
+        // вверх отдают — сторож виден и через границу прав.
+        Err(_) => another_instance_running(),
+    };
     if !taken {
         return true;
     }
@@ -123,8 +132,10 @@ pub fn claim_single_instance() -> bool {
     if std::env::args().any(|arg| arg == RELAUNCH_FLAG) {
         // Истёкшее ожидание — не повод пропасть: прежний экземпляр уже получил
         // команду уйти, и если он завис, подняться и прибрать за ним лучше, чем
-        // не подняться вовсе — осиротевшее ядро снимет kill_orphan на старте.
-        let _ = unsafe { WaitForSingleObject(handle, RELAUNCH_WAIT_MS) };
+        // не подняться вовсе — про осиротевшее ядро спросит первое подключение.
+        if let Ok(handle) = created {
+            let _ = unsafe { WaitForSingleObject(handle, RELAUNCH_WAIT_MS) };
+        }
         return true;
     }
 
@@ -291,6 +302,10 @@ fn icon() -> Option<tray_icon::Icon> {
 /// Показать окно из трея.
 pub fn show(ui: &AppWindow) {
     crate::sys::elevate::yield_foreground();
+    // Окно позвали — звать больше незачем. Система гасит мигание сама по
+    // выходу на передний план, но эта дорога начинается со спрятанного окна, у
+    // которого кнопки в панели задач ещё нет.
+    crate::sys::flash::stop(ui);
     let window = ui.window();
     window.set_minimized(false);
     window.with_winit_window(|w| {

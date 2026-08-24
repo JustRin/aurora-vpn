@@ -42,6 +42,8 @@ pub enum Event {
     /// Адрес узла → страна.
     Countries(HashMap<String, crate::core::geoip::Country>),
     UpdateProgress(UpdateProgress),
+    /// Найдено ядро от прошлого сеанса: спросить, снимать ли его.
+    Orphan(crate::core::process::Orphan),
 }
 
 /// Рантайм для всего асинхронного. Отдельные потоки, потому что главный занят

@@ -39,10 +39,14 @@ fn core_binary() -> Option<PathBuf> {
     } else {
         format!("sing-box-{triple}")
     };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("binaries")
-        .join(name);
-    path.is_file().then_some(path)
+    // Обе папки, как в app::locate_binary. Своей у спайка нет: fetch-core.mjs
+    // кладёт ядро в src-tauri/binaries — и на машине разработчика, и в CI, —
+    // так что без второго варианта эти проверки молча пропускались везде.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    [root.join("binaries"), root.join("../src-tauri/binaries")]
+        .into_iter()
+        .map(|dir| dir.join(&name))
+        .find(|path| path.is_file())
 }
 
 fn sample_nodes() -> Vec<ServerNode> {
@@ -162,6 +166,132 @@ async fn core_starts_from_a_generated_config_and_answers_its_control_api() {
 
     selected.unwrap().expect("селектор должен переключаться на auto");
     mode.unwrap().expect("режим маршрутизации должен переключаться");
+
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+/// Ядро, которого приложение не запускало, — сирота. Тот самый случай, из-за
+/// которого подключение падало на «initialize cache-file: timeout»: находится,
+/// снимается и запись за собой убирает.
+///
+/// Запуск идёт мимо `CoreSupervisor` — так процесс не попадает в список своих
+/// и выглядит ровно как ядро, пережившее прошлый сеанс.
+#[test]
+fn a_core_we_did_not_start_is_found_and_killed() {
+    use crate::core::process::{find_orphan, kill_orphan, Killed};
+
+    let Some(exe) = core_binary() else {
+        eprintln!("пропуск: бинарник sing-box не найден");
+        return;
+    };
+
+    let work = std::env::temp_dir().join("aurora-core-stray");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    // Ни входов, ни панели управления: ядру достаточно подняться и держать
+    // файл кэша — именно эту блокировку и не может забрать второе ядро.
+    let config_path = work.join("stray.json");
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "log": { "level": "error" },
+            "experimental": {
+                "cache_file": { "enabled": true, "path": work.join("cache.db") }
+            },
+            "outbounds": [ { "type": "direct", "tag": "direct" } ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut stray = std::process::Command::new(&exe)
+        .args(["run".as_ref(), "-c".as_ref(), config_path.as_os_str()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("постороннее ядро должно запуститься");
+    let pid = stray.id();
+
+    let pid_file = work.join("core.pid");
+    std::fs::write(&pid_file, pid.to_string()).unwrap();
+
+    let found = find_orphan(&pid_file, &exe).expect("ядро от прошлого сеанса должно находиться");
+    assert_eq!(found.pid, pid, "найтись должно именно оно");
+
+    assert_eq!(
+        kill_orphan(&found, &pid_file),
+        Killed::Gone,
+        "своё же ядро должно сниматься"
+    );
+    let _ = stray.wait();
+    assert!(
+        !pid_file.exists(),
+        "запись убирается только после подтверждённого ухода — и здесь он подтверждён"
+    );
+    assert!(
+        find_orphan(&pid_file, &exe).map(|f| f.pid) != Some(pid),
+        "снятое ядро больше не находится"
+    );
+
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+/// Своё живое ядро сиротой не считается. Замер задержки поднимает второй
+/// sing-box из того же файла, и без этого приложение предлагало бы снять
+/// собственную работу, а «Да» её бы и оборвало.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_running_core_of_ours_is_never_reported_as_an_orphan() {
+    let Some(exe) = core_binary() else {
+        eprintln!("пропуск: бинарник sing-box не найден");
+        return;
+    };
+
+    let work = std::env::temp_dir().join("aurora-core-orphan");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    let settings = Settings {
+        tunnel_mode: TunnelMode::SystemProxy,
+        // Свои порты: проверки идут параллельно, и занятый сосед уронил бы обе.
+        clash_port: CLASH_PORT + 2,
+        mixed_port: MIXED_PORT + 2,
+        ..Default::default()
+    };
+    let built = config::build(&BuildInput {
+        nodes: &sample_nodes(),
+        active_id: "n2",
+        settings: &settings,
+        split: &SplitConfig::default(),
+        clash_secret: "test-secret",
+        cache_path: &work.join("cache.db"),
+        xray_ports: &no_xray(),
+        xray_exe: None,
+        rule_sets: &no_sets(),
+        rule_set_dir: &work.join("rulesets"),
+    })
+    .expect("конфигурация должна собираться");
+
+    let config_path = work.join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+
+    let mut core = CoreSupervisor::new(Engine::SingBox, exe.clone(), work.clone());
+    let pid = core.start(&config_path, |_| {}).expect("ядро должно запуститься");
+
+    // Запись на месте, процесс жив — и всё равно не сирота: номер в списке своих.
+    let pid_file = work.join("core.pid");
+    std::fs::write(&pid_file, pid.to_string()).unwrap();
+    let seen = crate::core::process::find_orphan(&pid_file, &exe).map(|found| found.pid);
+    assert_ne!(seen, Some(pid), "живое ядро приложения — не сирота");
+
+    core.stop();
+
+    // Ядро ушло — и запись о нём больше ничего не сторожит.
+    crate::core::process::forget_dead_pid(&pid_file, &exe);
+    assert!(
+        !pid_file.exists(),
+        "запись о завершённом ядре должна убираться"
+    );
 
     let _ = std::fs::remove_dir_all(&work);
 }

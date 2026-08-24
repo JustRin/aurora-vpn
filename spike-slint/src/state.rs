@@ -191,14 +191,17 @@ impl AppState {
         let ui: UiState = store.load("ui");
         let engine_overrides: HashMap<String, String> = store.load("engines");
 
-        // A core surviving a previous crash still owns the virtual adapter, and
-        // a crash in system-proxy mode leaves the machine pointed at a listener
-        // that no longer exists. Clean up both before doing anything else.
-        // On Android neither exists: the service dies with the process, and
-        // there is no system proxy to restore.
+        // Ядро, пережившее прошлый сеанс, здесь больше не снимается молча:
+        // оно держит и файл кэша, и виртуальный адаптер, и через него всё ещё
+        // идёт трафик — такое закрывают с ведома пользователя. Ищет и
+        // спрашивает `api::connect`, когда окно уже есть; здесь остаётся лишь
+        // подчистить запись, если ядра за ней уже нет.
+        //
+        // Аварийный выход в режиме системного прокси, наоборот, чинится сразу:
+        // система указывает на несуществующий порт, и спрашивать тут не о чем.
         #[cfg(not(target_os = "android"))]
         {
-            crate::core::process::kill_orphan(&paths.pid_file, &core_exe);
+            crate::core::process::forget_dead_pid(&paths.pid_file, &core_exe);
             crate::sys::sysproxy::init(paths.config_dir.join("sysproxy-backup.json"));
             crate::sys::sysproxy::restore_after_crash(settings.mixed_port);
         }

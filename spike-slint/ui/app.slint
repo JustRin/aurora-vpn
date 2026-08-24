@@ -10,7 +10,7 @@ import { ServersPage, ImportModal, NodeEditorModal } from "pages/servers.slint";
 import { SplitPage, ProcessPickerModal } from "pages/split.slint";
 import { RoutingPage, ConfigModal } from "pages/routing.slint";
 import { LogsPage } from "pages/logs.slint";
-import { SettingsPage, ElevateModal } from "pages/settings.slint";
+import { SettingsPage, ElevateModal, OrphanModal } from "pages/settings.slint";
 import { Str } from "i18n.slint";
 
 export { Theme, Data, Conf, Ui, Draft, Str }
@@ -432,6 +432,7 @@ export component AppWindow inherits Window {
     if Ui.modal == 3: ProcessPickerModal { }
     if Ui.modal == 4: ConfigModal { }
     if Ui.modal == 5: ElevateModal { }
+    if Ui.modal == 6: OrphanModal { }
 
     // -------------------------------------------------------------- тосты
     Rectangle {

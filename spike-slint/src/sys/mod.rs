@@ -5,6 +5,7 @@ pub mod autostart;
 pub mod clipboard;
 pub mod dialog;
 pub mod elevate;
+pub mod flash;
 pub mod icmp;
 pub mod notify;
 pub mod open;

@@ -213,8 +213,30 @@ impl Drop for CoreSupervisor {
     }
 }
 
+/// The same file? Comparing paths outright is not enough: `current_exe()` and
+/// the process table can report one directory in different case, or in the
+/// short 8.3 form, and a strict compare would call our own core a stranger.
+fn same_exe(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    if let (Ok(a), Ok(b)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        if a == b {
+            return true;
+        }
+    }
+    cfg!(windows)
+        && a.as_os_str().to_string_lossy().to_lowercase()
+            == b.as_os_str().to_string_lossy().to_lowercase()
+}
+
 /// Kill a core left behind by a crash, so its virtual adapter does not block a
 /// fresh start. Only processes whose executable matches ours are touched.
+///
+/// The pid file survives a kill that did not take. It is the only record of
+/// that process, and dropping it strands the core for good: nothing afterwards
+/// knows what to look for, every connect fails on the cache-file lock the core
+/// still holds, and the user is left killing it by hand.
 pub fn kill_orphan(pid_file: &Path, expected_exe: &Path) {
     let Ok(text) = std::fs::read_to_string(pid_file) else {
         return;
@@ -225,23 +247,40 @@ pub fn kill_orphan(pid_file: &Path, expected_exe: &Path) {
     };
 
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-    let mut sys = System::new();
     let target = Pid::from_u32(pid);
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[target]),
-        true,
-        ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::Always),
-    );
+    let look = |sys: &mut System| {
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[target]),
+            true,
+            ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::Always),
+        );
+    };
 
-    if let Some(proc) = sys.process(target) {
-        let same_binary = proc
-            .exe()
-            .map(|p| p == expected_exe)
-            .unwrap_or(false);
-        if same_binary {
+    let mut sys = System::new();
+    look(&mut sys);
+    let alive = match sys.process(target) {
+        Some(proc) if proc.exe().map(|p| same_exe(p, expected_exe)).unwrap_or(false) => {
             proc.kill();
+            true
+        }
+        _ => false,
+    };
+    if !alive {
+        let _ = std::fs::remove_file(pid_file);
+        return;
+    }
+
+    // `kill` returns before the process is torn down, and the cache-file lock
+    // goes with the teardown — a core started in the same breath would run
+    // straight into it.
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let mut sys = System::new();
+        look(&mut sys);
+        if sys.process(target).is_none() {
+            let _ = std::fs::remove_file(pid_file);
+            return;
         }
     }
-    let _ = std::fs::remove_file(pid_file);
 }
 

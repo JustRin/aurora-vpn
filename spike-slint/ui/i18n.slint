@@ -44,6 +44,8 @@ export global Str {
     out property <string> notify-connected-title:             root.en ? "Connected" : "Подключено";
     out property <string> notify-disconnected-title:          root.en ? "Disconnected" : "Отключено";
     out property <string> notify-error-title:                 root.en ? "Connection error" : "Ошибка подключения";
+    out property <string> notify-orphan-title:                root.en ? "A core from a previous session" : "Ядро от прошлого сеанса";
+    out property <string> notify-orphan-body:                 root.en ? "The connection stopped: sing-box from an earlier session is still running. Open Aurora VPN to decide what to do with it." : "Подключение остановлено: sing-box от прошлого сеанса всё ещё работает. Откройте Aurora VPN, чтобы решить, что с ним делать.";
     out property <string> set-autostart-failed:               root.en ? "Could not change autostart" : "Не удалось изменить автозапуск";
     // Строки, которые подставляет сам Rust: единицы, состояния, тосты и
     // демо-данные. Он снимает с них копию (Lang в main.rs) — читать глобал на
@@ -285,6 +287,14 @@ export global Str {
     out property <string> elev-tunnel-alt:                    root.en ? "If you don't want to elevate, switch to system proxy mode in settings: it works without UAC but only covers apps that respect the system proxy settings." : "Если повышать права не нужно, переключитесь на режим системного прокси в настройках: он работает без UAC, но охватывает только те приложения, которые уважают системные настройки прокси.";
     out property <string> elev-autostart-why:                 root.en ? "Autostart with administrator rights creates a task in the Windows Task Scheduler — a regular startup entry can't do that, the system won't elevate rights without confirmation." : "Автозапуск с правами администратора создаёт задачу в планировщике Windows — обычная запись в автозагрузке так не умеет, система не даёт повышать права без подтверждения.";
     out property <string> elev-autostart-once:                root.en ? "Rights are needed only once, to register the task. After that the app will start with administrator rights on its own, without a UAC prompt at every sign-in." : "Права нужны только один раз, чтобы зарегистрировать задачу. После этого приложение будет стартовать с правами администратора само, без запроса UAC при каждом входе в систему.";
+    out property <string> orphan-title:                       root.en ? "A core from a previous session" : "Ядро от прошлого сеанса";
+    out property <string> orphan-why:                         root.en ? "sing-box started by an earlier session is still running. It holds the cache file and the virtual adapter exclusively, so a new connection cannot come up: the core waits ten seconds for the lock and gives up with «initialize cache-file: timeout»." : "sing-box, запущенный прошлым сеансом, всё ещё работает. Файл кэша и виртуальный адаптер он держит монопольно, поэтому новое подключение не поднимется: ядро десять секунд ждёт блокировку и уходит с «initialize cache-file: timeout».";
+    out property <string> orphan-traffic:                     root.en ? "Traffic may still be flowing through it" : "Через него всё ещё может идти трафик";
+    out property <string> orphan-traffic-text:                root.en ? "Terminating it drops every connection open through that tunnel." : "Завершение оборвёт все соединения, открытые через тот туннель.";
+    out property <string> orphan-ask:                         root.en ? "Terminate it and connect?" : "Завершить его и подключиться?";
+    out property <string> orphan-uptime-label:                root.en ? "running for" : "работает";
+    out property <string> orphan-no:                          root.en ? "No" : "Нет";
+    out property <string> orphan-yes:                         root.en ? "Yes, terminate" : "Да, завершить";
     out property <string> dash-power-hint:                    root.en ? "Press the power button to bring the tunnel up." : "Нажмите кнопку питания, чтобы поднять туннель.";
     // Заголовок списка приложений: в вебе split.appsCount со своим {count}.
     out property <string> split-apps-caps:                    root.en ? "APPS" : "ПРИЛОЖЕНИЯ";

@@ -1,6 +1,6 @@
 // Страница «Настройки»: две колоды — клиент и ядро. Порт Settings.tsx.
 
-import { Theme, Icons, Card, SectionTitle, Divider, Segmented, MonoText } from "../theme.slint";
+import { Theme, Icons, Card, SectionTitle, Divider, Segmented, MonoText, NavIcon } from "../theme.slint";
 import {
     Btn, Field, Input, Select, ToggleRow, StackRow, Alert, ScrollArea, RoundRect,
     ModalShell, ModalFoot
@@ -529,6 +529,92 @@ export component SettingsPage inherits ScrollArea {
             }
         }
         Rectangle { height: 20px; }
+    }
+}
+
+// Ядро от прошлого сеанса. Снять его молча нельзя: процесс чужой, и через его
+// туннель прямо сейчас может идти трафик, — поэтому connect() останавливается
+// и спрашивает здесь (api.rs, ORPHAN_CORE).
+export component OrphanModal inherits ModalShell {
+    title: Str.orphan-title;
+    close => { Ui.modal = 0; }
+    VerticalLayout {
+        padding: 18px;
+        spacing: 13px;
+        Text {
+            text: Str.orphan-why;
+            color: Theme.text-dim;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        // Кого именно предлагается снять: номер и путь, чтобы то же самое
+        // можно было проверить в диспетчере задач и решить самому.
+        Rectangle {
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: Theme.sunken;
+            HorizontalLayout {
+                padding: 13px;
+                padding-left: 15px;
+                padding-right: 15px;
+                spacing: 11px;
+                VerticalLayout {
+                    alignment: center;
+                    NavIcon {
+                        commands: Icons.cpu;
+                        tint: Theme.text-muted;
+                        width: 17px;
+                        height: 17px;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 3px;
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    Text {
+                        text: "sing-box.exe · PID \{Ui.orphan-pid} · \{Str.orphan-uptime-label} \{Ui.orphan-uptime}";
+                        font-size: 13px;
+                        font-weight: 620;
+                        color: Theme.text;
+                        overflow: elide;
+                    }
+                    MonoText {
+                        text: Ui.orphan-path;
+                        font-size: 11.5px;
+                        color: Theme.text-muted;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+        Alert {
+            danger: true;
+            icon: Icons.shield-alert;
+            title: Str.orphan-traffic;
+            text: Str.orphan-traffic-text;
+        }
+        Text {
+            text: Str.orphan-ask;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            wrap: word-wrap;
+        }
+    }
+    ModalFoot {
+        Btn {
+            label: Str.orphan-no;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: Str.orphan-yes;
+            kind: "primary";
+            clicked => {
+                Ui.modal = 0;
+                Data.kill-orphan();
+            }
+        }
     }
 }
 

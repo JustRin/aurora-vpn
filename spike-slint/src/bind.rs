@@ -356,7 +356,14 @@ where
     app::runtime().spawn(async move {
         let reporter = handle.clone();
         if let Err(err) = make(handle).await {
-            let text = human(err.to_string());
+            let text = err.to_string();
+            // Не ошибка, а вопрос: подключение прервано ради окна про ядро от
+            // прошлого сеанса, и оно уже на экране. Всплывашка поверх него
+            // сказала бы то же самое второй раз и мимо сути.
+            if text.contains(api::ORPHAN_CORE) {
+                return;
+            }
+            let text = human(text);
             reporter.with_ui(move |ui| view::toast(ui, "error", &text, ""));
         }
     });
@@ -405,6 +412,12 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
                 }
             });
         }
+    });
+
+    // «Да» в окне про ядро от прошлого сеанса: снять его и подключиться.
+    data.on_kill_orphan({
+        let handle = handle.clone();
+        move || run(&handle, |h| async move { api::kill_stale_core(h).await })
     });
 
     // Раздел подписки свернули или раскрыли.

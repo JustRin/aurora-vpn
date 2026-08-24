@@ -28,6 +28,12 @@ use crate::state::{AppState, ConnState, Status, Traffic};
 use crate::sys::autostart::{self, AutostartMode};
 use crate::sys::{elevate, procs, sysproxy};
 
+/// Сговор ядра с интерфейсом, как `ELEVATION_REQUIRED`: подключение прервано
+/// не ошибкой, а вопросом — окно уже спрашивает про ядро от прошлого сеанса.
+/// До всплывашки эта строка доходить не должна (bind.rs, `silent`).
+#[cfg(not(target_os = "android"))]
+pub const ORPHAN_CORE: &str = "ORPHAN_CORE";
+
 // ---------------------------------------------------------------- payloads
 
 #[derive(Serialize)]
@@ -569,6 +575,34 @@ pub async fn connect(app: AppHandle) -> Result<()> {
     #[cfg(target_os = "android")]
     crate::core::android::prepare(&app).await?;
 
+    // ---- ядро от прошлого сеанса -----------------------------------------
+    // Оно открывает cache.db монопольно, и новое ядро десять секунд ждёт
+    // блокировку, а потом уходит с «start service: initialize cache-file:
+    // timeout». Снять его молча нельзя: процесс чужой, и через его туннель
+    // прямо сейчас может идти трафик. Поэтому здесь только вопрос — окно
+    // спрашивает, а подключение начинается заново по кнопке «Да».
+    //
+    // Проверка до set_status: отказ должен оставить экран ровно как был, а не
+    // подвесить его на «Подключение».
+    #[cfg(not(target_os = "android"))]
+    {
+        let (pid_file, core_exe) = {
+            let state = app.state();
+            let exe = state.core.lock().exe().to_path_buf();
+            (state.paths.pid_file.clone(), exe)
+        };
+        let found = tokio::task::spawn_blocking(move || {
+            crate::core::process::find_orphan(&pid_file, &core_exe)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(orphan) = found {
+            app.emit(Event::Orphan(orphan));
+            return Err(AppError::msg(ORPHAN_CORE));
+        }
+    }
+
     let resolved_active = {
         let state = app.state();
         state.resolve_active_id()
@@ -683,6 +717,40 @@ pub async fn connect(app: AppHandle) -> Result<()> {
 pub async fn disconnect(app: AppHandle) -> Result<()> {
     shutdown(&app, "");
     Ok(())
+}
+
+/// «Да» в окне про ядро от прошлого сеанса: снять его и подключиться.
+///
+/// Ищет заново — пока шёл разговор, пользователь мог снять процесс сам, а
+/// номер мог достаться кому-то другому.
+#[cfg(not(target_os = "android"))]
+pub async fn kill_stale_core(app: AppHandle) -> Result<()> {
+    use crate::core::process::Killed;
+
+    let (pid_file, core_exe) = {
+        let state = app.state();
+        let exe = state.core.lock().exe().to_path_buf();
+        (state.paths.pid_file.clone(), exe)
+    };
+    let outcome = tokio::task::spawn_blocking(move || {
+        match crate::core::process::find_orphan(&pid_file, &core_exe) {
+            Some(orphan) => crate::core::process::kill_orphan(&orphan, &pid_file),
+            None => Killed::Gone,
+        }
+    })
+    .await
+    .unwrap_or(Killed::Denied);
+
+    match outcome {
+        Killed::Gone => connect(app).await,
+        // Обычный процесс не завершает процесс с правами администратора, а
+        // ядро от прошлого сеанса почти всегда запущено именно с ними.
+        Killed::Denied => Err(AppError::msg(concat!(
+            "не удалось завершить ядро от прошлого сеанса: у него больше прав, ",
+            "чем у приложения. Перезапустите приложение от имени администратора ",
+            "или снимите sing-box.exe в диспетчере задач",
+        ))),
+    }
 }
 
 /// Apply a change that is baked into the generated document (settings, split

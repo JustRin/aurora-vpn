@@ -16,7 +16,7 @@ use crate::core::geoip::Country;
 use crate::model::{Network, Protocol, Security, ServerNode};
 use crate::settings::Subscription;
 use crate::state::{ConnState, Status, Traffic};
-use crate::{tr, AppWindow, Data};
+use crate::{tr, AppWindow, Data, Ui};
 
 /// Зеркало того, что показано на экране. Живёт в потоке цикла — трогать его
 /// можно только оттуда, и туда же приходят все события (см. AppHandle::emit).
@@ -99,6 +99,24 @@ pub fn apply(ui: &AppWindow, event: Event) {
             with(|view| view.countries = countries);
             render_nodes(ui);
         }
+        Event::Orphan(orphan) => {
+            // Подключение остановлено вопросом, а не ошибкой, и состояние на
+            // экране не менялось — announce сюда не дойдёт. Позвать всё равно
+            // надо: с включённым автоподключением окно в этот момент вполне
+            // может лежать в трее, и вопрос никто не увидит.
+            crate::sys::flash::alert(ui);
+            if ui.global::<crate::Conf>().get_notifications() {
+                crate::sys::notify::show(
+                    &tr(|l| l.notify_orphan_title.clone()),
+                    &tr(|l| l.notify_orphan_body.clone()),
+                );
+            }
+            let ui_global = ui.global::<Ui>();
+            ui_global.set_orphan_pid(orphan.pid.to_string().into());
+            ui_global.set_orphan_path(orphan.exe.to_string_lossy().as_ref().into());
+            ui_global.set_orphan_uptime(clock(orphan.run_secs).into());
+            ui_global.set_modal(6);
+        }
         Event::UpdateProgress(progress) => {
             let data = ui.global::<Data>();
             let share = progress
@@ -135,7 +153,17 @@ pub fn render_status(ui: &AppWindow) {
 /// уведомлением быть не должно. «Подключение» пропускается — это ещё не
 /// новость, а обещание.
 fn announce(ui: &AppWindow, was: ConnState, now: ConnState) {
-    if was == now || !ui.global::<crate::Conf>().get_notifications() {
+    if was == now {
+        return;
+    }
+    // Мигание — отдельный канал от уведомлений, и галочка в настройках его не
+    // касается: она гасит болтовню про «подключено» и «отключено», а не сигнал
+    // о том, что туннель лёг. Окно на переднем плане система не мигает — там
+    // пользователь и так всё видит.
+    if now == ConnState::Error {
+        crate::sys::flash::alert(ui);
+    }
+    if !ui.global::<crate::Conf>().get_notifications() {
         return;
     }
     let (title, body) = match now {
@@ -173,17 +201,22 @@ pub fn render_uptime(ui: &AppWindow) {
     let since = with(|view| view.status.since_ms);
     let text = match since {
         Some(ms) if ms > 0 => {
-            let total = (chrono::Utc::now().timestamp_millis() - ms).max(0) / 1000;
-            let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
-            if h > 0 {
-                format!("{h}:{m:02}:{s:02}")
-            } else {
-                format!("{m:02}:{s:02}")
-            }
+            clock(((chrono::Utc::now().timestamp_millis() - ms).max(0) / 1000) as u64)
         }
         _ => "—".into(),
     };
     ui.global::<Data>().set_uptime(text.into());
+}
+
+/// Секунды часами: «12:34» до часа и «3:12:34» дальше. Одна форма и для
+/// аптайма туннеля, и для того, сколько живёт чужое ядро.
+fn clock(total: u64) -> String {
+    let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
 }
 
 // ------------------------------------------------------------------ трафик

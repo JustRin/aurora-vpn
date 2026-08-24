@@ -189,6 +189,8 @@ export global Data {
     callback set-mode(int);
     callback toggle-app(int, bool);
     callback relaunch-elevated();
+    // «Да» в окне про ядро от прошлого сеанса: снять его и подключиться.
+    callback kill-orphan();
     // Настройки и правила сохраняются сами: разметка сводит поля в одну строку,
     // и changed в app.slint дёргает эти колбэки на любое изменение.
     callback settings-changed();
@@ -251,7 +253,8 @@ export global Conf {
 export global Ui {
     in-out property <int> page: 0;
     // 0 нет, 1 импорт ссылок, 2 редактор сервера, 3 запущенные приложения,
-    // 4 предпросмотр конфига, 5 запрос прав администратора.
+    // 4 предпросмотр конфига, 5 запрос прав администратора, 6 ядро от
+    // прошлого сеанса.
     in-out property <int> modal: 0;
     in-out property <string> elevate-reason: "tunnel";
     in-out property <string> config-text;
@@ -263,6 +266,10 @@ export global Ui {
     in-out property <bool> proc-system: false;
     in-out property <bool> proc-loading: false;
     in-out property <int> proc-selected: 0;
+    // Кого предлагает снять окно 6. Заполняет view.rs по Event::Orphan.
+    in-out property <string> orphan-pid;
+    in-out property <string> orphan-path;
+    in-out property <string> orphan-uptime;
     in-out property <int> mode: 0;          // режим маршрутизации на «Обзоре»
 }
 

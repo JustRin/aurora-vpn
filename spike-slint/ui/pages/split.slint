@@ -183,7 +183,12 @@ export component ProcessPickerModal inherits ModalShell {
         pad-right: 18px;
         pad-bottom: 18px;
         content-spacing: 8px;
-        min-height: 120px;
+        // Во всю высоту, что осталась от окна, но не выше 520px. Раньше здесь
+        // стояло голое 120px — ровно две строки: собственной высоты у
+        // ScrollArea нет (лента внутри позиционируется сама), и раскладка
+        // брала минимум как есть. Вычитаем шапку, поиск и низ диалога — так
+        // окно растёт вместе с окном приложения и никогда его не перерастает.
+        min-height: clamp(root.height - 300px, 160px, 520px);
         if Data.procs.length == 0: Text {
             text: Ui.proc-loading ? Str.app-loading : Str.split-nothing-found;
             horizontal-alignment: center;
