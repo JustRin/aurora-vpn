@@ -17,7 +17,7 @@ import { useT, type MsgKey } from "../lib/i18n";
 import { useSlidingPill } from "../lib/pill";
 import { IS_ANDROID } from "../lib/platform";
 import type { UpdateInfo, UpdateProgress } from "../lib/types";
-import { useStore } from "../store";
+import { useStore, type PageId } from "../store";
 
 const UPDATE_CHECK_INTERVAL = 10 * 60 * 1000;
 /** A window focus re-checks at most this often: the GitHub API is
@@ -133,14 +133,6 @@ function UpdateBadge() {
     </button>
   );
 }
-
-export type PageId =
-  | "dashboard"
-  | "servers"
-  | "split"
-  | "routing"
-  | "logs"
-  | "settings";
 
 const ITEMS: { id: PageId; labelKey: MsgKey; icon: typeof Gauge }[] = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: Gauge },

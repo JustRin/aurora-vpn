@@ -183,7 +183,9 @@ export const en: Record<keyof typeof ru, string> = {
   "dash.connect": "Connect",
   "dash.disconnect": "Disconnect",
   "dash.connectFailed": "Failed to connect",
-  "dash.addServerHint": "Add a server on the Servers tab to get started.",
+  "dash.noServersTitle": "Nothing to connect to yet",
+  "dash.noServersText":
+    "Add a server link or a subscription from your panel — the connect button will appear here.",
   "dash.trafficDown": "Down",
   "dash.trafficUp": "Up",
   "dash.thisSession": "This session",

@@ -183,7 +183,9 @@ export const ru = {
   "dash.connect": "Подключить",
   "dash.disconnect": "Отключить",
   "dash.connectFailed": "Не удалось подключиться",
-  "dash.addServerHint": "Добавьте сервер на вкладке «Серверы», чтобы начать.",
+  "dash.noServersTitle": "Подключаться пока не к чему",
+  "dash.noServersText":
+    "Добавьте ссылку сервера или подписку из вашей панели — и на этом месте появится кнопка подключения.",
   "dash.trafficDown": "Приём",
   "dash.trafficUp": "Отдача",
   "dash.thisSession": "За сессию",

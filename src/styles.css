@@ -1155,6 +1155,12 @@ textarea {
   padding-bottom: 26px;
 }
 
+/* No servers at all: the hero is replaced by an empty state, because a power
+   button with nothing behind it reads as broken. */
+.hero-empty {
+  margin-bottom: 14px;
+}
+
 .hero-id {
   min-width: 0;
 }

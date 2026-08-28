@@ -43,9 +43,21 @@ export interface TrafficSample {
   down: number;
 }
 
+/** Sidebar destinations. The current page lives in the store rather than in
+ * App's local state so pages can send the user elsewhere — the dashboard's
+ * empty state links straight to Servers. */
+export type PageId =
+  | "dashboard"
+  | "servers"
+  | "split"
+  | "routing"
+  | "logs"
+  | "settings";
+
 interface AppStore {
   ready: boolean;
   loadError: string;
+  page: PageId;
 
   settings: Settings;
   nodes: ServerNode[];
@@ -64,6 +76,7 @@ interface AppStore {
   busy: Record<string, boolean>;
 
   init: () => Promise<void>;
+  navigate: (page: PageId) => void;
   toast: (kind: Toast["kind"], text: string, detail?: string) => void;
   dismissToast: (id: number) => void;
   setBusy: (key: string, value: boolean) => void;
@@ -97,6 +110,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 export const useStore = create<AppStore>((set, get) => ({
   ready: false,
   loadError: "",
+  page: "dashboard",
 
   settings: {} as Settings,
   nodes: [],
@@ -183,6 +197,10 @@ export const useStore = create<AppStore>((set, get) => ({
     // Subscriptions also refresh on a timer, with no UI action to reload from.
     void onSubscriptions((subscriptions: Subscription[]) => set({ subscriptions }));
     void onLatency((latency: LatencyMap) => set((s) => ({ latency: { ...s.latency, ...latency } })));
+  },
+
+  navigate(page) {
+    set({ page });
   },
 
   toast(kind, text, detail) {

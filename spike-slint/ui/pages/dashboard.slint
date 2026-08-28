@@ -2,7 +2,7 @@
 // плитками, плюс выбор сервера и карточки подписок.
 
 import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider } from "../theme.slint";
-import { Btn, Dot, Alert, ScrollArea } from "../widgets.slint";
+import { Btn, Dot, Alert, Empty, ScrollArea } from "../widgets.slint";
 import { SubCard } from "../cards.slint";
 import { Data, Conf, Ui } from "../data.slint";
 import { Str } from "../i18n.slint";
@@ -240,8 +240,40 @@ export component DashboardPage inherits ScrollArea {
         Rectangle { height: 16px; }
     }
 
+    // Серверов нет — кнопка питания была бы мёртвым органом управления:
+    // жмёшь, а подключаться не к чему. Вместо героя целиком — «пустое
+    // состояние», которое объясняет почему и ведёт туда, где это чинится.
+    if Data.nodes.length == 0: Rectangle {
+        vertical-stretch: 0;
+        background: Theme.panel;
+        border-radius: 16px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-blur: 14px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: Theme.shadow-card;
+        Rectangle {
+            x: 16px;
+            y: 1px;
+            width: parent.width - 32px;
+            height: 1px;
+            background: Theme.sheen;
+        }
+        Empty {
+            icon: Icons.server;
+            title: Str.dash-no-servers-title;
+            text: Str.dash-no-servers-text;
+            Btn {
+                label: Str.srv-add-servers;
+                icon: Icons.plus;
+                kind: "primary";
+                clicked => { Ui.page = 1; }
+            }
+        }
+    }
+
     // ----------------------------------------------------------------- hero
-    Rectangle {
+    if Data.nodes.length > 0: Rectangle {
         vertical-stretch: 0;
         background: Theme.panel;
         border-radius: 16px;
@@ -408,9 +440,7 @@ export component DashboardPage inherits ScrollArea {
                         // «Журнале».
                         if !Data.connected: Text {
                             text: Data.state-detail == ""
-                                ? (Data.nodes.length == 0
-                                    ? Str.dash-add-server-hint
-                                    : Str.dash-power-hint)
+                                ? Str.dash-power-hint
                                 : Data.state-detail;
                             color: Data.state-detail == "" ? Theme.text-muted : Theme.danger;
                             font-size: 12.5px;

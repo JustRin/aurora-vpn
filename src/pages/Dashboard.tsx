@@ -3,7 +3,9 @@ import {
   ArrowUpFromLine,
   Gauge,
   Link2,
+  Plus,
   Power,
+  Server,
   ShieldAlert,
   Timer,
   Waypoints,
@@ -14,7 +16,7 @@ import { ElevateModal } from "../components/ElevateModal";
 import { ServerPicker } from "../components/ServerPicker";
 import { SubscriptionCard } from "../components/SubscriptionCard";
 import { TrafficGraph } from "../components/TrafficGraph";
-import { Segmented } from "../components/ui";
+import { Empty, Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { bytes, duration, speed } from "../lib/format";
 import { type MsgKey, useT } from "../lib/i18n";
@@ -59,6 +61,7 @@ export function Dashboard() {
   const connect = useStore((s) => s.connect);
   const disconnect = useStore((s) => s.disconnect);
   const setMode = useStore((s) => s.setMode);
+  const navigate = useStore((s) => s.navigate);
   const toast = useStore((s) => s.toast);
 
   const [askElevate, setAskElevate] = useState(false);
@@ -137,61 +140,82 @@ export function Dashboard() {
         </div>
       )}
 
-      <div className={`card hero${history.length === 0 ? " flat" : ""}`}>
-        <button
-          type="button"
-          className="power"
-          data-state={status.state}
-          disabled={busy || nodes.length === 0}
-          onClick={() => void onPower()}
-          aria-label={connected ? t("dash.disconnect") : t("dash.connect")}
-        >
-          <span className="power-ring" />
-          <span className="power-core">
-            <Power size={34} strokeWidth={1.7} />
-          </span>
-        </button>
-
-        <div className="hero-id">
-          <div className="hero-state">{t(STATE_KEY[status.state])}</div>
-
-          <ServerPicker />
-
-          {status.message ? (
-            <div className="hero-note">{status.message}</div>
-          ) : nodes.length === 0 ? (
-            <div className="hero-note">{t("dash.addServerHint")}</div>
-          ) : connected ? (
-            <div style={{ marginTop: 10 }}>
-              <span className="uptime-chip">
-                <Timer size={12} />
-                {duration(status.sinceMs)}
-              </span>
-            </div>
-          ) : null}
+      {nodes.length === 0 ? (
+        /* No servers means the power button would be a dead control — swap the
+           whole hero for an explicit empty state that says why and leads to
+           the fix. */
+        <div className="card hero-empty">
+          <Empty
+            icon={<Server size={34} color="var(--text-muted)" />}
+            title={t("dash.noServersTitle")}
+            text={t("dash.noServersText")}
+            action={
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => navigate("servers")}
+              >
+                <Plus size={15} />
+                {t("srv.addServers")}
+              </button>
+            }
+          />
         </div>
+      ) : (
+        <div className={`card hero${history.length === 0 ? " flat" : ""}`}>
+          <button
+            type="button"
+            className="power"
+            data-state={status.state}
+            disabled={busy}
+            onClick={() => void onPower()}
+            aria-label={connected ? t("dash.disconnect") : t("dash.connect")}
+          >
+            <span className="power-ring" />
+            <span className="power-core">
+              <Power size={34} strokeWidth={1.7} />
+            </span>
+          </button>
 
-        <div className="hero-rates">
-          <div>
-            <div className="micro">
-              <ArrowDownToLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficDown")}
-            </div>
-            <div className="rate-value">{speed(traffic.downSpeed)}</div>
+          <div className="hero-id">
+            <div className="hero-state">{t(STATE_KEY[status.state])}</div>
+
+            <ServerPicker />
+
+            {status.message ? (
+              <div className="hero-note">{status.message}</div>
+            ) : connected ? (
+              <div style={{ marginTop: 10 }}>
+                <span className="uptime-chip">
+                  <Timer size={12} />
+                  {duration(status.sinceMs)}
+                </span>
+              </div>
+            ) : null}
           </div>
-          <div>
-            <div className="micro">
-              <ArrowUpFromLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficUp")}
+
+          <div className="hero-rates">
+            <div>
+              <div className="micro">
+                <ArrowDownToLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficDown")}
+              </div>
+              <div className="rate-value">{speed(traffic.downSpeed)}</div>
             </div>
-            <div className="rate-value">{speed(traffic.upSpeed)}</div>
+            <div>
+              <div className="micro">
+                <ArrowUpFromLine size={11} style={{ verticalAlign: -1 }} /> {t("dash.trafficUp")}
+              </div>
+              <div className="rate-value">{speed(traffic.upSpeed)}</div>
+            </div>
           </div>
+
+          {history.length > 0 && (
+            <div className="hero-spark">
+              <TrafficGraph history={history} bleed />
+            </div>
+          )}
         </div>
-
-        {history.length > 0 && (
-          <div className="hero-spark">
-            <TrafficGraph history={history} bleed />
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Three tiles of identical shape. The subscription card has a different
           structure — two metrics plus a meter — so it gets its own row rather

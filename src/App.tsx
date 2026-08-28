@@ -1,9 +1,9 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, type ComponentType } from "react";
 
 import { api } from "./lib/api";
 import { useT } from "./lib/i18n";
 
-import { Sidebar, type PageId } from "./components/Sidebar";
+import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { Toasts } from "./components/Toasts";
 import { Dashboard } from "./pages/Dashboard";
@@ -12,7 +12,7 @@ import { Routing } from "./pages/Routing";
 import { Servers } from "./pages/Servers";
 import { SettingsPage } from "./pages/Settings";
 import { SplitTunnel } from "./pages/SplitTunnel";
-import { useStore } from "./store";
+import { useStore, type PageId } from "./store";
 
 const PAGES: Record<PageId, ComponentType> = {
   dashboard: Dashboard,
@@ -25,7 +25,8 @@ const PAGES: Record<PageId, ComponentType> = {
 
 export default function App() {
   const t = useT();
-  const [page, setPage] = useState<PageId>("dashboard");
+  const page = useStore((s) => s.page);
+  const navigate = useStore((s) => s.navigate);
   const ready = useStore((s) => s.ready);
   const loadError = useStore((s) => s.loadError);
 
@@ -100,7 +101,7 @@ export default function App() {
       <div className="app">
         <TitleBar />
         <div className="body">
-          <Sidebar page={page} onNavigate={setPage} />
+          <Sidebar page={page} onNavigate={navigate} />
           <main className="content">
             <Page />
           </main>
