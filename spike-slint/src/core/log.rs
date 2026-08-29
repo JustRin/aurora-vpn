@@ -68,6 +68,20 @@ pub fn classify(raw: &str) -> (String, String) {
     ("info".to_string(), cleaned)
 }
 
+/// Строки-однодневки о жизни отдельных соединений.
+///
+/// sing-box пишет их с уровнем ERROR, но это хроника обычного веб-серфинга:
+/// вкладка закрылась, браузер оборвал начатый запрос — и копирование
+/// соединения завершилось «connection upload closed: …: forcibly closed».
+/// О здоровье туннеля они не говорят ничего, и в причину сбоя подключения
+/// такую строку ставить нельзя — пользователь увидит страшный сетевой мусор
+/// вместо настоящего объяснения.
+pub fn is_connection_churn(text: &str) -> bool {
+    ["connection upload closed", "connection download closed"]
+        .iter()
+        .any(|marker| text.contains(marker))
+}
+
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -119,6 +133,24 @@ mod tests {
         let (level, text) = classify("bare output with no level");
         assert_eq!(level, "info");
         assert_eq!(text, "bare output with no level");
+    }
+
+    #[test]
+    fn connection_churn_is_recognised_but_real_failures_are_not() {
+        assert!(is_connection_churn(
+            "[326477152 1.87s] connection: connection upload closed: raw-read tcp4 \
+             172.19.0.1:59194->172.19.0.2:10262: An existing connection was forcibly \
+             closed by the remote host."
+        ));
+        assert!(is_connection_churn(
+            "[1 0ms] connection: connection download closed: read: connection reset"
+        ));
+        // Ошибка набора соединения — настоящий диагноз, его прятать нельзя.
+        assert!(!is_connection_churn(
+            "[2 3.5s] connection: open connection to example.com:443 using \
+             outbound/hysteria2[0-hy]: timeout: no recent network activity"
+        ));
+        assert!(!is_connection_churn("start service: initialize cache-file: timeout"));
     }
 
     #[test]

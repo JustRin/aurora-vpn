@@ -111,6 +111,14 @@ pub struct ServerNode {
 
     pub mux: bool,
 
+    // ---- hysteria2 ----
+    /// QUIC-обфускация; пусто — без неё. Единственный тип — «salamander».
+    pub obfs: String,
+    pub obfs_password: String,
+    /// Диапазоны прыжковых портов в форме sing-box («20000:50000»); основной
+    /// порт остаётся в `port`.
+    pub hop_ports: Vec<String>,
+
     /// Set when the node came from a subscription, so refreshes can replace it.
     pub subscription_id: Option<String>,
     pub raw_link: String,
@@ -144,6 +152,9 @@ impl Default for ServerNode {
             spider_x: String::new(),
             encryption: String::new(),
             mux: false,
+            obfs: String::new(),
+            obfs_password: String::new(),
+            hop_ports: Vec::new(),
             subscription_id: None,
             raw_link: String::new(),
         }
@@ -384,6 +395,17 @@ impl ServerNode {
             }
             Protocol::Hysteria2 => {
                 o.insert("password".into(), json!(self.password));
+                if !self.obfs.is_empty() {
+                    o.insert(
+                        "obfs".into(),
+                        json!({ "type": self.obfs, "password": self.obfs_password }),
+                    );
+                }
+                if !self.hop_ports.is_empty() {
+                    // `server_port` остаётся: первый удар идёт по основному
+                    // порту, диапазоны — для прыжков.
+                    o.insert("server_ports".into(), json!(self.hop_ports));
+                }
             }
             Protocol::Tuic => {
                 o.insert("uuid".into(), json!(self.uuid));
@@ -500,6 +522,43 @@ mod tests {
 
         // A plain node never needed Xray in the first place.
         assert!(!ServerNode::default().can_fall_back_to_singbox());
+    }
+
+    #[test]
+    fn hysteria2_outbound_carries_obfs_and_hop_ports() {
+        let node = ServerNode {
+            protocol: Protocol::Hysteria2,
+            address: "1.2.3.4".into(),
+            port: 443,
+            password: "p".into(),
+            obfs: "salamander".into(),
+            obfs_password: "rain".into(),
+            hop_ports: vec!["20000:50000".into()],
+            ..Default::default()
+        };
+        let out = node.to_outbound("t", "dns-direct");
+        assert_eq!(out["obfs"]["type"], json!("salamander"));
+        assert_eq!(out["obfs"]["password"], json!("rain"));
+        assert_eq!(out["server_ports"], json!(["20000:50000"]));
+        // Основной порт не теряется — по нему идёт первое подключение.
+        assert_eq!(out["server_port"], json!(443));
+        // QUIC сам себе рамка: TLS обязателен, transport-блока нет.
+        assert_eq!(out["tls"]["enabled"], json!(true));
+        assert!(out.get("transport").is_none());
+    }
+
+    #[test]
+    fn hysteria2_without_extras_stays_minimal() {
+        let node = ServerNode {
+            protocol: Protocol::Hysteria2,
+            address: "1.2.3.4".into(),
+            port: 443,
+            password: "p".into(),
+            ..Default::default()
+        };
+        let out = node.to_outbound("t", "");
+        assert!(out.get("obfs").is_none());
+        assert!(out.get("server_ports").is_none());
     }
 
     #[test]

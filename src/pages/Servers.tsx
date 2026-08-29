@@ -53,6 +53,9 @@ function emptyNode(): ServerNode {
     allowInsecure: false,
     flow: "xtls-rprx-vision",
     mux: false,
+    obfs: "",
+    obfsPassword: "",
+    hopPorts: [],
     subscriptionId: null,
     rawLink: "",
   };

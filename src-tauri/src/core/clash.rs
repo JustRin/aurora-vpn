@@ -75,6 +75,10 @@ impl ClashApi {
     }
 
     /// Poll until the control plane answers, i.e. the core finished booting.
+    ///
+    /// Подключение ждёт панель иначе — `await_control_plane` смотрит ещё и на
+    /// живость самого ядра; этот простой вариант остался интеграционным тестам.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn wait_ready(&self, timeout: Duration) -> Result<()> {
         let deadline = std::time::Instant::now() + timeout;
         let mut last: Option<String> = None;

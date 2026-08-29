@@ -35,6 +35,11 @@ export interface ServerNode {
   allowInsecure: boolean;
   flow: string;
   mux: boolean;
+  /** hysteria2: QUIC-обфускация («salamander») и её пароль; пусто — без неё. */
+  obfs: string;
+  obfsPassword: string;
+  /** hysteria2: диапазоны прыжковых портов в форме sing-box («20000:50000»). */
+  hopPorts: string[];
   subscriptionId: string | null;
   rawLink: string;
 }

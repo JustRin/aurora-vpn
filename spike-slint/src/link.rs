@@ -229,9 +229,106 @@ fn parse_trojan(rest: &str) -> Result<ServerNode> {
     Ok(node)
 }
 
+/// `mport=443,20000-50000` → `["443:443", "20000:50000"]` — форма sing-box.
+fn parse_port_ranges(raw: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (a, b) = match part.split_once(['-', ':']) {
+            Some((a, b)) => (a.trim(), b.trim()),
+            None => (part, part),
+        };
+        let range = match (a.parse::<u16>(), b.parse::<u16>()) {
+            (Ok(a), Ok(b)) if a > 0 && a <= b => format!("{a}:{b}"),
+            _ => {
+                return Err(AppError::msg(format!(
+                    "некорректный диапазон портов «{part}»"
+                )))
+            }
+        };
+        if !out.contains(&range) {
+            out.push(range);
+        }
+    }
+    Ok(out)
+}
+
+/// Официальный клиент Hysteria2 пишет прыжковые порты прямо в адресе:
+/// `hysteria2://pass@host:443,20000-50000?…`. Общий разбор ссылок ждёт один
+/// порт, поэтому список снимается заранее: в ссылке остаётся первый порт, а
+/// диапазоны уходят в узел целиком.
+fn split_hysteria2_ports(rest: &str) -> (String, Vec<String>) {
+    let keep = (rest.to_string(), Vec::new());
+    let cut = rest.find(['?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(cut);
+    let after_at = authority.rfind('@').map(|i| i + 1).unwrap_or(0);
+    let hostport = &authority[after_at..];
+    let Some(colon) = hostport.rfind(':') else { return keep };
+    // `]` после двоеточия — это IPv6-литерал без порта, не список.
+    if hostport[colon..].contains(']') {
+        return keep;
+    }
+    let spec = &hostport[colon + 1..];
+    let looks_like_list = spec.contains([',', '-'])
+        && !spec.is_empty()
+        && spec.chars().all(|c| c.is_ascii_digit() || matches!(c, ',' | '-'));
+    if !looks_like_list {
+        return keep;
+    }
+    let Ok(ranges) = parse_port_ranges(spec) else { return keep };
+    let Some(main) = spec.split([',', '-']).find(|s| !s.is_empty()) else {
+        return keep;
+    };
+    let rewritten = format!(
+        "{}{}:{main}{tail}",
+        &authority[..after_at],
+        &hostport[..colon]
+    );
+    (rewritten, ranges)
+}
+
 fn parse_hysteria2(rest: &str) -> Result<ServerNode> {
-    let p = split_uri(rest)?;
+    let (rest, mut hop_ports) = split_hysteria2_ports(rest);
+    let p = split_uri(&rest)?;
     let get = |k: &str| p.query.get(k).map(String::as_str).unwrap_or("");
+
+    // Панели пишут диапазоны и в query: `mport` у v2rayN, `ports` у NekoBox.
+    for key in ["mport", "ports"] {
+        if !get(key).is_empty() {
+            for range in parse_port_ranges(get(key))? {
+                if !hop_ports.contains(&range) {
+                    hop_ports.push(range);
+                }
+            }
+        }
+    }
+
+    // Обфускацию нельзя молча выбросить: сервер с salamander просто не отвечает
+    // клиенту без него, и туннель выглядит подключённым, но мёртв — каждое
+    // соединение висит до таймаута. Другие типы ядро не умеет — честный отказ.
+    let obfs_password = get("obfs-password").to_string();
+    let obfs = match get("obfs").trim().to_lowercase().as_str() {
+        // Пароль без типа — тоже salamander: других типов у Hysteria2 нет, а
+        // некоторые панели пишут только obfs-password.
+        "" | "none" => {
+            if obfs_password.is_empty() {
+                String::new()
+            } else {
+                "salamander".to_string()
+            }
+        }
+        "salamander" => "salamander".to_string(),
+        other => {
+            return Err(AppError::msg(format!(
+                "обфускация «{other}» не поддерживается — Hysteria2 умеет только salamander"
+            )))
+        }
+    };
+    if obfs == "salamander" && obfs_password.is_empty() {
+        return Err(AppError::msg(
+            "в ссылке hysteria2:// включён obfs, но не задан obfs-password",
+        ));
+    }
+
     let mut node = ServerNode {
         id: new_id(),
         protocol: Protocol::Hysteria2,
@@ -241,8 +338,12 @@ fn parse_hysteria2(rest: &str) -> Result<ServerNode> {
         name: p.fragment,
         security: Security::Tls,
         sni: get("sni").to_string(),
-        allow_insecure: matches!(get("insecure"), "1" | "true"),
+        allow_insecure: matches!(get("insecure"), "1" | "true")
+            || matches!(get("allowinsecure"), "1" | "true"),
         alpn: alpn_list(get("alpn")),
+        obfs,
+        obfs_password,
+        hop_ports,
         ..Default::default()
     };
     if node.name.is_empty() {
@@ -602,6 +703,67 @@ mod tests {
         assert_eq!(n.protocol, Protocol::Vmess);
         assert_eq!(n.port, 443);
         assert_eq!(n.network, Network::Ws);
+    }
+
+    #[test]
+    fn parses_hysteria2_with_obfs() {
+        let n = parse_link(
+            "hysteria2://pass@1.2.3.4:33884?sni=example.com&insecure=1\
+             &obfs=salamander&obfs-password=rain#hy",
+        )
+        .unwrap();
+        assert_eq!(n.protocol, Protocol::Hysteria2);
+        assert_eq!(n.obfs, "salamander");
+        assert_eq!(n.obfs_password, "rain");
+        assert!(n.allow_insecure);
+    }
+
+    #[test]
+    fn hysteria2_obfs_password_alone_still_means_salamander() {
+        // Единственный существующий тип; часть панелей тип не пишет вовсе.
+        let n = parse_link("hysteria2://p@h:443?obfs-password=rain#x").unwrap();
+        assert_eq!(n.obfs, "salamander");
+        assert_eq!(n.obfs_password, "rain");
+    }
+
+    #[test]
+    fn hysteria2_rejects_what_would_silently_break() {
+        // Неизвестный тип обфускации ядро не умеет, а «выбросить и подключиться
+        // без него» даёт мёртвый туннель — сервер молчит.
+        let unknown = parse_link("hysteria2://p@h:443?obfs=faketls&obfs-password=x#a");
+        assert!(unknown.unwrap_err().to_string().contains("salamander"));
+
+        let missing = parse_link("hysteria2://p@h:443?obfs=salamander#a");
+        assert!(missing.unwrap_err().to_string().contains("obfs-password"));
+
+        let bad_ports = parse_link("hysteria2://p@h:443?mport=50000-20000#a");
+        assert!(bad_ports.unwrap_err().to_string().contains("диапазон"));
+    }
+
+    #[test]
+    fn hysteria2_mport_becomes_hop_ranges() {
+        let n = parse_link("hysteria2://p@h:443?mport=443,20000-50000#x").unwrap();
+        assert_eq!(n.port, 443);
+        assert_eq!(n.hop_ports, vec!["443:443".to_string(), "20000:50000".to_string()]);
+    }
+
+    #[test]
+    fn hysteria2_port_list_in_authority_is_supported() {
+        // Форма официального клиента: диапазоны прямо в адресе.
+        let n = parse_link("hysteria2://p@h.tld:443,20000-50000?sni=h.tld#x").unwrap();
+        assert_eq!(n.port, 443);
+        assert_eq!(n.hop_ports, vec!["443:443".to_string(), "20000:50000".to_string()]);
+
+        // Обычная ссылка с одним портом через переписыватель не меняется.
+        let plain = parse_link("hysteria2://p@h.tld:443?sni=h.tld#x").unwrap();
+        assert_eq!(plain.port, 443);
+        assert!(plain.hop_ports.is_empty());
+
+        // IPv6-литерал не принимается за список портов.
+        let v6 = parse_link("hysteria2://p@[2001:db8::1]:443#x").unwrap();
+        assert_eq!(v6.address, "2001:db8::1");
+        assert_eq!(v6.port, 443);
+        assert!(v6.hop_ports.is_empty());
     }
 
     #[test]

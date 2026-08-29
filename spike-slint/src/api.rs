@@ -85,6 +85,10 @@ fn now_ms() -> i64 {
 
 /// The core logs why it is unhappy before it exits; surface that instead of a
 /// generic failure the user cannot act on.
+///
+/// Хроника отдельных соединений (`is_connection_churn`) пропускается: ядро
+/// пишет её как ERROR, но оборванный вкладкой запрос — не причина сбоя, и
+/// показанная в тосте такая строка только уводит от настоящей.
 fn core_error_line(app: &AppHandle) -> Option<String> {
     let state = app.state();
     let core = state.core.lock();
@@ -92,8 +96,45 @@ fn core_error_line(app: &AppHandle) -> Option<String> {
     logs.snapshot()
         .iter()
         .rev()
-        .find(|line| matches!(line.level.as_str(), "fatal" | "error" | "panic"))
+        .find(|line| {
+            matches!(line.level.as_str(), "fatal" | "error" | "panic")
+                && !crate::core::log::is_connection_churn(&line.text)
+        })
         .map(|line| line.text.clone())
+}
+
+/// Дождаться панель управления, глядя на само ядро, а не только на часы.
+///
+/// Панель поднимается последней — после TUN-адаптера и маршрутов, чья первая
+/// установка на Windows легко переживает жёсткие 12 секунд (драйвер wintun,
+/// антивирусные фильтры). Прежний таймаут в этот момент убивал здоровое ядро —
+/// уже принимавшее соединения — и показывал вместо причины последнюю ERROR-
+/// строку журнала: случайный сетевой мусор. Поэтому пока процесс жив, ждём
+/// дольше; а мёртвый — наоборот, не заставляет высиживать таймаут до конца.
+async fn await_control_plane(app: &AppHandle, api: &ClashApi) -> std::result::Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if api.version().await.is_ok() {
+            return Ok(());
+        }
+        let alive = {
+            let state = app.state();
+            let mut core = state.core.lock();
+            core.is_running()
+        };
+        if !alive {
+            return Err(core_error_line(app).unwrap_or_else(|| {
+                "ядро неожиданно завершилось при запуске — подробности в журнале".into()
+            }));
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                "ядро запущено, но панель управления не ответила за 30 с — подробности в журнале"
+                    .into(),
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
 }
 
 /// The node list with the runtime engine decisions applied.
@@ -681,10 +722,7 @@ pub async fn connect(app: AppHandle) -> Result<()> {
     };
     let api = ClashApi::new(clash_port, &secret);
 
-    if let Err(e) = api.wait_ready(Duration::from_secs(12)).await {
-        // The core almost certainly logged the real reason before dying; the
-        // timeout itself tells the user nothing actionable.
-        let detail = core_error_line(&app).unwrap_or_else(|| e.to_string());
+    if let Err(detail) = await_control_plane(&app, &api).await {
         shutdown(&app, &detail);
         return Err(AppError::msg(detail));
     }
