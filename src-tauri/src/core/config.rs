@@ -288,10 +288,33 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
 
     let node_tags: Vec<String> = tags.iter().map(|(_, t)| t.clone()).collect();
 
+    // vmess+ws в авто-группу не включаются: в sing-box (вплоть до 1.14-rc)
+    // неудачный дозвон до такого узла роняет весь процесс — паника typed-nil
+    // в v2raywebsocket.Close (transport/v2raywebsocket/conn.go:49, приходит
+    // из protocol/vmess/outbound.go:173). urltest — это принудительные
+    // дозвоны до всех узлов на старте и каждые три минуты, включая мёртвые
+    // из публичных подписок: с ними ядро жило секунды. Вручную такой узел
+    // выбрать по-прежнему можно — разовый сбой ловит автоперезапуск, — а
+    // узел, унесённый в Xray, безопасен и остаётся в группе: sing-box дозванивается
+    // лишь до его loopback-порта.
+    let auto_members: Vec<String> = nodes
+        .iter()
+        .zip(&node_tags)
+        .filter(|(node, _)| {
+            let ws_vmess = node.protocol == crate::model::Protocol::Vmess
+                && node.network == crate::model::Network::Ws;
+            !ws_vmess || xray_ports.contains_key(&node.id)
+        })
+        .map(|(_, tag)| tag.clone())
+        .collect();
+    // Список из одних vmess+ws оставляем как есть: пустую группу sing-box
+    // отвергает, а без авто-группы не собирается селектор.
+    let auto_members = if auto_members.is_empty() { node_tags.clone() } else { auto_members };
+
     outbounds.push(json!({
         "type": "urltest",
         "tag": TAG_AUTO,
-        "outbounds": node_tags,
+        "outbounds": auto_members,
         "url": settings.latency_url,
         "interval": "3m",
         "tolerance": 50,
@@ -911,6 +934,63 @@ mod tests {
 
         let dns = cfg["dns"]["rules"].as_array().map(|r| r.to_vec()).unwrap_or_default();
         assert!(dns.iter().all(|r| r.get("process_path").is_none()));
+    }
+
+    #[test]
+    fn vmess_ws_nodes_stay_out_of_the_urltest_group() {
+        // Неудачный дозвон до vmess+ws роняет ядро паникой (typed-nil в
+        // v2raywebsocket.Close), а urltest дозванивается до всех узлов на
+        // старте и каждые три минуты — мёртвый узел из подписки убивал
+        // туннель секундами после подключения.
+        let mut nodes = vec![node("Tokyo", "a"), node("Junk", "b")];
+        nodes[1].protocol = Protocol::Vmess;
+        nodes[1].network = crate::model::Network::Ws;
+        nodes[1].security = Security::None;
+        nodes[1].public_key = String::new();
+        let cfg = build_for_nodes(nodes, HashMap::new());
+
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        let auto = outbounds.iter().find(|o| o["tag"] == json!(TAG_AUTO)).unwrap();
+        let members = auto["outbounds"].as_array().unwrap();
+        assert!(members.contains(&json!("0-Tokyo")));
+        assert!(!members.contains(&json!("1-Junk")), "{members:?}");
+
+        // Из селектора узел не пропадает — вручную его выбрать можно.
+        let selector = outbounds.iter().find(|o| o["tag"] == json!(TAG_PROXY)).unwrap();
+        assert!(selector["outbounds"].as_array().unwrap().contains(&json!("1-Junk")));
+    }
+
+    #[test]
+    fn all_vmess_ws_keeps_the_urltest_group_populated() {
+        // Пустую группу ядро отвергает целиком — при списке из одних vmess+ws
+        // фильтр отступает: лучше живой конфиг с риском, чем никакого.
+        let mut nodes = vec![node("Only", "a")];
+        nodes[0].protocol = Protocol::Vmess;
+        nodes[0].network = crate::model::Network::Ws;
+        nodes[0].security = Security::None;
+        nodes[0].public_key = String::new();
+        let cfg = build_for_nodes(nodes, HashMap::new());
+
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        let auto = outbounds.iter().find(|o| o["tag"] == json!(TAG_AUTO)).unwrap();
+        assert_eq!(auto["outbounds"], json!(["0-Only"]));
+    }
+
+    #[test]
+    fn xray_backed_vmess_ws_is_probed_normally() {
+        // Узел, унесённый в Xray, для sing-box — loopback SOCKS: паника
+        // недостижима, и мерить его авто-группой безопасно.
+        let mut nodes = vec![node("Tokyo", "a"), node("WsNode", "b")];
+        nodes[1].protocol = Protocol::Vmess;
+        nodes[1].network = crate::model::Network::Ws;
+        nodes[1].security = Security::None;
+        nodes[1].public_key = String::new();
+        let ports = HashMap::from([("b".to_string(), 24150u16)]);
+        let cfg = build_for_nodes(nodes, ports);
+
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        let auto = outbounds.iter().find(|o| o["tag"] == json!(TAG_AUTO)).unwrap();
+        assert!(auto["outbounds"].as_array().unwrap().contains(&json!("1-WsNode")));
     }
 
     #[test]

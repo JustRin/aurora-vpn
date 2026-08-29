@@ -1,7 +1,7 @@
 {
   "name": "aurora-vpn",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "Cross-platform VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box",
   "scripts": {

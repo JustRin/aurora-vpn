@@ -334,9 +334,10 @@ async fn handle_core_death(app: &AppHandle, session: u64, uptime_ms: Option<i64>
             text: format!("ядро аварийно завершилось ({detail}) — перезапускаю туннель"),
         },
     );
-    // connect() сам поднимет статус, ядро и поллеры; о неудаче он тоже
+    // connect_inner (а не connect: тот открывает новый эпизод и обнулил бы
+    // счётчик аварий) сам поднимет статус, ядро и поллеры; о неудаче он тоже
     // сообщает сам — путь фоновый, причина остаётся в статусе «Ошибка».
-    let _ = connect(app.clone()).await;
+    let _ = connect_inner(app.clone()).await;
 }
 
 /// Sample the counters once a second and turn them into a rate.
@@ -654,6 +655,18 @@ pub async fn get_snapshot(app: AppHandle) -> Result<Snapshot> {
 
 #[tauri::command]
 pub async fn connect(app: AppHandle) -> Result<()> {
+    // Явное подключение открывает новый эпизод: серия аварийных стартов,
+    // из-за которой автоперезапуск когда-то сдался, к нему не относится.
+    // Автоперезапуск сюда не заходит — он зовёт connect_inner напрямую,
+    // иначе предохранитель обнулял бы сам себя.
+    {
+        let state = app.state::<AppState>();
+        state.fast_crashes.store(0, Ordering::SeqCst);
+    }
+    connect_inner(app).await
+}
+
+async fn connect_inner(app: AppHandle) -> Result<()> {
     let (tunnel_mode, mixed_port, clash_port, node_count) = {
         let state = app.state::<AppState>();
         let settings = state.settings.read();
