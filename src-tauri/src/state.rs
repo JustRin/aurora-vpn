@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -151,6 +151,12 @@ pub struct AppState {
     /// started with and stop as soon as it no longer matches, so a fast
     /// disconnect/reconnect cannot leave two of them reporting at once.
     pub session: AtomicU64,
+
+    /// Аварийные завершения ядра подряд, каждое — раньше 30 секунд аптайма.
+    /// Прожил дольше — счётчик обнуляется (это делает поллер трафика). По
+    /// порогу автоперезапуск прекращается: ядро, падающее прямо на старте,
+    /// перезапуском не лечится, и крутить бут-луп незачем.
+    pub fast_crashes: AtomicU32,
 }
 
 impl AppState {
@@ -223,6 +229,7 @@ impl AppState {
             status: RwLock::new(status),
             traffic: RwLock::new(Traffic::default()),
             session: AtomicU64::new(0),
+            fast_crashes: AtomicU32::new(0),
         })
     }
 

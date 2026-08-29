@@ -53,6 +53,16 @@ pub fn classify(raw: &str) -> (String, String) {
     const LEVELS: [&str; 7] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"];
     // Strip ANSI colour codes the core emits when it thinks it owns a terminal.
     let cleaned = strip_ansi(raw);
+
+    // Паника Go-рантайма приходит без колонки уровня: «panic: …», за ней
+    // стектрейс. Без этой пометки заголовок тонет в info, диагноз не попадает
+    // ни в статус («ядро неожиданно завершилось»), ни в фильтр «Ошибки».
+    if cleaned.starts_with("panic:") {
+        return ("panic".to_string(), cleaned);
+    }
+    if cleaned.starts_with("fatal error:") {
+        return ("fatal".to_string(), cleaned);
+    }
     for level in LEVELS {
         if let Some(pos) = cleaned.find(level) {
             let before = &cleaned[..pos];
@@ -133,6 +143,26 @@ mod tests {
         let (level, text) = classify("bare output with no level");
         assert_eq!(level, "info");
         assert_eq!(text, "bare output with no level");
+    }
+
+    #[test]
+    fn go_runtime_panics_are_promoted_from_info() {
+        // Ровно так падает sing-box: типизированный nil в vmess+ws при urltest.
+        let (level, text) =
+            classify("panic: runtime error: invalid memory address or nil pointer dereference");
+        assert_eq!(level, "panic");
+        assert!(text.starts_with("panic:"));
+
+        let (level, _) = classify("fatal error: concurrent map writes");
+        assert_eq!(level, "fatal");
+
+        // Стектрейс остаётся обычным info — важен только заголовок.
+        let (level, _) = classify("goroutine 304 [running]:");
+        assert_eq!(level, "info");
+
+        // «panic:» в середине обычной строки уровнем не считается.
+        let (level, _) = classify("+0300 2026-08-29 12:00:00 INFO dns: panic: in payload");
+        assert_eq!(level, "info");
     }
 
     #[test]

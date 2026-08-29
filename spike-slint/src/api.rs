@@ -289,17 +289,25 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
 
-            let (api, still_ours) = {
+            let (api, still_ours, uptime_ms) = {
                 let state = app.state();
                 let ours = state.session.load(Ordering::SeqCst) == session
                     && state.status.read().state == ConnState::Connected;
                 let api = state.clash.read().clone();
-                (api, ours)
+                let uptime = state.status.read().since_ms.map(|s| now_ms() - s);
+                (api, ours, uptime)
             };
             if !still_ours {
                 return;
             }
             let Some(api) = api else { return };
+
+            // Туннель прожил дольше 30 секунд — прошлые аварийные старты
+            // прощаются, автоперезапуск снова в полном запасе.
+            if uptime_ms.unwrap_or(0) > FAST_CRASH_WINDOW_MS {
+                let state = app.state();
+                state.fast_crashes.store(0, Ordering::SeqCst);
+            }
 
             let totals = match api.totals().await {
                 Ok(totals) => {
@@ -307,23 +315,23 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
                     totals
                 }
                 Err(_) => {
-                    // A single miss is usually just a busy core. A run of them
-                    // means the process is gone — otherwise the UI would keep
-                    // claiming "Подключено" over a dead tunnel.
+                    // Мёртвый процесс распознаётся на первом же промахе:
+                    // try_wait дёшев, а каждая секунда с «Подключено» поверх
+                    // мёртвого туннеля — это оборванные соединения у
+                    // пользователя.
+                    let dead = {
+                        let state = app.state();
+                        let mut core = state.core.lock();
+                        !core.is_running()
+                    };
+                    if dead {
+                        handle_core_death(&app, session, uptime_ms).await;
+                        return;
+                    }
+                    // A single miss is usually just a busy core; a run of them
+                    // with the process alive is survivable — keep polling.
                     failures += 1;
                     if failures >= 5 {
-                        let dead = {
-                            let state = app.state();
-                            let mut core = state.core.lock();
-                            !core.is_running()
-                        };
-                        if dead {
-                            let reason = core_error_line(&app).unwrap_or_else(|| {
-                                "ядро неожиданно завершилось — подробности в журнале".into()
-                            });
-                            shutdown(&app, &reason);
-                            return;
-                        }
                         failures = 0;
                     }
                     continue;
@@ -360,6 +368,59 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
             let _ = app.emit(Event::Traffic(traffic));
         }
     });
+}
+
+/// Аптайм, после которого аварийное завершение ядра не считается бут-лупом.
+const FAST_CRASH_WINDOW_MS: i64 = 30_000;
+/// Сколько аварий подряд раньше этого окна терпим, прежде чем сдаться.
+const FAST_CRASH_LIMIT: u32 = 3;
+
+/// Ядро умерло само — не по нашей команде.
+///
+/// Так падает sing-box: у него есть паники, убивающие весь процесс (например,
+/// типизированный nil в vmess+ws при плановом urltest-обходе узлов — апстримный
+/// баг, живой и в 1.14). Ронять из-за этого туннель до ручного клика нельзя —
+/// перезапускаемся сами. Но ядро, умирающее моложе 30 секунд, перезапуском не
+/// лечится (битый конфиг, занятый порт): после трёх таких подряд остановка с
+/// честным сообщением.
+async fn handle_core_death(app: &AppHandle, session: u64, uptime_ms: Option<i64>) {
+    let detail = core_error_line(app)
+        .unwrap_or_else(|| "ядро неожиданно завершилось — подробности в журнале".into());
+
+    let fast = uptime_ms.map(|u| u < FAST_CRASH_WINDOW_MS).unwrap_or(true);
+    let strikes = {
+        let state = app.state();
+        if state.session.load(Ordering::SeqCst) != session {
+            // Пока констатировали смерть, пользователь уже переподключился
+            // или отключился сам — не мешаем.
+            return;
+        }
+        if fast {
+            state.fast_crashes.fetch_add(1, Ordering::SeqCst) + 1
+        } else {
+            // Дожил до зрелости — серия аварийных стартов прервана.
+            state.fast_crashes.store(0, Ordering::SeqCst);
+            0
+        }
+    };
+
+    if fast && strikes >= FAST_CRASH_LIMIT {
+        shutdown(
+            app,
+            &format!("ядро падает сразу после запуска, автоперезапуск остановлен: {detail}"),
+        );
+        return;
+    }
+
+    let _ = app.emit(Event::Log(LogLine {
+        seq: 0,
+        level: "warn".into(),
+        text: format!("ядро аварийно завершилось ({detail}) — перезапускаю туннель"),
+    }));
+    // connect() сам поднимет статус, ядро и поллеры; о неудаче он тоже
+    // сообщает сам — и статусом, и всплывашкой некому: путь фоновый, поэтому
+    // причина остаётся в статусе «Ошибка».
+    let _ = connect(app.clone()).await;
 }
 
 /// One end-to-end request through a loopback SOCKS listener: greet, CONNECT to
