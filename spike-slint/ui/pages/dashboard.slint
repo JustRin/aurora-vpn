@@ -56,6 +56,13 @@ component ServerPicker inherits Rectangle {
         clicked => { menu.show(); }
     }
 
+    // Для тестов: меню открывается ростом счётчика, потому что сам пикер
+    // живёт внутри условной ветки и по id снаружи недостижим.
+    in property <int> open-req;
+    changed open-req => {
+        menu.show();
+    }
+
     menu := PopupWindow {
         x: -11px;
         y: root.height + 6px;
@@ -166,6 +173,12 @@ component ServerPicker inherits Rectangle {
 
 export component DashboardPage inherits ScrollArea {
     pad: 28px;
+
+    // Для тестов: раскрыть выбор сервера, не синтезируя клик по координатам.
+    in-out property <int> open-picker-req;
+    public function open-picker() {
+        root.open-picker-req += 1;
+    }
 
     // ------------------------------------------------------------ page head
     HorizontalLayout {
@@ -399,7 +412,7 @@ export component DashboardPage inherits ScrollArea {
                     Rectangle { height: 6px; }
                     HorizontalLayout {
                         alignment: start;
-                        ServerPicker { }
+                        ServerPicker { open-req: root.open-picker-req; }
                     }
                     Rectangle { height: 10px; }
                     HorizontalLayout {

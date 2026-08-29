@@ -107,17 +107,40 @@ export component LogsPage inherits VerticalLayout {
             }
             for line in Data.logs: LogRow { line: line; }
         }
-    }
 
-    if !Ui.log-follow: VerticalLayout {
-        padding-top: 10px;
-        HorizontalLayout {
-            alignment: center;
-            Btn {
-                label: Str.logs-to-latest;
-                icon: Icons.arrow-down;
-                small: true;
-                clicked => { Ui.log-follow = true; }
+        // «К последним записям» — поверх ленты, а не под ней: строка в потоке
+        // при каждом появлении дёргала бы высоту журнала. Элемент живёт
+        // всегда, прячется прозрачностью — иначе исчезновение нечем
+        // анимировать; выключенная кнопка щелчки сквозь себя пропускает.
+        jump := Rectangle {
+            property <bool> shown: !Ui.log-follow;
+            width: self.preferred-width;
+            height: self.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: parent.height - self.height - (self.shown ? 14px : 6px);
+            opacity: self.shown ? 1.0 : 0.0;
+            animate opacity, y {
+                duration: 170ms;
+                easing: ease-out;
+            }
+            // Лента просвечивала бы сквозь полупрозрачный фон кнопки —
+            // подложка та же, что у тостов и меню.
+            border-radius: 6px;
+            background: Theme.elevated-solid;
+            drop-shadow-blur: 18px;
+            drop-shadow-offset-y: 6px;
+            drop-shadow-color: Theme.shadow-deep;
+            HorizontalLayout {
+                Btn {
+                    label: Str.logs-to-latest;
+                    icon: Icons.arrow-down;
+                    small: true;
+                    enabled: jump.shown;
+                    // Гашение «выключенной» кнопки здесь ни к чему: за
+                    // видимость отвечает прозрачность подложки.
+                    opacity: 1.0;
+                    clicked => { Ui.log-follow = true; }
+                }
             }
         }
     }

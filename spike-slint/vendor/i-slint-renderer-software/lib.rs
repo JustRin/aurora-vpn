@@ -1847,6 +1847,20 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> RenderToBuffer<'_, B> {
             );
         });
     }
+
+    /// Paths blend into the buffer directly instead of going through
+    /// `foreach_ranges`, so the frame's dirty region has to be applied here:
+    /// the regions a partial frame may touch are the item clip intersected
+    /// with each dirty rectangle. Without this a partial frame re-paints the
+    /// path over pixels that were never invalidated — on top of a popup that
+    /// earlier frames composited there — and double-blends anti-aliased edges.
+    #[cfg(feature = "path")]
+    fn path_clips(&self, clip_geometry: &PhysicalRect) -> alloc::vec::Vec<PhysicalRect> {
+        self.dirty_region
+            .iter_box()
+            .filter_map(|b| b.to_rect().intersection(clip_geometry))
+            .collect()
+    }
 }
 
 impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<'_, B> {
@@ -1946,7 +1960,8 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
         commands: alloc::vec::Vec<path::Command>,
         color: PremultipliedRgbaColor,
     ) {
-        path::render_filled_path(&commands, &path_geometry, &clip_geometry, color, self.buffer);
+        let clips = self.path_clips(&clip_geometry);
+        path::render_filled_path(&commands, &path_geometry, &clips, color, self.buffer);
     }
 
     #[cfg(feature = "path")]
@@ -1961,10 +1976,11 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
         stroke_line_join: i_slint_core::items::LineJoin,
         stroke_miter_limit: f32,
     ) {
+        let clips = self.path_clips(&clip_geometry);
         path::render_stroked_path(
             &commands,
             &path_geometry,
-            &clip_geometry,
+            &clips,
             color,
             stroke_width,
             stroke_line_cap,

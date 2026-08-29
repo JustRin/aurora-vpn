@@ -82,45 +82,47 @@ export function Logs() {
         </div>
       </div>
 
-      <div
-        className="log-view"
-        ref={viewRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          // Re-arm auto-scroll only when the user returns to the bottom.
-          setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
-        }}
-      >
-        {visible.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", padding: 12 }}>
-            {t("logs.empty")}
-          </div>
-        ) : (
-          visible.map((line) => (
-            <div key={line.seq} className="log-line" data-level={line.level}>
-              <span className="log-level">{line.level}</span>
-              <span className="log-text">{line.text}</span>
+      <div className="log-wrap">
+        <div
+          className="log-view"
+          ref={viewRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            // Re-arm auto-scroll only when the user returns to the bottom.
+            setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+          }}
+        >
+          {visible.length === 0 ? (
+            <div style={{ color: "var(--text-muted)", padding: 12 }}>
+              {t("logs.empty")}
             </div>
-          ))
-        )}
-      </div>
-
-      {!follow && (
-        <div className="row" style={{ marginTop: 10, justifyContent: "center" }}>
-          <button
-            type="button"
-            className="btn sm"
-            onClick={() => {
-              setFollow(true);
-              const view = viewRef.current;
-              if (view) view.scrollTop = view.scrollHeight;
-            }}
-          >
-            <ArrowDownToLine size={14} />
-            {t("logs.toLatest")}
-          </button>
+          ) : (
+            visible.map((line) => (
+              <div key={line.seq} className="log-line" data-level={line.level}>
+                <span className="log-level">{line.level}</span>
+                <span className="log-text">{line.text}</span>
+              </div>
+            ))
+          )}
         </div>
-      )}
+
+        {/* Поверх ленты, а не под ней: строка в потоке дёргала бы высоту
+            журнала при каждом появлении. Кнопка живёт в DOM постоянно —
+            исчезновение иначе нечем анимировать. */}
+        <button
+          type="button"
+          className={"btn sm log-jump" + (follow ? "" : " shown")}
+          tabIndex={follow ? -1 : 0}
+          onClick={() => {
+            setFollow(true);
+            const view = viewRef.current;
+            if (view) view.scrollTop = view.scrollHeight;
+          }}
+        >
+          <ArrowDownToLine size={14} />
+          {t("logs.toLatest")}
+        </button>
+      </div>
     </>
   );
 }

@@ -1829,6 +1829,32 @@ textarea {
 }
 
 /* ============================================================ logs */
+/* «К последним записям» — поверх ленты: строка в потоке дёргала бы высоту
+   журнала при каждом появлении. Спрятанная кнопка остаётся в DOM ради
+   анимации исчезновения и мышь сквозь себя пропускает. */
+.log-wrap {
+  position: relative;
+}
+.log-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%) translateY(8px);
+  opacity: 0;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: var(--shadow);
+  transition:
+    opacity 170ms ease,
+    transform 170ms ease;
+}
+.log-jump.shown {
+  opacity: 1;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
 .log-view {
   background: var(--sunken-deep);
   border: 1px solid var(--border);
