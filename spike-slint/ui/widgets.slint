@@ -174,7 +174,7 @@ export component Chip inherits Rectangle {
         Text {
             text: root.label;
             vertical-alignment: center;
-            font-size: 11px;
+            font-size: 11px * Theme.text-scale;
             font-weight: 550;
             color: root.accent
                 ? Theme.accent-text
@@ -230,14 +230,14 @@ export component Field inherits VerticalLayout {
     alignment: start;
     if root.label != "": Text {
         text: root.label;
-        font-size: 12.5px;
+        font-size: 12.5px * Theme.text-scale;
         font-weight: 500;
         color: Theme.text-dim;
     }
     @children
     if root.hint != "": Text {
         text: root.hint;
-        font-size: 11.5px;
+        font-size: 11.5px * Theme.text-scale;
         color: Theme.text-muted;
         wrap: word-wrap;
     }
@@ -369,7 +369,7 @@ export component Select inherits Rectangle {
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             color: Theme.text;
         }
         VerticalLayout {
@@ -412,7 +412,7 @@ export component Select inherits Rectangle {
                         Text {
                             text: opt;
                             vertical-alignment: center;
-                            font-size: 13px;
+                            font-size: 13px * Theme.text-scale;
                             color: i == root.current ? Theme.accent-text : Theme.text-dim;
                         }
                     }
@@ -481,13 +481,13 @@ export component ToggleRow inherits HorizontalLayout {
         Text {
             text: root.label;
             color: Theme.text;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             font-weight: 500;
         }
         if root.desc != "": Text {
             text: root.desc;
             color: Theme.text-muted;
-            font-size: 12px;
+            font-size: 12px * Theme.text-scale;
             wrap: word-wrap;
         }
     }
@@ -516,13 +516,13 @@ export component StackRow inherits HorizontalLayout {
         Text {
             text: root.label;
             color: Theme.text;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             font-weight: 500;
         }
         if root.desc != "": Text {
             text: root.desc;
             color: Theme.text-muted;
-            font-size: 12px;
+            font-size: 12px * Theme.text-scale;
             wrap: word-wrap;
         }
     }
@@ -558,7 +558,7 @@ export component Empty inherits VerticalLayout {
         text: root.title;
         horizontal-alignment: center;
         color: Theme.text-dim;
-        font-size: 15px;
+        font-size: 15px * Theme.text-scale;
         font-weight: 600;
     }
     Rectangle { height: 6px; }
@@ -569,7 +569,7 @@ export component Empty inherits VerticalLayout {
             horizontal-alignment: center;
             max-width: 380px;
             color: Theme.text-muted;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             wrap: word-wrap;
         }
     }
@@ -612,13 +612,13 @@ export component Alert inherits Rectangle {
             alignment: center;
             if root.title != "": Text {
                 text: root.title;
-                font-size: 13.5px;
+                font-size: 13.5px * Theme.text-scale;
                 font-weight: 620;
                 color: Theme.text;
             }
             if root.text != "": Text {
                 text: root.text;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 color: Theme.text-dim;
                 wrap: word-wrap;
             }
@@ -799,7 +799,7 @@ export component ModalShell inherits Rectangle {
                             text: root.title;
                             vertical-alignment: center;
                             horizontal-stretch: 1;
-                            font-size: 15px;
+                            font-size: 15px * Theme.text-scale;
                             font-weight: 650;
                             color: Theme.text;
                         }
@@ -876,14 +876,14 @@ export component Toast inherits Rectangle {
         spacing: 3px;
         Text {
             text: root.text;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             font-weight: 550;
             color: Theme.text;
             wrap: word-wrap;
         }
         if root.detail != "": Text {
             text: root.detail;
-            font-size: 12px;
+            font-size: 12px * Theme.text-scale;
             color: Theme.text-muted;
             wrap: word-wrap;
         }

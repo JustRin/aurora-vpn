@@ -18,14 +18,14 @@ export component RoutingPage inherits ScrollArea {
             Text {
                 text: Str.nav-routing;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
             Text {
                 text: Str.route-subtitle;
                 color: Theme.text-muted;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 wrap: word-wrap;
             }
         }
@@ -153,7 +153,7 @@ export component ConfigModal inherits ModalShell {
                 Text {
                     text: Ui.config-text;
                     font-family: Theme.mono-font;
-                    font-size: 12px;
+                    font-size: 12px * Theme.text-scale;
                     color: Theme.log-text;
                 }
             }

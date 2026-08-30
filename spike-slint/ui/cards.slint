@@ -32,7 +32,7 @@ export component SubCard inherits Card {
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             font-weight: 550;
             color: Theme.text;
         }
@@ -61,7 +61,7 @@ export component SubCard inherits Card {
             }
             Text {
                 text: root.sub.expiry;
-                font-size: 19px;
+                font-size: 19px * Theme.text-scale;
                 font-weight: 660;
                 letter-spacing: -0.4px;
                 overflow: elide;
@@ -79,7 +79,7 @@ export component SubCard inherits Card {
                 alignment: end;
                 Text {
                     text: Str.srv-traffic-label-caps;
-                    font-size: 10.5px;
+                    font-size: 10.5px * Theme.text-scale;
                     font-weight: 640;
                     letter-spacing: 1px;
                     color: Theme.text-muted;
@@ -88,7 +88,7 @@ export component SubCard inherits Card {
             Text {
                 text: root.sub.traffic;
                 horizontal-alignment: right;
-                font-size: 19px;
+                font-size: 19px * Theme.text-scale;
                 font-weight: 660;
                 letter-spacing: -0.4px;
                 overflow: elide;
@@ -102,21 +102,21 @@ export component SubCard inherits Card {
     }
     if !root.sub.has-usage: Text {
         text: Str.srv-no-usage-info;
-        font-size: 10.5px;
+        font-size: 10.5px * Theme.text-scale;
         font-weight: 640;
         letter-spacing: 1px;
         color: Theme.text-muted;
     }
     if root.sub.warning != "": Text {
         text: root.sub.warning;
-        font-size: 12px;
+        font-size: 12px * Theme.text-scale;
         color: Theme.danger;
         wrap: word-wrap;
     }
 
     Text {
         text: root.sub.foot;
-        font-size: 11.5px;
+        font-size: 11.5px * Theme.text-scale;
         color: Theme.text-muted;
         overflow: elide;
     }
@@ -192,7 +192,7 @@ export component NodeRow inherits Rectangle {
             Text {
                 text: root.node.name;
                 overflow: elide;
-                font-size: 13.5px;
+                font-size: 13.5px * Theme.text-scale;
                 font-weight: 550;
                 color: Theme.text;
             }
@@ -203,33 +203,33 @@ export component NodeRow inherits Rectangle {
                 if root.node.country != "": Text {
                     text: root.node.country;
                     vertical-alignment: center;
-                    font-size: 11.5px;
+                    font-size: 11.5px * Theme.text-scale;
                     font-weight: 600;
                     color: Theme.text-dim;
                 }
                 if root.node.country != "": Text {
                     text: "·";
                     vertical-alignment: center;
-                    font-size: 11.5px;
+                    font-size: 11.5px * Theme.text-scale;
                     color: Theme.text-muted;
                 }
                 Text {
                     text: root.node.transport;
                     vertical-alignment: center;
-                    font-size: 11.5px;
+                    font-size: 11.5px * Theme.text-scale;
                     color: Theme.text-muted;
                 }
                 Text {
                     text: "·";
                     vertical-alignment: center;
-                    font-size: 11.5px;
+                    font-size: 11.5px * Theme.text-scale;
                     color: Theme.text-muted;
                 }
                 Text {
                     text: root.node.address;
                     vertical-alignment: center;
                     overflow: elide;
-                    font-size: 11.5px;
+                    font-size: 11.5px * Theme.text-scale;
                     color: Theme.text-muted;
                 }
             }
@@ -245,7 +245,7 @@ export component NodeRow inherits Rectangle {
             Text {
                 text: root.node.latency;
                 horizontal-alignment: right;
-                font-size: 12px;
+                font-size: 12px * Theme.text-scale;
                 // Многоточие ожидания приглушено, приехавшая цифра проявляется.
                 // Цветом, а не прозрачностью: полупрозрачную строку рендерер
                 // обходит целиком каждый кадр, а таких строк на экране сотня.
@@ -353,14 +353,14 @@ export component NodeGroupSection inherits VerticalLayout {
                     Text {
                         text: root.group.sub.name;
                         overflow: elide;
-                        font-size: 13.5px;
+                        font-size: 13.5px * Theme.text-scale;
                         font-weight: 550;
                         color: Theme.text;
                     }
                     Text {
                         text: root.group.sub.foot;
                         overflow: elide;
-                        font-size: 11.5px;
+                        font-size: 11.5px * Theme.text-scale;
                         color: Theme.text-muted;
                     }
                 }
@@ -376,7 +376,7 @@ export component NodeGroupSection inherits VerticalLayout {
                     }
                     Text {
                         text: root.group.sub.expiry;
-                        font-size: 14px;
+                        font-size: 14px * Theme.text-scale;
                         font-weight: 640;
                         letter-spacing: -0.2px;
                         overflow: elide;
@@ -394,7 +394,7 @@ export component NodeGroupSection inherits VerticalLayout {
                         alignment: end;
                         Text {
                             text: Str.srv-traffic-label-caps;
-                            font-size: 10.5px;
+                            font-size: 10.5px * Theme.text-scale;
                             font-weight: 640;
                             letter-spacing: 1px;
                             color: Theme.text-muted;
@@ -403,7 +403,7 @@ export component NodeGroupSection inherits VerticalLayout {
                     Text {
                         text: root.group.sub.traffic;
                         horizontal-alignment: right;
-                        font-size: 14px;
+                        font-size: 14px * Theme.text-scale;
                         font-weight: 640;
                         letter-spacing: -0.2px;
                         overflow: elide;
@@ -437,7 +437,7 @@ export component NodeGroupSection inherits VerticalLayout {
             }
             if root.group.sub.warning != "": Text {
                 text: root.group.sub.warning;
-                font-size: 12px;
+                font-size: 12px * Theme.text-scale;
                 color: Theme.danger;
                 wrap: word-wrap;
             }
@@ -490,7 +490,7 @@ export component AppIcon inherits Rectangle {
         text: root.letter;
         horizontal-alignment: center;
         vertical-alignment: center;
-        font-size: 13px;
+        font-size: 13px * Theme.text-scale;
         font-weight: 650;
         color: Theme.text-dim;
     }
@@ -529,14 +529,14 @@ export component AppRow inherits Rectangle {
             Text {
                 text: root.app.name;
                 overflow: elide;
-                font-size: 13.5px;
+                font-size: 13.5px * Theme.text-scale;
                 font-weight: 550;
                 color: Theme.text;
             }
             Text {
                 text: root.app.path == "" ? Str.split-match-by-name : root.app.path;
                 overflow: elide;
-                font-size: 11.5px;
+                font-size: 11.5px * Theme.text-scale;
                 color: Theme.text-muted;
             }
         }
@@ -596,14 +596,14 @@ export component ProcRow inherits Rectangle {
             Text {
                 text: root.proc.name;
                 overflow: elide;
-                font-size: 13.5px;
+                font-size: 13.5px * Theme.text-scale;
                 font-weight: 550;
                 color: Theme.text;
             }
             Text {
                 text: root.proc.path;
                 overflow: elide;
-                font-size: 11.5px;
+                font-size: 11.5px * Theme.text-scale;
                 color: Theme.text-muted;
             }
         }

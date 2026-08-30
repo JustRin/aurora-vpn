@@ -88,14 +88,21 @@
 
   /* Type scale. The jump from label to value is deliberately large: readable
      hierarchy comes from contrast, not from three shades of grey. */
-  --t-micro: 10.5px;
-  --t-xs: 11.5px;
-  --t-sm: 12.5px;
-  --t-base: 13.5px;
-  --t-md: 15px;
-  --t-lg: 19px;
-  --t-xl: 25px;
-  --t-display: 34px;
+  /* Arabic script reads smaller than latin at the same size — letters are told
+     apart by dots and thin tails, which run out of pixels at the 11-12px this
+     sheet uses (the sizes were judged on latin). Every interface size below is
+     multiplied by this; html[lang="ar"] raises it near the end of the sheet.
+     The monospaced core log is exempt: it stays latin in every language. */
+  --text-scale: 1;
+
+  --t-micro: calc(10.5px * var(--text-scale));
+  --t-xs: calc(11.5px * var(--text-scale));
+  --t-sm: calc(12.5px * var(--text-scale));
+  --t-base: calc(13.5px * var(--text-scale));
+  --t-md: calc(15px * var(--text-scale));
+  --t-lg: calc(19px * var(--text-scale));
+  --t-xl: calc(25px * var(--text-scale));
+  --t-display: calc(34px * var(--text-scale));
 
   --shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
 
@@ -399,7 +406,7 @@ body {
   color: var(--text);
   font-family: "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, -apple-system,
     sans-serif;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1.5;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -516,14 +523,14 @@ textarea {
 }
 
 .titlebar-title {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--text-dim);
 }
 
 .titlebar-badge {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   padding: 1px 7px;
   border-radius: 20px;
   border: 1px solid var(--border-strong);
@@ -625,7 +632,7 @@ textarea {
   border: 0;
   background: transparent;
   color: var(--text-dim);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 500;
   text-align: start;
   width: 100%;
@@ -648,7 +655,7 @@ textarea {
 }
 .nav-item .badge {
   margin-inline-start: auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -665,7 +672,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--text-muted);
 }
 
@@ -683,7 +690,7 @@ textarea {
   border-radius: 10px;
   background: linear-gradient(90deg, var(--accent-soft), transparent 92%);
   color: var(--accent-text);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 500;
   cursor: pointer;
   text-align: start;
@@ -704,7 +711,7 @@ textarea {
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -889,7 +896,7 @@ textarea {
   border: 1px solid var(--border-strong);
   background: var(--sunken);
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-family: inherit;
   outline: none;
   transition: border-color 0.13s, box-shadow 0.13s;
@@ -917,12 +924,12 @@ textarea {
   gap: 6px;
 }
 .field label {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--text-dim);
   font-weight: 500;
 }
 .field .hint {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--text-muted);
 }
 
@@ -944,11 +951,11 @@ textarea {
   border-top: 1px solid var(--border);
 }
 .toggle-label {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 500;
 }
 .toggle-desc {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 2px;
   max-width: 58ch;
@@ -1064,7 +1071,7 @@ textarea {
   gap: 5px;
   padding: 2px 8px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 550;
   border: 1px solid var(--border-strong);
   color: var(--text-dim);
@@ -1109,13 +1116,13 @@ textarea {
 .empty h3 {
   margin: 12px 0 6px;
   color: var(--text-dim);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 600;
 }
 .empty p {
   margin: 0 auto;
   max-width: 44ch;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .mono {
@@ -1609,7 +1616,7 @@ textarea {
   border: 1px solid var(--border-strong);
   background: var(--sunken);
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 500;
   font-family: inherit;
   text-align: start;
@@ -1707,7 +1714,7 @@ textarea {
 }
 
 .sub-warning {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--danger);
 }
 
@@ -1715,7 +1722,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--text-muted);
   min-width: 0;
 }
@@ -1771,11 +1778,11 @@ textarea {
 }
 
 .node-name {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 550;
 }
 .node-meta {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -1785,7 +1792,7 @@ textarea {
 
 .latency {
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   min-width: 52px;
   text-align: end;
@@ -1822,7 +1829,7 @@ textarea {
   place-items: center;
   background: linear-gradient(135deg, var(--avatar-from), var(--avatar-to));
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 650;
   flex-shrink: 0;
   text-transform: uppercase;
@@ -1957,7 +1964,7 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 .modal-title {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 650;
 }
 .modal-body {
@@ -2005,11 +2012,11 @@ textarea {
   border-color: var(--danger);
 }
 .toast-text {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 550;
 }
 .toast-detail {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 3px;
   user-select: text;
@@ -2047,7 +2054,7 @@ textarea {
 }
 
 .mode-help {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
   color: var(--text-muted);
   text-align: end;
@@ -2206,6 +2213,15 @@ textarea {
     text-align: center;
     line-height: 1.25;
   }
+}
+
+/* See --text-scale next to the type scale at the top of the sheet. */
+html[lang="ar"] { --text-scale: 1.2; }
+
+/* Arabic also needs a face that carries the glyphs — Segoe UI Variable has
+   none, and the substitute the system picks is noticeably smaller. */
+html[lang="ar"] body {
+  font-family: "Segoe UI", "Noto Naskh Arabic", "Geeza Pro", system-ui, sans-serif;
 }
 
 /* ============================================================ RTL

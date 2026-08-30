@@ -26,7 +26,7 @@ component ServerPicker inherits Rectangle {
             text: Data.active-label == "" ? Str.pick-no-server : Data.active-label;
             vertical-alignment: center;
             overflow: elide;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             color: touch.has-hover || menu.is-open ? Theme.text : Theme.text-dim;
         }
         if Data.active-latency != "": VerticalLayout {
@@ -36,7 +36,7 @@ component ServerPicker inherits Rectangle {
         if Data.active-latency != "": Text {
             text: Data.active-latency;
             vertical-alignment: center;
-            font-size: 11.5px;
+            font-size: 11.5px * Theme.text-scale;
             color: Theme.text-muted;
         }
         VerticalLayout {
@@ -120,7 +120,7 @@ component ServerPicker inherits Rectangle {
                                 Text {
                                     text: node.name;
                                     overflow: elide;
-                                    font-size: 13.5px;
+                                    font-size: 13.5px * Theme.text-scale;
                                     font-weight: 550;
                                     color: node.id == Data.active-id ? Theme.accent-text : Theme.text-dim;
                                 }
@@ -129,7 +129,7 @@ component ServerPicker inherits Rectangle {
                                         ? "\{node.proto} · \{node.transport}"
                                         : "\{node.country} · \{node.proto} · \{node.transport}";
                                     overflow: elide;
-                                    font-size: 11.5px;
+                                    font-size: 11.5px * Theme.text-scale;
                                     color: Theme.text-muted;
                                 }
                             }
@@ -143,7 +143,7 @@ component ServerPicker inherits Rectangle {
                                     text: node.latency;
                                     horizontal-alignment: right;
                                     min-width: 46px;
-                                    font-size: 11.5px;
+                                    font-size: 11.5px * Theme.text-scale;
                                     color: Theme.text-muted;
                                 }
                             }
@@ -189,14 +189,14 @@ export component DashboardPage inherits ScrollArea {
             Text {
                 text: Str.nav-dashboard;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
             Text {
                 text: Str.dash-subtitle;
                 color: Theme.text-muted;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
             }
         }
         // .mode-head: переключатель режима и пояснение под ним — то же, что на
@@ -225,7 +225,7 @@ export component DashboardPage inherits ScrollArea {
                         : Str.dash-mode-global-help;
                     horizontal-alignment: right;
                     color: Theme.text-muted;
-                    font-size: 12px;
+                    font-size: 12px * Theme.text-scale;
                     wrap: word-wrap;
                 }
             }
@@ -405,7 +405,7 @@ export component DashboardPage inherits ScrollArea {
                     Text {
                         text: Data.state-text;
                         color: Theme.text;
-                        font-size: 25px;
+                        font-size: 25px * Theme.text-scale;
                         font-weight: 680;
                         letter-spacing: -0.5px;
                     }
@@ -440,7 +440,7 @@ export component DashboardPage inherits ScrollArea {
                                 Text {
                                     text: Data.uptime;
                                     color: Theme.text-dim;
-                                    font-size: 11.5px;
+                                    font-size: 11.5px * Theme.text-scale;
                                     vertical-alignment: center;
                                 }
                             }
@@ -456,7 +456,7 @@ export component DashboardPage inherits ScrollArea {
                                 ? Str.dash-power-hint
                                 : Data.state-detail;
                             color: Data.state-detail == "" ? Theme.text-muted : Theme.danger;
-                            font-size: 12.5px;
+                            font-size: 12.5px * Theme.text-scale;
                             vertical-alignment: center;
                             max-width: 460px;
                             overflow: elide;
@@ -477,7 +477,7 @@ export component DashboardPage inherits ScrollArea {
                         Text {
                             text: Data.down-rate;
                             color: Theme.text;
-                            font-size: 25px;
+                            font-size: 25px * Theme.text-scale;
                             font-weight: 660;
                             letter-spacing: -0.5px;
                         }
@@ -490,7 +490,7 @@ export component DashboardPage inherits ScrollArea {
                         Text {
                             text: Data.up-rate;
                             color: Theme.text;
-                            font-size: 25px;
+                            font-size: 25px * Theme.text-scale;
                             font-weight: 660;
                             letter-spacing: -0.5px;
                         }
@@ -542,7 +542,7 @@ export component DashboardPage inherits ScrollArea {
                             alignment: center;
                             Rectangle { width: 9px; height: 3px; border-radius: 2px; background: Theme.chart-down; }
                         }
-                        Text { text: Str.dash-traffic-down; font-size: 11.5px; color: Theme.text-muted; vertical-alignment: center; }
+                        Text { text: Str.dash-traffic-down; font-size: 11.5px * Theme.text-scale; color: Theme.text-muted; vertical-alignment: center; }
                     }
                     HorizontalLayout {
                         spacing: 6px;
@@ -550,12 +550,12 @@ export component DashboardPage inherits ScrollArea {
                             alignment: center;
                             Rectangle { width: 9px; height: 3px; border-radius: 2px; background: Theme.chart-up; }
                         }
-                        Text { text: Str.dash-traffic-up; font-size: 11.5px; color: Theme.text-muted; vertical-alignment: center; }
+                        Text { text: Str.dash-traffic-up; font-size: 11.5px * Theme.text-scale; color: Theme.text-muted; vertical-alignment: center; }
                     }
                     Rectangle { }
                     Text {
                         text: Data.peak;
-                        font-size: 11.5px;
+                        font-size: 11.5px * Theme.text-scale;
                         color: Theme.text-muted;
                         vertical-alignment: center;
                     }

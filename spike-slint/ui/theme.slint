@@ -2,6 +2,7 @@
 // Blur-эффектов в Slint нет: стекло имитируется полупрозрачными заливками.
 
 import { Conf } from "data.slint";
+import { Str } from "i18n.slint";
 
 export global Theme {
     // Имена семейств выбирает main.rs (ui-font, mono-font): в font-family
@@ -10,6 +11,13 @@ export global Theme {
     // системе нет.
     in-out property <string> ui-font;
     in-out property <string> mono-font;
+
+    // Арабская вязь при том же кегле читается заметно мельче латиницы: буквы
+    // различаются точками и тонкими хвостами, которым на 11-12px уже не
+    // хватает пикселей. Кегли интерфейса пришли из styles.css, где их мерили
+    // на латинице, поэтому для арабского они домножаются. Моноширинный текст
+    // (журнал ядра) не переводится и остаётся как есть.
+    out property <float> text-scale: Str.lang == 6 ? 1.2 : 1.0;
 
     // Выбранная палитра: 0 Аврора, 1 Полночь, 2 Багровая, 3 Изумруд,
     // 4 Болотная, 5 Светлая — тот же порядок, что у плиток в настройках и у
@@ -211,7 +219,7 @@ export component Card inherits Rectangle {
 // поэтому и размер здесь тот же — --t-micro.
 export component SectionTitle inherits Text {
     color: Theme.text-muted;
-    font-size: 10.5px;
+    font-size: 10.5px * Theme.text-scale;
     font-weight: 640;
     letter-spacing: 1px;
 }
@@ -316,7 +324,7 @@ export component Segmented inherits Rectangle {
                 Text {
                     text: opt;
                     vertical-alignment: center;
-                    font-size: 12.5px;
+                    font-size: 12.5px * Theme.text-scale;
                     font-weight: 560;
                     color: i == root.selected
                         ? Theme.on-accent
@@ -455,7 +463,7 @@ export component NavItem inherits Rectangle {
             text: root.label;
             vertical-alignment: center;
             horizontal-stretch: 1;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             font-weight: 500;
             color: root.fg;
             animate color { duration: 120ms; }
@@ -463,7 +471,7 @@ export component NavItem inherits Rectangle {
         if root.badge != "": Text {
             text: root.badge;
             vertical-alignment: center;
-            font-size: 11px;
+            font-size: 11px * Theme.text-scale;
             color: Theme.text-muted;
         }
     }
@@ -488,7 +496,7 @@ export component CoreLine inherits HorizontalLayout {
     Text {
         text: root.label;
         vertical-alignment: center;
-        font-size: 11.5px;
+        font-size: 11.5px * Theme.text-scale;
         color: Theme.text-muted;
     }
 }
@@ -518,7 +526,7 @@ export component MicroRow inherits HorizontalLayout {
     Text {
         text: root.label;
         vertical-alignment: center;
-        font-size: 10.5px;
+        font-size: 10.5px * Theme.text-scale;
         font-weight: 640;
         letter-spacing: 1px;
         color: Theme.text-muted;
@@ -560,7 +568,7 @@ export component StatTile inherits Rectangle {
         Text {
             text: root.value;
             color: Theme.text;
-            font-size: 19px;
+            font-size: 19px * Theme.text-scale;
             font-weight: 660;
             letter-spacing: -0.4px;
         }
@@ -568,7 +576,7 @@ export component StatTile inherits Rectangle {
         Text {
             text: root.foot;
             color: Theme.text-muted;
-            font-size: 11.5px;
+            font-size: 11.5px * Theme.text-scale;
         }
     }
     touch := TouchArea {

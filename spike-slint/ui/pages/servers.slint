@@ -21,7 +21,7 @@ export component ServersPage inherits ScrollArea {
             Text {
                 text: Str.nav-servers;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
@@ -35,7 +35,7 @@ export component ServersPage inherits ScrollArea {
                     text: Str.srv-subtitle-before;
                     vertical-alignment: center;
                     color: Theme.text-muted;
-                    font-size: 12.5px;
+                    font-size: 12.5px * Theme.text-scale;
                 }
                 MonoText {
                     text: "vless://";
@@ -46,7 +46,7 @@ export component ServersPage inherits ScrollArea {
                     text: Str.srv-subtitle-after;
                     vertical-alignment: center;
                     color: Theme.text-muted;
-                    font-size: 12.5px;
+                    font-size: 12.5px * Theme.text-scale;
                 }
             }
         }
@@ -362,13 +362,13 @@ export component NodeEditorModal inherits ModalShell {
                 Text {
                     text: Str.srv-skip-cert-label;
                     color: Theme.text;
-                    font-size: 13.5px;
+                    font-size: 13.5px * Theme.text-scale;
                     font-weight: 500;
                 }
                 Text {
                     text: Str.srv-skip-cert-desc;
                     color: Theme.text-muted;
-                    font-size: 12px;
+                    font-size: 12px * Theme.text-scale;
                     wrap: word-wrap;
                 }
             }
@@ -390,13 +390,13 @@ export component NodeEditorModal inherits ModalShell {
                 Text {
                     text: Str.srv-mux-label;
                     color: Theme.text;
-                    font-size: 13.5px;
+                    font-size: 13.5px * Theme.text-scale;
                     font-weight: 500;
                 }
                 Text {
                     text: Str.srv-mux-desc;
                     color: Theme.text-muted;
-                    font-size: 12px;
+                    font-size: 12px * Theme.text-scale;
                     wrap: word-wrap;
                 }
             }

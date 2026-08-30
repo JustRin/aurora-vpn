@@ -19,14 +19,14 @@ export component SplitPage inherits ScrollArea {
             Text {
                 text: Str.nav-split;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
             Text {
                 text: Str.split-subtitle;
                 color: Theme.text-muted;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 wrap: word-wrap;
             }
         }
@@ -58,7 +58,7 @@ export component SplitPage inherits ScrollArea {
                             : Str.split-mode-exclude-help);
                     horizontal-alignment: right;
                     color: Theme.text-muted;
-                    font-size: 12px;
+                    font-size: 12px * Theme.text-scale;
                     wrap: word-wrap;
                 }
             }
@@ -171,7 +171,7 @@ export component ProcessPickerModal inherits ModalShell {
             Text {
                 text: Str.split-show-system-procs;
                 vertical-alignment: center;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 color: Theme.text-dim;
             }
         }
@@ -193,7 +193,7 @@ export component ProcessPickerModal inherits ModalShell {
             text: Ui.proc-loading ? Str.app-loading : Str.split-nothing-found;
             horizontal-alignment: center;
             color: Theme.text-muted;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
         }
         for proc[i] in Data.procs: ProcRow {
             proc: proc;

@@ -73,7 +73,7 @@ component ThemeTile inherits Rectangle {
             vertical-alignment: center;
             horizontal-stretch: 1;
             overflow: elide;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             font-weight: 500;
             color: root.on || touch.has-hover ? Theme.text : Theme.text-dim;
         }
@@ -98,13 +98,13 @@ component ValueRow inherits HorizontalLayout {
         Text {
             text: root.label;
             color: Theme.text;
-            font-size: 13.5px;
+            font-size: 13.5px * Theme.text-scale;
             font-weight: 500;
         }
         if root.desc != "": Text {
             text: root.desc;
             color: Theme.text-muted;
-            font-size: 12px;
+            font-size: 12px * Theme.text-scale;
         }
     }
     VerticalLayout {
@@ -129,14 +129,14 @@ export component SettingsPage inherits ScrollArea {
             Text {
                 text: Str.nav-settings;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
             Text {
                 text: Str.set-subtitle;
                 color: Theme.text-muted;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 wrap: word-wrap;
             }
         }
@@ -186,13 +186,13 @@ export component SettingsPage inherits ScrollArea {
             Text {
                 text: Str.set-theme;
                 color: Theme.text;
-                font-size: 13.5px;
+                font-size: 13.5px * Theme.text-scale;
                 font-weight: 500;
             }
             Text {
                 text: Str.set-theme-desc;
                 color: Theme.text-muted;
-                font-size: 12px;
+                font-size: 12px * Theme.text-scale;
                 wrap: word-wrap;
             }
             Rectangle { height: 14px; }
@@ -323,7 +323,7 @@ export component SettingsPage inherits ScrollArea {
             Text {
                 text: Str.set-resources-note;
                 color: Theme.text-muted;
-                font-size: 12px;
+                font-size: 12px * Theme.text-scale;
                 wrap: word-wrap;
             }
             ValueRow {
@@ -548,7 +548,7 @@ export component OrphanModal inherits ModalShell {
         Text {
             text: Str.orphan-why;
             color: Theme.text-dim;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             wrap: word-wrap;
         }
         // Кого именно предлагается снять: номер и путь, чтобы то же самое
@@ -578,14 +578,14 @@ export component OrphanModal inherits ModalShell {
                     alignment: center;
                     Text {
                         text: "sing-box.exe · PID \{Ui.orphan-pid} · \{Str.orphan-uptime-label} \{Ui.orphan-uptime}";
-                        font-size: 13px;
+                        font-size: 13px * Theme.text-scale;
                         font-weight: 620;
                         color: Theme.text;
                         overflow: elide;
                     }
                     MonoText {
                         text: Ui.orphan-path;
-                        font-size: 11.5px;
+                        font-size: 11.5px * Theme.text-scale;
                         color: Theme.text-muted;
                         overflow: elide;
                     }
@@ -601,7 +601,7 @@ export component OrphanModal inherits ModalShell {
         Text {
             text: Str.orphan-ask;
             color: Theme.text;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             font-weight: 600;
             wrap: word-wrap;
         }
@@ -634,7 +634,7 @@ export component ElevateModal inherits ModalShell {
                 ? Str.elev-tunnel-why
                 : Str.elev-autostart-why;
             color: Theme.text-dim;
-            font-size: 13px;
+            font-size: 13px * Theme.text-scale;
             wrap: word-wrap;
         }
         Text {
@@ -642,7 +642,7 @@ export component ElevateModal inherits ModalShell {
                 ? Str.elev-tunnel-alt
                 : Str.elev-autostart-once;
             color: Theme.text-muted;
-            font-size: 12.5px;
+            font-size: 12.5px * Theme.text-scale;
             wrap: word-wrap;
         }
     }

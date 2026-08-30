@@ -29,7 +29,7 @@ component LogRow inherits HorizontalLayout {
         text: root.line.text;
         horizontal-stretch: 1;
         font-family: Theme.mono-font;
-        font-size: 12px;
+        font-size: 12px * Theme.text-scale;
         color: Theme.log-text;
         wrap: word-wrap;
     }
@@ -47,14 +47,14 @@ export component LogsPage inherits VerticalLayout {
             Text {
                 text: Str.logs-title;
                 color: Theme.text;
-                font-size: 25px;
+                font-size: 25px * Theme.text-scale;
                 font-weight: 680;
                 letter-spacing: -0.6px;
             }
             Text {
                 text: Str.logs-subtitle;
                 color: Theme.text-muted;
-                font-size: 12.5px;
+                font-size: 12.5px * Theme.text-scale;
                 wrap: word-wrap;
             }
         }
@@ -103,7 +103,7 @@ export component LogsPage inherits VerticalLayout {
                 text: Str.logs-empty;
                 color: Theme.text-muted;
                 font-family: Theme.mono-font;
-                font-size: 12px;
+                font-size: 12px * Theme.text-scale;
             }
             for line in Data.logs: LogRow { line: line; }
         }
