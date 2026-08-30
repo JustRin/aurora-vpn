@@ -13,7 +13,7 @@
 [![Ядро](https://img.shields.io/badge/%D1%8F%D0%B4%D1%80%D0%BE-sing--box%20%2B%20Xray-22d3ee?style=flat-square)](docs/architecture.ru.md)
 [![Сайт](https://img.shields.io/badge/%D1%81%D0%B0%D0%B9%D1%82-aurora--vpn-1f2937?style=flat-square)](https://justrin.github.io/aurora-vpn/)
 
-[English](README.md) · **Русский**
+[English](README.md) · **Русский** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [العربية](README.ar.md) · [Português](README.pt.md)
 
 <img src="docs/screenshots/dashboard.png" width="840" alt="Aurora VPN — обзор">
 
@@ -54,7 +54,7 @@
 | **Переключение** | сервер и режим «по правилам»/«всё через VPN» меняются на лету, без перезапуска ядра |
 | **Автозапуск** | обычный или с правами администратора через планировщик — без UAC при каждом входе |
 | **Диагностика** | живой журнал ядра, замер задержки, просмотр итогового конфига |
-| **Оформление** | 6 палитр и режим «как в системе», русский и английский |
+| **Оформление** | 6 палитр и режим «как в системе», 7 языков интерфейса |
 
 ## Скриншоты
 

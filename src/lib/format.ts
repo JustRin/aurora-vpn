@@ -1,4 +1,4 @@
-import { tNow } from "./i18n";
+import { intlTag, langNow, tNow } from "./i18n";
 
 /** `fmt.byteUnits` is a pipe-separated list so one key covers the whole row. */
 function units(): string[] {
@@ -49,16 +49,18 @@ export function daysLeft(expireSeconds: number): number | null {
   return Math.floor(ms / 86_400_000);
 }
 
-/** Russian numeral agreement: 1 сервер, 2 сервера, 5 серверов. English only
- * distinguishes one/many, so `few` doubles as the plural there. */
+/**
+ * Numeral agreement across the shipped languages: 1 сервер, 2 сервера,
+ * 5 серверов — but also 1 servidor / 21 servidores, where the Russian
+ * tail-digit rule would wrongly pick the singular. `Intl.PluralRules` carries
+ * the CLDR rule for whichever language is active; the three slots we have are
+ * enough for all of them. Languages without agreement (zh, ja, ko) simply pass
+ * the same word three times.
+ */
 export function plural(n: number, one: string, few: string, many: string): string {
-  const abs = Math.abs(n) % 100;
-  // The teens are the exception that breaks the naive tail-digit rule.
-  if (abs > 10 && abs < 20) return many;
-  const tail = abs % 10;
-  if (tail === 1) return one;
-  if (tail >= 2 && tail <= 4) return few;
-  return many;
+  const category = new Intl.PluralRules(intlTag(langNow())).select(n);
+  // `two` and `few` share the dual/paucal slot; everything else is the plural.
+  return category === "one" ? one : category === "two" || category === "few" ? few : many;
 }
 
 /** `fmt.dayForms` carries the pipe-separated forms: "день|дня|дней" / "day|days|days". */

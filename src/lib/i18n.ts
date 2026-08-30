@@ -1,26 +1,83 @@
 /**
  * Dictionary-based i18n, deliberately tiny: a flat key → string map per
  * language, a hook that re-renders on language change, and `{var}`
- * interpolation. Russian is the reference dictionary — the English one is
+ * interpolation. Russian is the reference dictionary — every other one is
  * type-checked against it, so a missing translation is a compile error.
  *
- * The choice (`system` | `ru` | `en`) lives in Settings and is persisted by
+ * The choice (`system` or one of `LANGS`) lives in Settings and is persisted by
  * the backend; `system` follows the WebView locale.
  */
 
 import { useStore } from "../store";
+import { ar } from "./locales/ar";
 import { en } from "./locales/en";
+import { ja } from "./locales/ja";
+import { ko } from "./locales/ko";
+import { pt } from "./locales/pt";
 import { ru } from "./locales/ru";
+import { zh } from "./locales/zh";
 
-export type LangChoice = "system" | "ru" | "en";
-export type Lang = "ru" | "en";
+/** Every shipped language, in the order the settings picker shows them. */
+export const LANGS = ["ru", "en", "zh", "ja", "ko", "ar", "pt"] as const;
+
+export type Lang = (typeof LANGS)[number];
+export type LangChoice = "system" | Lang;
 export type MsgKey = keyof typeof ru;
 
-const DICTS: Record<Lang, Record<MsgKey, string>> = { ru, en };
+const DICTS: Record<Lang, Record<MsgKey, string>> = { ru, en, zh, ja, ko, ar, pt };
+
+/** Endonyms for the picker: a language is named in its own script. */
+export const LANG_NAMES: Record<Lang, string> = {
+  ru: "Русский",
+  en: "English",
+  zh: "简体中文",
+  ja: "日本語",
+  ko: "한국어",
+  ar: "العربية",
+  pt: "Português",
+};
+
+/** The only right-to-left language so far; drives `dir` on <html>. */
+const RTL: ReadonlySet<Lang> = new Set<Lang>(["ar"]);
+
+export function isRtl(lang: Lang): boolean {
+  return RTL.has(lang);
+}
+
+/**
+ * BCP-47 tags for `Intl`. The dictionaries are keyed by the bare subtag, but
+ * Chinese needs the script to pick Simplified rules.
+ */
+const INTL_TAG: Record<Lang, string> = {
+  ru: "ru",
+  en: "en",
+  zh: "zh-Hans",
+  ja: "ja",
+  ko: "ko",
+  ar: "ar",
+  pt: "pt",
+};
+
+export function intlTag(lang: Lang): string {
+  return INTL_TAG[lang];
+}
+
+/**
+ * WebView locale → shipped language. `navigator.language` hands out full tags
+ * ("pt-BR", "zh-Hans-CN"), so the match runs on the primary subtag alone.
+ */
+function systemLang(): Lang {
+  const tags = navigator.languages?.length ? navigator.languages : [navigator.language ?? ""];
+  for (const tag of tags) {
+    const primary = String(tag).toLowerCase().split("-")[0];
+    const hit = LANGS.find((lang) => lang === primary);
+    if (hit) return hit;
+  }
+  return "en";
+}
 
 export function resolveLang(choice: LangChoice): Lang {
-  if (choice === "ru" || choice === "en") return choice;
-  return /^ru\b/i.test(navigator.language) ? "ru" : "en";
+  return choice === "system" ? systemLang() : choice;
 }
 
 function format(
@@ -56,4 +113,11 @@ export function tNow(key: MsgKey, vars?: Record<string, string | number>): strin
   const choice = (useStore.getState().settings.language ??
     "system") as LangChoice;
   return format(resolveLang(choice), key, vars);
+}
+
+/** Same, for the formatters that need the language itself rather than a string. */
+export function langNow(): Lang {
+  const choice = (useStore.getState().settings.language ??
+    "system") as LangChoice;
+  return resolveLang(choice);
 }

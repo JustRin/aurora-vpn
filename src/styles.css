@@ -501,7 +501,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-left: 14px;
+  padding-inline-start: 14px;
   background: var(--bg-elevated);
   backdrop-filter: blur(18px) saturate(140%);
   border-bottom: 1px solid var(--border);
@@ -565,7 +565,7 @@ textarea {
 .sidebar {
   background: var(--bg-elevated);
   backdrop-filter: blur(18px) saturate(140%);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 14px 12px;
@@ -603,7 +603,7 @@ textarea {
 .nav-pill::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
@@ -627,7 +627,7 @@ textarea {
   color: var(--text-dim);
   font-size: 13.5px;
   font-weight: 500;
-  text-align: left;
+  text-align: start;
   width: 100%;
   cursor: default;
   /* Colour eases over roughly the pill's travel, so the label lights up as the
@@ -647,7 +647,7 @@ textarea {
   background: transparent;
 }
 .nav-item .badge {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -686,7 +686,7 @@ textarea {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
   transition: background 0.15s ease;
   /* The download fill below must not poke past the rounded corners. */
   overflow: hidden;
@@ -721,7 +721,7 @@ textarea {
 /* Download fill along the bottom edge, driven by inline width. */
 .update-badge .update-progress {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 2px;
   background: var(--accent-hi);
@@ -977,7 +977,7 @@ textarea {
   content: "";
   position: absolute;
   top: 3px;
-  left: 3px;
+  inset-inline-start: 3px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -1228,7 +1228,7 @@ textarea {
   gap: 8px;
   max-width: 100%;
   padding: 5px 10px 5px 11px;
-  margin-left: -11px;
+  margin-inline-start: -11px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
@@ -1264,7 +1264,7 @@ textarea {
 .picker-menu {
   position: absolute;
   top: calc(100% + 6px);
-  left: -11px;
+  inset-inline-start: -11px;
   z-index: 30;
   min-width: 340px;
   max-width: 440px;
@@ -1294,7 +1294,7 @@ textarea {
   background: transparent;
   color: var(--text-dim);
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   cursor: default;
   transition: background 0.12s, color 0.12s;
 }
@@ -1499,7 +1499,7 @@ textarea {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  text-align: left;
+  text-align: start;
   background: var(--panel);
   backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid var(--border);
@@ -1612,7 +1612,7 @@ textarea {
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   cursor: default;
   min-width: 0;
   transition: border-color 0.13s, color 0.13s, background 0.13s;
@@ -1788,7 +1788,7 @@ textarea {
   font-size: 12px;
   color: var(--text-dim);
   min-width: 52px;
-  text-align: right;
+  text-align: end;
 }
 
 .node-actions {
@@ -1878,7 +1878,7 @@ textarea {
 .log-level {
   flex-shrink: 0;
   width: 46px;
-  text-align: right;
+  text-align: end;
   font-weight: 600;
   opacity: 0.85;
 }
@@ -1978,7 +1978,7 @@ textarea {
 /* ============================================================ toasts */
 .toasts {
   position: fixed;
-  right: 18px;
+  inset-inline-end: 18px;
   bottom: 18px;
   display: flex;
   flex-direction: column;
@@ -2050,7 +2050,7 @@ textarea {
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-muted);
-  text-align: right;
+  text-align: end;
   /* Two lines' worth, held whatever the text: the line changes as the cursor
      crosses the switch, and a shorter one would jerk the page up. */
   min-height: 35px;
@@ -2071,7 +2071,7 @@ textarea {
     align-items: center;
     gap: 6px;
     padding: 8px 10px;
-    border-right: 0;
+    border-inline-end: 0;
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
   }
@@ -2163,7 +2163,7 @@ textarea {
     width: 100%;
   }
   .mode-help {
-    text-align: left;
+    text-align: start;
     /* No cursor to follow on a phone, so the line only changes on a tap —
        reserving a second line would just leave a gap. */
     min-height: 0;
@@ -2206,4 +2206,30 @@ textarea {
     text-align: center;
     line-height: 1.25;
   }
+}
+
+/* ============================================================ RTL
+   The rest of the sheet is written with logical properties, so `dir="rtl"`
+   on <html> mirrors the layout on its own (App sets it for Arabic). What is
+   left here are the few things CSS cannot mirror by itself: transforms in
+   pixels and gradients with an explicit angle. */
+
+/* The toggle knob is parked at the inline start and slides 18px; in a mirrored
+   track it has to slide the other way. */
+html[dir="rtl"] .switch[data-on="true"]::after {
+  transform: translateX(-18px);
+}
+
+/* Accent washes that fade away from the text: their 90deg has to become 270deg
+   so they still start at the reading edge. */
+html[dir="rtl"] .nav-pill,
+html[dir="rtl"] .update-badge {
+  background: linear-gradient(270deg, var(--accent-soft), transparent 92%);
+}
+html[dir="rtl"] .node.active {
+  background: linear-gradient(270deg, var(--accent-soft), transparent 70%),
+    var(--panel);
+}
+html[dir="rtl"] .meter span {
+  background: linear-gradient(270deg, var(--accent), var(--accent-2));
 }

@@ -39,9 +39,9 @@ use slint::Model;
 /// событийном цикле, а обновляет его Data.relabel() при смене языка.
 #[derive(Default, Clone)]
 struct Lang {
-    /// Английский ли сейчас интерфейс: по нему выбирается название страны из
-    /// базы, где переводы лежат рядом.
-    en: bool,
+    /// Брать ли английское название страны: база знает только английские и
+    /// русские, поэтому русское достаётся одному русскому интерфейсу.
+    country_en: bool,
     no_tls: String,
     latency_ms: String,
     na: String,
@@ -107,7 +107,7 @@ impl Lang {
     fn read(ui: &AppWindow) -> Self {
         let s = ui.global::<Str>();
         Self {
-            en: s.get_en(),
+            country_en: s.get_country_en(),
             no_tls: s.get_fmt_no_tls().into(),
             latency_ms: s.get_srv_latency_ms().into(),
             na: s.get_dash_na().into(),
@@ -188,6 +188,13 @@ fn tr<R>(pick: impl FnOnce(&Lang) -> R) -> R {
 /// Перечитать словарь после смены языка.
 fn reload_lang(ui: &AppWindow) {
     LANG.with(|lang| *lang.borrow_mut() = Lang::read(ui));
+    apply_ui_font(ui);
+}
+
+/// Шрифт интерфейса под текущий язык — см. ui_font().
+fn apply_ui_font(ui: &AppWindow) {
+    let lang = ui.global::<Str>().get_lang();
+    ui.global::<Theme>().set_ui_font(ui_font(lang).into());
 }
 
 /// Пересобрать амбиент-слой под текущий размер окна и палитру.
@@ -317,11 +324,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let ui = AppWindow::new()?;
-    {
-        let theme = ui.global::<Theme>();
-        theme.set_ui_font(ui_font().into());
-        theme.set_mono_font(mono_font().into());
-    }
+    ui.global::<Theme>().set_mono_font(mono_font().into());
 
     // Иконки программ добываются на отдельном потоке; сюда он стучится, когда
     // очередная пачка готова, — строки списков забирают её из кэша. Иконки
@@ -337,7 +340,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // Язык системы — для «как в системе». Читается один раз: локаль в живой
     // сессии Windows не меняется. Снимок словаря снимается сразу после, до
     // того как соберутся модели: в них строки попадают уже готовыми.
-    ui.global::<Conf>().set_system_en(!system_locale_is_ru());
+    ui.global::<Conf>().set_system_lang(system_lang());
+    apply_ui_font(&ui);
     LANG.with(|lang| *lang.borrow_mut() = Lang::read(&ui));
 
     // Ambient-слой переснимается только на новый физический размер окна:
@@ -826,25 +830,42 @@ fn ambient_image(w: u32, h: u32, bg: slint::Color, glows: [slint::Color; 3]) -> 
     slint::Image::from_rgb8(buffer)
 }
 
-/// Русская ли локаль у пользователя. Правило то же, что у resolveLang в
-/// i18n.ts: русский — только для локалей, начинающихся на ru.
+/// Языки в порядке Conf.language: индекс в массиве плюс единица и есть номер.
+/// Тот же ряд, что LANGS в i18n.ts.
+const LANGS: [&str; 7] = ["ru", "en", "zh", "ja", "ko", "ar", "pt"];
+
+/// Номер языка (1..7) по локали пользователя. Правило то же, что у systemLang
+/// в i18n.ts: локаль вида "pt-BR" или "zh-Hans-CN" сводится к первому
+/// субтегу, незнакомый язык уходит в английский.
+fn lang_index(locale: &str) -> i32 {
+    let primary = locale
+        .to_ascii_lowercase()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_string();
+    LANGS
+        .iter()
+        .position(|lang| *lang == primary)
+        .map(|i| i as i32 + 1)
+        .unwrap_or(2)
+}
+
 #[cfg(windows)]
-fn system_locale_is_ru() -> bool {
+fn system_lang() -> i32 {
     use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
     // LOCALE_NAME_MAX_LENGTH; функция возвращает длину вместе с нулём.
     let mut buffer = [0u16; 85];
     let len = unsafe { GetUserDefaultLocaleName(buffer.as_mut_ptr(), buffer.len() as i32) };
     if len <= 1 {
-        return false;
+        return 2;
     }
-    String::from_utf16_lossy(&buffer[..len as usize - 1])
-        .to_ascii_lowercase()
-        .starts_with("ru")
+    lang_index(&String::from_utf16_lossy(&buffer[..len as usize - 1]))
 }
 
 #[cfg(not(windows))]
-fn system_locale_is_ru() -> bool {
-    false
+fn system_lang() -> i32 {
+    2
 }
 
 /// Установлен ли шрифт — по файлу в системной папке: перебирать семейства
@@ -859,8 +880,26 @@ fn font_installed(file: &str) -> bool {
 /// Первое доступное семейство из стека body (styles.css). Вариативный Segoe
 /// появился только в Windows 11; без подмены fontique на Windows 10 ушёл бы в
 /// свой generic sans-serif — в Arial, а не в статический Segoe UI.
+///
+/// Для китайского, японского и корейского Segoe не подходит: своих иероглифов
+/// у него нет, а подстановка приводит первый попавшийся CJK-шрифт — на пробном
+/// кадре упрощённый китайский так и остался с дырами вместо 务, 连 и 迟. Поэтому
+/// у каждого из трёх языков берётся системный шрифт своей письменности; заодно
+/// это снимает ханьскую унификацию, из-за которой японский текст японским
+/// шрифтом и китайским выглядит по-разному.
 #[cfg(windows)]
-fn ui_font() -> &'static str {
+fn ui_font(lang: i32) -> &'static str {
+    let cjk = match LANGS.get((lang - 1).max(0) as usize) {
+        Some(&"zh") => Some(("msyh.ttc", "Microsoft YaHei UI")),
+        Some(&"ja") => Some(("YuGothR.ttc", "Yu Gothic UI")),
+        Some(&"ko") => Some(("malgun.ttf", "Malgun Gothic")),
+        _ => None,
+    };
+    if let Some((file, family)) = cjk {
+        if font_installed(file) {
+            return family;
+        }
+    }
     if font_installed("SegUIVar.ttf") {
         "Segoe UI Variable Display"
     } else {
@@ -880,7 +919,7 @@ fn mono_font() -> &'static str {
 }
 
 #[cfg(not(windows))]
-fn ui_font() -> &'static str {
+fn ui_font(_lang: i32) -> &'static str {
     ""
 }
 

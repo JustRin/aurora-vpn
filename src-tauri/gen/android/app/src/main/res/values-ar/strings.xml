@@ -1,0 +1,6 @@
+<resources>
+    <string name="vpn_channel_name">نفق VPN</string>
+    <string name="vpn_active">النفق نشط</string>
+    <string name="vpn_disconnect">قطع الاتصال</string>
+    <string name="vpn_alerts_channel_name">إشعارات القواعد</string>
+</resources>

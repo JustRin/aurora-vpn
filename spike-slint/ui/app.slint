@@ -169,8 +169,8 @@ export component AppWindow inherits Window {
     changed palette => { root.ambient-resize(); }
     // Смена языка: строки, которые собрал Rust, надо пересобрать заново —
     // разметка свои перечитает сама.
-    property <bool> lang-en: Str.en;
-    changed lang-en => { Data.relabel(); }
+    property <int> lang: Str.lang;
+    changed lang => { Data.relabel(); }
 
     // Настройки сохраняются сами, без кнопки «Применить», — как в веб-версии.
     // Одна строка вместо двух десятков changed: сработает на любое поле, а

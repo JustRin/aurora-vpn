@@ -1,0 +1,6 @@
+<resources>
+    <string name="vpn_channel_name">VPN 터널</string>
+    <string name="vpn_active">터널이 활성 상태입니다</string>
+    <string name="vpn_disconnect">연결 끊기</string>
+    <string name="vpn_alerts_channel_name">규칙 알림</string>
+</resources>

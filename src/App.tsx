@@ -1,7 +1,7 @@
 import { useEffect, type ComponentType } from "react";
 
 import { api } from "./lib/api";
-import { useT } from "./lib/i18n";
+import { isRtl, useLang, useT } from "./lib/i18n";
 
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
@@ -25,10 +25,18 @@ const PAGES: Record<PageId, ComponentType> = {
 
 export default function App() {
   const t = useT();
+  const lang = useLang();
   const page = useStore((s) => s.page);
   const navigate = useStore((s) => s.navigate);
   const ready = useStore((s) => s.ready);
   const loadError = useStore((s) => s.loadError);
+
+  // Writing direction follows the language: the stylesheet is built on logical
+  // properties, so flipping `dir` mirrors the whole layout on its own.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = isRtl(lang) ? "rtl" : "ltr";
+  }, [lang]);
 
   // PrintScreen reaches the webview only as a keyup. While the app runs
   // elevated, UIPI hides the key from the unelevated Snipping Tool listener,

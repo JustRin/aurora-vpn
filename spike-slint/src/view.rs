@@ -417,7 +417,7 @@ fn active_label(node: &ServerNode, country: Option<&Country>) -> String {
 
 /// Название страны на языке интерфейса; без перевода — код.
 fn country_name(country: &Country) -> &str {
-    let name = if tr(|l| l.en) { &country.en } else { &country.ru };
+    let name = if tr(|l| l.country_en) { &country.en } else { &country.ru };
     if name.is_empty() {
         &country.code
     } else {

@@ -222,9 +222,12 @@ export global Conf {
     in-out property <bool> auto-select: false;
     in-out property <int> sub-auto: 2;      // 0 никогда … 4 раз в сутки
 
-    in-out property <int> language: 0;      // 0 как в системе, 1 ru, 2 en
+    // 0 как в системе, дальше по порядку Str.LANGS: 1 ru, 2 en, 3 zh, 4 ja,
+    // 5 ko, 6 ar, 7 pt.
+    in-out property <int> language: 0;
     // Язык системы — для language == 0; ведёт main.rs по локали Windows.
-    in-out property <bool> system-en: false;
+    // Значение из того же ряда 1..7, нуля здесь не бывает.
+    in-out property <int> system-lang: 2;
     // dark | midnight | crimson | emerald | swamp | light | system
     in-out property <string> theme: "dark";
     // Тёмная ли тема у Windows — для theme == "system". Ведёт main.rs и

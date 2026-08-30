@@ -150,19 +150,38 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
 /// English rather than guessing.
 #[cfg(desktop)]
 pub(crate) fn resolve_lang(choice: &str) -> &'static str {
-    match choice {
-        "ru" => "ru",
-        "en" => "en",
-        _ => sys_locale::get_locale()
-            .map(|l| if l.to_lowercase().starts_with("ru") { "ru" } else { "en" })
-            .unwrap_or("en"),
-    }
+    LANGS
+        .iter()
+        .copied()
+        .find(|lang| *lang == choice)
+        .unwrap_or_else(|| {
+            // `system`: the OS locale is a full tag ("pt-BR", "zh-Hans-CN"), so
+            // the match runs on the primary subtag alone — same rule as
+            // systemLang() in i18n.ts.
+            sys_locale::get_locale()
+                .and_then(|locale| {
+                    let primary = locale.to_lowercase();
+                    let primary = primary.split(['-', '_']).next().unwrap_or("").to_string();
+                    LANGS.iter().copied().find(|lang| *lang == primary)
+                })
+                .unwrap_or("en")
+        })
 }
+
+/// The shipped languages, mirroring `LANGS` in `src/lib/i18n.ts`.
+#[cfg(desktop)]
+const LANGS: [&str; 7] = ["ru", "en", "zh", "ja", "ko", "ar", "pt"];
 
 #[cfg(desktop)]
 fn tray_menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    // Mirrors the `tray.*` keys of the web dictionaries in src/lib/locales.
     let [show, connect, disconnect, quit] = match lang {
         "ru" => ["Показать окно", "Подключить", "Отключить", "Выход"],
+        "zh" => ["显示窗口", "连接", "断开", "退出"],
+        "ja" => ["ウィンドウを表示", "接続", "切断", "終了"],
+        "ko" => ["창 표시", "연결", "연결 끊기", "종료"],
+        "ar" => ["إظهار النافذة", "اتصال", "قطع الاتصال", "خروج"],
+        "pt" => ["Mostrar a janela", "Conectar", "Desconectar", "Sair"],
         _ => ["Show window", "Connect", "Disconnect", "Quit"],
     };
     let show = MenuItemBuilder::with_id("show", show).build(app)?;

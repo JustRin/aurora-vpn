@@ -13,7 +13,7 @@ TUN mode, per-app split tunneling and rule-based routing — on Windows, Android
 [![Core](https://img.shields.io/badge/core-sing--box%20%2B%20Xray-22d3ee?style=flat-square)](docs/architecture.md)
 [![Site](https://img.shields.io/badge/site-aurora--vpn-1f2937?style=flat-square)](https://justrin.github.io/aurora-vpn/)
 
-**English** · [Русский](README.ru.md)
+**English** · [Русский](README.ru.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [العربية](README.ar.md) · [Português](README.pt.md)
 
 <img src="docs/screenshots/dashboard.png" width="840" alt="Aurora VPN — overview">
 
@@ -54,7 +54,7 @@ The project has applied to the [SignPath Foundation](https://signpath.org) (free
 | **Switching** | server and rules/everything-via-VPN mode change live, without restarting the core |
 | **Autostart** | plain, or elevated through Task Scheduler — no UAC prompt at every login |
 | **Diagnostics** | live core log, latency test, generated-config viewer |
-| **Looks** | 6 palettes plus *follow system*, English and Russian |
+| **Looks** | 6 palettes plus *follow system*, 7 interface languages |
 
 ## Screenshots
 

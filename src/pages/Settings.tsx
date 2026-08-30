@@ -5,7 +5,7 @@ import { ElevateModal } from "../components/ElevateModal";
 import { Field, Segmented, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { bytes } from "../lib/format";
-import { useT, type MsgKey } from "../lib/i18n";
+import { LANGS, LANG_NAMES, useT, type MsgKey } from "../lib/i18n";
 import { IS_ANDROID } from "../lib/platform";
 import { THEMES } from "../lib/themes";
 import {
@@ -312,15 +312,22 @@ export function Settings() {
                 <div className="toggle-label">{t("set.language")}</div>
                 <div className="toggle-desc">{t("set.languageDesc")}</div>
               </div>
-              <Segmented<LangChoice>
+              {/* A select rather than a segmented track: seven languages plus
+                  “follow system” do not fit on one row. */}
+              <select
+                className="select"
                 value={settings.language ?? "system"}
-                onChange={(language) => void save({ language })}
-                options={[
-                  { value: "system", label: t("set.langSystem") },
-                  { value: "ru", label: "Русский" },
-                  { value: "en", label: "English" },
-                ]}
-              />
+                onChange={(e) =>
+                  void save({ language: e.target.value as LangChoice })
+                }
+              >
+                <option value="system">{t("set.langSystem")}</option>
+                {LANGS.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {LANG_NAMES[lang]}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

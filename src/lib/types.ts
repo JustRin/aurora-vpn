@@ -47,7 +47,11 @@ export interface ServerNode {
 export type TunnelMode = "tun" | "systemProxy";
 export type TunStack = "mixed" | "system" | "gvisor";
 
-export type LangChoice = "system" | "ru" | "en";
+// The shipped languages live next to the dictionaries; re-exported here so the
+// settings shape below still reads as one piece. `import type` is erased, so
+// this does not pull i18n (and the store behind it) into a runtime cycle.
+import type { LangChoice } from "./i18n";
+export type { LangChoice };
 
 export interface Settings {
   /** `system` follows the OS locale; mirrored to Rust for the tray menu. */

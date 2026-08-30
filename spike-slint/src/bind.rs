@@ -197,11 +197,14 @@ fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
             .position(|m| *m == s.sub_auto_update_min)
             .unwrap_or(4) as i32,
     );
-    conf.set_language(match s.language.as_str() {
-        "ru" => 1,
-        "en" => 2,
-        _ => 0,
-    });
+    // 0 — «как в системе», дальше по порядку crate::LANGS.
+    conf.set_language(
+        crate::LANGS
+            .iter()
+            .position(|lang| *lang == s.language)
+            .map(|i| i as i32 + 1)
+            .unwrap_or(0),
+    );
     conf.set_theme(s.theme.as_str().into());
     conf.set_auto_connect(s.auto_connect);
     conf.set_start_minimized(s.start_minimized);
@@ -249,8 +252,10 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
             .copied()
             .unwrap_or(1440),
         language: match conf.get_language() {
-            1 => "ru".into(),
-            2 => "en".into(),
+            n if n >= 1 => crate::LANGS
+                .get(n as usize - 1)
+                .map(|lang| (*lang).to_string())
+                .unwrap_or_else(|| "system".into()),
             _ => "system".into(),
         },
         theme: conf.get_theme().to_string(),

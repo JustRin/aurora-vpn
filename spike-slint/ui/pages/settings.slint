@@ -168,9 +168,13 @@ export component SettingsPage inherits ScrollArea {
             StackRow {
                 label: Str.set-language;
                 desc: Str.set-language-desc;
-                Segmented {
-                    options: [Str.theme-system, "Русский", "English"];
-                    selected <=> Conf.language;
+                // Восемь вариантов в одну дорожку Segmented не помещаются,
+                // поэтому язык выбирается списком — как уровень журнала ниже.
+                Select {
+                    min-width: 190px;
+                    options: [Str.theme-system, Str.lang-names[0], Str.lang-names[1], Str.lang-names[2],
+                              Str.lang-names[3], Str.lang-names[4], Str.lang-names[5], Str.lang-names[6]];
+                    current <=> Conf.language;
                 }
             }
         }

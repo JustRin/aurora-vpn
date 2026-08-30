@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,6 +27,11 @@
     font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
     overflow-x: hidden;
   }
+  /* Arabic needs a face that actually carries the glyphs — the latin stack
+     above degrades into a ransom note on several systems. */
+  html[dir="rtl"] body {
+    font-family: "Segoe UI", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", system-ui, sans-serif;
+  }
   /* The app's ambient layer: three soft drifting glows. */
   .ambient {
     position: fixed;
@@ -46,17 +51,28 @@
 
   .wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 0 22px 80px; }
 
+  /* Logical inset, so the picker jumps to the other edge under dir="rtl". */
   .lang-switch {
-    position: absolute; top: 18px; right: 22px;
-    display: flex; gap: 2px;
+    position: absolute; top: 18px; inset-inline-end: 22px;
     border: 1px solid var(--border); border-radius: 999px;
-    background: var(--panel); padding: 3px;
+    background: var(--panel); backdrop-filter: blur(14px) saturate(140%);
   }
-  .lang-switch button {
-    border: 0; background: transparent; color: var(--text-muted);
-    font: 600 12.5px/1 inherit; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  .lang-switch::after {
+    content: ""; position: absolute; inset-inline-end: 13px; top: 50%;
+    width: 7px; height: 7px; margin-top: -5px; pointer-events: none;
+    border-right: 1.6px solid var(--text-muted);
+    border-bottom: 1.6px solid var(--text-muted);
+    transform: rotate(45deg);
   }
-  .lang-switch button.on { background: var(--accent-soft); color: var(--accent-text); }
+  .lang-switch select {
+    appearance: none; -webkit-appearance: none;
+    border: 0; background: transparent; color: var(--accent-text);
+    font: 600 12.5px/1 inherit; cursor: pointer; border-radius: 999px;
+    padding-block: 9px; padding-inline: 14px 30px;
+  }
+  .lang-switch select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The native dropdown ignores the transparent parent, so paint it here. */
+  .lang-switch option { background: #141824; color: var(--text); }
 
   header { padding: 84px 0 30px; text-align: center; }
   .logo {
@@ -88,6 +104,11 @@
     box-shadow: 0 6px 26px rgba(124, 58, 237, 0.35);
   }
   .btn.primary:hover { background: linear-gradient(135deg, #9d74f8, var(--accent-hi)); }
+  /* Platform names and the version tag are latin: keep them running
+     left-to-right even while the page around them is flipped. */
+  html[dir="rtl"] .btn { direction: ltr; }
+  html[dir="rtl"] .btn.primary { direction: rtl; }
+  html[dir="rtl"] #ver { direction: ltr; unicode-bidi: isolate; }
   .note { text-align: center; color: var(--text-muted); font-size: 13.5px; margin-top: 14px; }
   .note a { color: var(--accent-text); }
 
@@ -114,9 +135,16 @@
 <body>
 <div class="ambient"></div>
 <div class="wrap">
-  <div class="lang-switch" role="group" aria-label="Language">
-    <button id="lang-ru" onclick="setLang('ru')">RU</button>
-    <button id="lang-en" onclick="setLang('en')">EN</button>
+  <div class="lang-switch">
+    <select id="lang-select" aria-label="Language" onchange="setLang(this.value)">
+      <option value="en">English</option>
+      <option value="ru">Русский</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="ja">日本語</option>
+      <option value="ko">한국어</option>
+      <option value="ar">العربية</option>
+      <option value="pt">Português</option>
+    </select>
   </div>
 
   <header>
@@ -165,7 +193,7 @@
       c5h: "Два движка",
       c5p: "sing-box как основной; узлы с VLESS Encryption и XHTTP прозрачно уходят через Xray-core. Выбор автоматический, задержки меряются одинаково.",
       c6h: "Интерфейс",
-      c6p: "Живой журнал ядра, замер задержек, переключение Rule / Global / Direct без перезапуска, русский и английский языки, шесть тем оформления.",
+      c6p: "Живой журнал ядра, замер задержек, переключение Rule / Global / Direct без перезапуска, семь языков интерфейса, шесть тем оформления.",
       open: 'Код открыт (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>Нашли проблему? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> ждут.',
       footer: 'Собран на <a href="https://github.com/SagerNet/sing-box">sing-box</a> и <a href="https://tauri.app">Tauri</a> · Aurora VPN не хранит и не собирает данные пользователей — приложение общается только с вашим сервером и GitHub (обновления и гео-наборы).',
     },
@@ -185,15 +213,125 @@
       c5h: "Two engines",
       c5p: "sing-box as the primary; servers needing VLESS Encryption or XHTTP go through Xray-core transparently. Selection is automatic, latency is measured the same way.",
       c6h: "Interface",
-      c6p: "Live core log, latency tests, Rule / Global / Direct switching without a restart, Russian and English languages, six themes.",
+      c6p: "Live core log, latency tests, Rule / Global / Direct switching without a restart, seven interface languages, six themes.",
       open: 'Open source (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>Found a problem? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> welcome.',
       footer: 'Built on <a href="https://github.com/SagerNet/sing-box">sing-box</a> and <a href="https://tauri.app">Tauri</a> · Aurora VPN stores and collects no user data — the app only talks to your server and to GitHub (updates and geo sets).',
     },
+    "zh-CN": {
+      tagline: "面向 VLESS、VMess、Trojan、Shadowsocks、Hysteria2 和 TUIC 服务器的开源客户端：REALITY、TUN 模式、分应用代理与基于规则的路由。",
+      taglineSub: "支持任意面板 —— 3x-ui、Marzban 等 —— 也支持单独的服务器。MIT 许可证。",
+      download: "下载",
+      note: "所有构建都在发布页，校验和一并提供。Windows 版安装后会自动更新。",
+      c1h: "协议",
+      c1p: "VLESS（含 REALITY 与 VLESS Encryption）、VMess、Trojan、Shadowsocks、Hysteria2、TUIC。导入链接与订阅 —— 套餐余量直接显示在主界面。",
+      c2h: "TUN 模式",
+      c2p: "虚拟网卡接管整个系统的流量。Windows 上使用 Wintun；Android 上 sing-box 运行在 VpnService 进程内，与 Hiddify、NekoBox 的做法相同。",
+      c3h: "分应用代理",
+      c3p: "「仅选中的应用走 VPN」或「选中的应用绕过 VPN」—— 按应用设置，并把同样的规则同步到 DNS，避免域名解析绕开既定路由而泄露。",
+      c4h: "路由",
+      c4p: "RU/CN 地理规则集、广告拦截、自定义域名与网段列表。规则集缓存在本地 —— 即便无法访问 GitHub，隧道照样能建立。",
+      c5h: "双引擎",
+      c5p: "以 sing-box 为主；需要 VLESS Encryption 或 XHTTP 的节点会透明地交给 Xray-core。引擎自动选择，延迟测量方式完全一致。",
+      c6h: "界面",
+      c6p: "实时内核日志、延迟测试、Rule / Global / Direct 免重启切换，七种界面语言，六套主题。",
+      open: '开源项目（MIT）—— <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>。<br>发现问题？欢迎提交 <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a>。',
+      footer: '基于 <a href="https://github.com/SagerNet/sing-box">sing-box</a> 与 <a href="https://tauri.app">Tauri</a> 构建 · Aurora VPN 不存储也不收集用户数据 —— 应用只与你的服务器和 GitHub（更新与地理规则集）通信。',
+    },
+    ja: {
+      tagline: "VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC サーバー向けのオープンソースクライアント：REALITY、TUN モード、スプリットトンネリング、ルールベースのルーティング。",
+      taglineSub: "3x-ui や Marzban をはじめ、どのパネルでも、単体のサーバーでも動きます。MIT ライセンス。",
+      download: "ダウンロード",
+      note: "すべてのビルドはリリースページにあり、チェックサムも揃っています。Windows 版はインストール後、自動で更新されます。",
+      c1h: "プロトコル",
+      c1p: "VLESS（REALITY と VLESS Encryption を含む）、VMess、Trojan、Shadowsocks、Hysteria2、TUIC。リンクとサブスクリプションを取り込み、プランの残量はメイン画面にそのまま表示されます。",
+      c2h: "TUN モード",
+      c2p: "仮想アダプターがシステム全体の通信を受け取ります。Windows では Wintun、Android では Hiddify や NekoBox と同じく、プロセス内の VpnService で sing-box が動きます。",
+      c3h: "スプリットトンネリング",
+      c3p: "「選んだアプリだけ VPN 経由」または「選んだアプリだけ VPN 除外」— アプリ単位で設定し、同じ規則を DNS にも反映するので、名前解決だけが経路から漏れることはありません。",
+      c4h: "ルーティング",
+      c4p: "RU/CN の地域セット、広告ブロック、独自のドメイン・サブネットリスト。セットはローカルにキャッシュされるため、GitHub に届かない環境でもトンネルは張れます。",
+      c5h: "2 つのエンジン",
+      c5p: "主軸は sing-box。VLESS Encryption や XHTTP が必要なサーバーは透過的に Xray-core を通ります。選択は自動で、レイテンシの測り方も共通です。",
+      c6h: "インターフェース",
+      c6p: "コアのライブログ、レイテンシ計測、Rule / Global / Direct の再起動なし切り替え、7 つの表示言語、6 種類のテーマ。",
+      open: 'オープンソース（MIT）— <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>。<br>問題を見つけたら <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> へどうぞ。',
+      footer: '<a href="https://github.com/SagerNet/sing-box">sing-box</a> と <a href="https://tauri.app">Tauri</a> の上に構築 · Aurora VPN はユーザーのデータを保存も収集もしません — 通信相手はあなたのサーバーと GitHub（更新と地域セット）だけです。',
+    },
+    ko: {
+      tagline: "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC 서버를 위한 오픈소스 클라이언트: REALITY, TUN 모드, 분할 터널링, 규칙 기반 라우팅.",
+      taglineSub: "3x-ui, Marzban 등 어떤 패널과도, 단독 서버와도 함께 동작합니다. MIT 라이선스.",
+      download: "다운로드",
+      note: "모든 빌드는 릴리스 페이지에 체크섬과 함께 있습니다. Windows에서는 설치 후 앱이 스스로 업데이트합니다.",
+      c1h: "프로토콜",
+      c1p: "VLESS(REALITY 및 VLESS Encryption 포함), VMess, Trojan, Shadowsocks, Hysteria2, TUIC. 링크와 구독을 가져오고, 요금제 잔여량은 메인 화면에 바로 표시됩니다.",
+      c2h: "TUN 모드",
+      c2p: "가상 어댑터가 시스템 전체의 트래픽을 받습니다. Windows에서는 Wintun을, Android에서는 Hiddify·NekoBox와 마찬가지로 프로세스 안의 VpnService에서 sing-box를 실행합니다.",
+      c3h: "분할 터널링",
+      c3p: "「선택한 앱만 VPN 경유」 또는 「선택한 앱만 VPN 제외」 — 앱 단위로 설정하고, 같은 규칙을 DNS에도 반영해 이름 조회가 경로 밖으로 새지 않습니다.",
+      c4h: "라우팅",
+      c4p: "RU/CN 지역 세트, 광고 차단, 직접 만든 도메인·서브넷 목록. 세트는 로컬에 캐시되므로 GitHub에 닿지 않는 환경에서도 터널이 올라옵니다.",
+      c5h: "두 개의 엔진",
+      c5p: "기본은 sing-box이며, VLESS Encryption이나 XHTTP가 필요한 서버는 투명하게 Xray-core를 거칩니다. 선택은 자동이고 지연 시간 측정 방식은 동일합니다.",
+      c6h: "인터페이스",
+      c6p: "코어 실시간 로그, 지연 시간 측정, 재시작 없는 Rule / Global / Direct 전환, 7가지 인터페이스 언어, 6가지 테마.",
+      open: '오픈소스(MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>문제를 발견하셨나요? <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a>에서 기다리고 있습니다.',
+      footer: '<a href="https://github.com/SagerNet/sing-box">sing-box</a>와 <a href="https://tauri.app">Tauri</a> 기반 · Aurora VPN은 사용자 데이터를 저장하지도 수집하지도 않습니다 — 앱은 사용자의 서버와 GitHub(업데이트 및 지역 세트)하고만 통신합니다.',
+    },
+    ar: {
+      tagline: "عميل مفتوح المصدر لخوادم VLESS وVMess وTrojan وShadowsocks وHysteria2 وTUIC: تقنية REALITY، ووضع TUN، وتقسيم النفق، والتوجيه بالقواعد.",
+      taglineSub: "يعمل مع أي لوحة — 3x-ui وMarzban وغيرها — ومع الخوادم المفردة كذلك. برخصة MIT.",
+      download: "تنزيل",
+      note: "كل النسخ في صفحة الإصدارات ومعها المجاميع الاختبارية. وعلى Windows يحدّث التطبيق نفسه بعد التثبيت.",
+      c1h: "البروتوكولات",
+      c1p: "‏VLESS (بما فيه REALITY وVLESS Encryption)، وVMess، وTrojan، وShadowsocks، وHysteria2، وTUIC. استيراد الروابط والاشتراكات — مع ما تبقّى من الباقة على الشاشة الرئيسية مباشرة.",
+      c2h: "وضع TUN",
+      c2p: "محوّل افتراضي يلتقط حركة النظام كلها. على Windows عبر Wintun، وعلى Android يعمل sing-box داخل VpnService في العملية نفسها، تمامًا كما يفعل Hiddify وNekoBox.",
+      c3h: "تقسيم النفق",
+      c3p: "«التطبيقات المحددة فقط عبر VPN» أو «التطبيقات المحددة تتجاوز VPN» — لكل تطبيق على حدة، مع تكرار القواعد نفسها في DNS حتى لا تتسرّب طلبات الأسماء خارج المسار.",
+      c4h: "التوجيه",
+      c4p: "مجموعات جغرافية RU/CN، وحجب الإعلانات، وقوائم نطاقات وشبكات فرعية خاصة بك. تُحفظ المجموعات محليًا، فيرتفع النفق حتى حيث يتعذّر الوصول إلى GitHub.",
+      c5h: "محرّكان",
+      c5p: "‏sing-box هو الأساس، والخوادم التي تحتاج VLESS Encryption أو XHTTP تمرّ عبر Xray-core بشفافية. الاختيار تلقائي، وقياس زمن الاستجابة واحد في الحالتين.",
+      c6h: "الواجهة",
+      c6p: "سجل حي للنواة، وقياس زمن الاستجابة، وتبديل Rule / Global / Direct دون إعادة تشغيل، وسبع لغات للواجهة، وست سمات.",
+      open: 'مفتوح المصدر (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>وجدت مشكلة؟ صفحة <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> بانتظارك.',
+      footer: 'مبني على <a href="https://github.com/SagerNet/sing-box">sing-box</a> و<a href="https://tauri.app">Tauri</a> · لا يخزّن Aurora VPN بيانات المستخدمين ولا يجمعها — فالتطبيق لا يتصل إلا بخادمك وبـ GitHub (للتحديثات والمجموعات الجغرافية).',
+    },
+    pt: {
+      tagline: "Cliente de código aberto para servidores VLESS, VMess, Trojan, Shadowsocks, Hysteria2 e TUIC: REALITY, modo TUN, túnel dividido e roteamento por regras.",
+      taglineSub: "Funciona com qualquer painel — 3x-ui, Marzban e outros — ou com um servidor avulso. Licença MIT.",
+      download: "Baixar",
+      note: "Todas as versões ficam na página de releases, com os checksums. No Windows, o aplicativo se atualiza sozinho depois de instalado.",
+      c1h: "Protocolos",
+      c1p: "VLESS (incluindo REALITY e VLESS Encryption), VMess, Trojan, Shadowsocks, Hysteria2, TUIC. Importa links e assinaturas — com o saldo do seu plano direto na tela principal.",
+      c2h: "Modo TUN",
+      c2p: "Um adaptador virtual captura o tráfego de todo o sistema. No Windows, via Wintun; no Android, o sing-box roda dentro do VpnService, do mesmo jeito que Hiddify e NekoBox fazem.",
+      c3h: "Túnel dividido",
+      c3p: "“Só os aplicativos escolhidos pela VPN” ou “os escolhidos ficam de fora” — por aplicativo, com as regras espelhadas no DNS para que as consultas de nome não vazem fora da rota.",
+      c4h: "Roteamento",
+      c4p: "Conjuntos geográficos RU/CN, bloqueio de anúncios, listas próprias de domínios e sub-redes. Os conjuntos ficam em cache local — o túnel sobe até onde o GitHub é inalcançável.",
+      c5h: "Dois núcleos",
+      c5p: "O sing-box é o principal; servidores que precisam de VLESS Encryption ou XHTTP passam pelo Xray-core de forma transparente. A escolha é automática e a latência é medida do mesmo jeito.",
+      c6h: "Interface",
+      c6p: "Log ao vivo do núcleo, testes de latência, troca entre Rule / Global / Direct sem reiniciar, sete idiomas de interface e seis temas.",
+      open: 'Código aberto (MIT) — <a href="https://github.com/JustRin/aurora-vpn">github.com/JustRin/aurora-vpn</a>.<br>Encontrou um problema? A aba <a href="https://github.com/JustRin/aurora-vpn/issues">Issues</a> está aberta.',
+      footer: 'Construído sobre <a href="https://github.com/SagerNet/sing-box">sing-box</a> e <a href="https://tauri.app">Tauri</a> · O Aurora VPN não armazena nem coleta dados dos usuários — o aplicativo só conversa com o seu servidor e com o GitHub (atualizações e conjuntos geográficos).',
+    },
   };
 
+  // Arabic is the only right-to-left locale here.
+  const RTL = new Set(["ar"]);
+
+  // navigator.language hands out full tags ("pt-BR", "zh-Hans-CN"), so the
+  // match runs on the primary subtag alone: every Chinese variant lands on
+  // zh-CN, every Portuguese one on pt.
+  const BY_PRIMARY = { en: "en", ru: "ru", zh: "zh-CN", ja: "ja", ko: "ko", ar: "ar", pt: "pt" };
+
   function setLang(lang) {
-    const dict = I18N[lang] || I18N.en;
+    if (!I18N[lang]) lang = "en";
+    const dict = I18N[lang];
     document.documentElement.lang = lang;
+    document.documentElement.dir = RTL.has(lang) ? "rtl" : "ltr";
     for (const el of document.querySelectorAll("[data-i18n]")) {
       el.textContent = dict[el.dataset.i18n] || "";
     }
@@ -201,14 +339,24 @@
     // dictionaries above (static strings, nothing user-supplied).
     document.getElementById("open-line").innerHTML = dict.open;
     document.getElementById("footer-line").innerHTML = dict.footer;
-    document.getElementById("lang-ru").classList.toggle("on", lang === "ru");
-    document.getElementById("lang-en").classList.toggle("on", lang === "en");
+    document.getElementById("lang-select").value = lang;
     try { localStorage.setItem("lang", lang); } catch {}
+  }
+
+  function detectLang() {
+    const tags = navigator.languages && navigator.languages.length
+      ? navigator.languages
+      : [navigator.language || ""];
+    for (const tag of tags) {
+      const hit = BY_PRIMARY[String(tag).toLowerCase().split("-")[0]];
+      if (hit) return hit;
+    }
+    return "en";
   }
 
   let saved = null;
   try { saved = localStorage.getItem("lang"); } catch {}
-  setLang(saved || (/^ru\b/i.test(navigator.language) ? "ru" : "en"));
+  setLang(saved && I18N[saved] ? saved : detectLang());
 
   // Cosmetic: show the latest version on the download button when the API allows.
   fetch("https://api.github.com/repos/JustRin/aurora-vpn/releases/latest")
