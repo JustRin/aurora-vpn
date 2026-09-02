@@ -29,3 +29,9 @@
 -keep class com.aurora.vpn.VpnPlugin { *; }
 -keep class com.aurora.vpn.StartArgs { *; }
 -keep class com.aurora.vpn.AuroraVpnService { *; }
+-keep class com.aurora.vpn.WatchArgs { *; }
+-keep class com.aurora.vpn.SyncArgs { *; }
+
+# gomobile calls the handler's methods by name through go.Seq.
+-keep class com.aurora.vpn.StatsClient { *; }
+-keep class com.aurora.vpn.BoxPlatform { *; }

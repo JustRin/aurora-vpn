@@ -3,4 +3,24 @@
     <string name="vpn_active">トンネルは有効です</string>
     <string name="vpn_disconnect">切断</string>
     <string name="vpn_alerts_channel_name">ルールの通知</string>
+
+    <string name="widget_toggle_name">Aurora VPN · スイッチ</string>
+    <string name="widget_compact_name">Aurora VPN · ステータス</string>
+    <string name="widget_full_name">Aurora VPN · トラフィック</string>
+    <string name="widget_toggle_desc">ワンタップで接続・切断</string>
+    <string name="widget_compact_desc">スイッチ、状態、現在の速度</string>
+    <string name="widget_full_desc">スイッチ、サーバー、速度、セッションの通信量と時間</string>
+    <string name="widget_state_off">未接続</string>
+    <string name="widget_state_connecting">接続中…</string>
+    <string name="widget_state_on">接続済み</string>
+    <string name="widget_state_no_link">サーバー応答なし</string>
+    <string name="widget_state_error">エラー</string>
+    <string name="widget_tap_to_connect">タップして接続</string>
+    <string name="widget_no_server">サーバー未選択</string>
+    <string name="widget_err_no_config">アプリを開いて一度接続してください</string>
+    <string name="widget_err_no_consent">アプリを開いて VPN を許可してください</string>
+    <string name="widget_err_generic">詳細はアプリで確認</string>
+    <string name="widget_session">セッション</string>
+    <string name="widget_byte_units">B|KB|MB|GB|TB</string>
+    <string name="widget_per_second">/秒</string>
 </resources>

@@ -3,4 +3,24 @@
     <string name="vpn_active">Туннель активен</string>
     <string name="vpn_disconnect">Отключить</string>
     <string name="vpn_alerts_channel_name">Уведомления правил</string>
+
+    <string name="widget_toggle_name">Aurora VPN · Кнопка</string>
+    <string name="widget_compact_name">Aurora VPN · Статус</string>
+    <string name="widget_full_name">Aurora VPN · Трафик</string>
+    <string name="widget_toggle_desc">Подключение и отключение одним нажатием</string>
+    <string name="widget_compact_desc">Переключатель, статус и текущая скорость</string>
+    <string name="widget_full_desc">Переключатель, сервер, скорость, трафик и время сеанса</string>
+    <string name="widget_state_off">Отключено</string>
+    <string name="widget_state_connecting">Подключение…</string>
+    <string name="widget_state_on">Подключено</string>
+    <string name="widget_state_no_link">Сервер не отвечает</string>
+    <string name="widget_state_error">Ошибка</string>
+    <string name="widget_tap_to_connect">Нажмите, чтобы подключиться</string>
+    <string name="widget_no_server">Сервер не выбран</string>
+    <string name="widget_err_no_config">Откройте приложение и подключитесь один раз</string>
+    <string name="widget_err_no_consent">Откройте приложение и разрешите VPN</string>
+    <string name="widget_err_generic">Подробности в приложении</string>
+    <string name="widget_session">Сеанс</string>
+    <string name="widget_byte_units">Б|КБ|МБ|ГБ|ТБ</string>
+    <string name="widget_per_second">/с</string>
 </resources>

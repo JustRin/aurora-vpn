@@ -7,4 +7,33 @@
     <string name="vpn_active">Tunnel is active</string>
     <string name="vpn_disconnect">Disconnect</string>
     <string name="vpn_alerts_channel_name">Rule notifications</string>
+
+    <!-- Home-screen widgets and the quick-settings tile. -->
+    <string name="widget_toggle_name">Aurora VPN · Button</string>
+    <string name="widget_compact_name">Aurora VPN · Status</string>
+    <string name="widget_full_name">Aurora VPN · Traffic</string>
+    <string name="widget_toggle_desc">Connect or disconnect with one tap</string>
+    <string name="widget_compact_desc">Switch with status and current speed</string>
+    <string name="widget_full_desc">Switch, server, speed, session traffic and time</string>
+    <string name="widget_state_off">Disconnected</string>
+    <string name="widget_state_connecting">Connecting…</string>
+    <string name="widget_state_on">Connected</string>
+    <string name="widget_state_no_link">Server not responding</string>
+    <string name="widget_state_error">Error</string>
+    <string name="widget_tap_to_connect">Tap to connect</string>
+    <string name="widget_no_server">No server selected</string>
+    <string name="widget_err_no_config">Open the app and connect once</string>
+    <string name="widget_err_no_consent">Open the app to allow the VPN</string>
+    <string name="widget_err_generic">Open the app for details</string>
+    <string name="widget_session">Session</string>
+    <!-- Pipe-separated, mirrors fmt.byteUnits / fmt.perSecond of the web app. -->
+    <string name="widget_byte_units">B|KB|MB|GB|TB</string>
+    <string name="widget_per_second">/s</string>
+    <!-- Sample values the widget picker shows in the bare layout; the renderer
+         replaces them the moment a widget is placed. -->
+    <string name="widget_preview_server" translatable="false">Amsterdam</string>
+    <string name="widget_preview_down" translatable="false">1.2 MB/s</string>
+    <string name="widget_preview_up" translatable="false">96 KB/s</string>
+    <string name="widget_preview_down_total" translatable="false">3.4 GB</string>
+    <string name="widget_preview_up_total" translatable="false">412 MB</string>
 </resources>

@@ -430,10 +430,33 @@ pub fn run() {
                 commands::apply_window_theme(&window, dark, &background);
             }
 
+            #[cfg(desktop)]
             if auto_connect && has_nodes {
                 let handle = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let _ = commands::connect(handle).await;
+                });
+            }
+
+            // Виджеты и плитка живут без Rust: подписка на их события, и
+            // туннель, поднятый до приложения (виджетом, плиткой или
+            // перезапуском сервиса после того, как система убила процесс),
+            // становится нашим — тогда автоподключение не нужно. Не в самом
+            // хуке: вызов плагина идёт через главный поток Android, а хук
+            // выполняется на нём.
+            #[cfg(target_os = "android")]
+            {
+                let handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = crate::core::android::watch(&handle) {
+                        eprintln!("{e}");
+                    }
+                    if commands::adopt_running_tunnel(&handle).await {
+                        return;
+                    }
+                    if auto_connect && has_nodes {
+                        let _ = commands::connect(handle).await;
+                    }
                 });
             }
 

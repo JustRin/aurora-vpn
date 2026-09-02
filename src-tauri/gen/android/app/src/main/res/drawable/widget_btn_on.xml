@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Connected: aurora gradient disc inside a soft glow. Every button state
+     keeps the same 5dp glow band, so the disc never changes size on toggle. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/widget_on_glow" />
+        </shape>
+    </item>
+    <item
+        android:bottom="5dp"
+        android:left="5dp"
+        android:right="5dp"
+        android:top="5dp">
+        <shape android:shape="oval">
+            <gradient
+                android:angle="315"
+                android:endColor="@color/widget_on_b"
+                android:startColor="@color/widget_on_a"
+                android:type="linear" />
+        </shape>
+    </item>
+</layer-list>

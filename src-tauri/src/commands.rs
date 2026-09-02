@@ -69,6 +69,24 @@ pub struct ImportReport {
 pub fn emit_status(app: &AppHandle) {
     let state = app.state::<AppState>();
     let status = state.status.read().clone();
+    // Виджеты и плитка показывают имя сервера и жива ли связь — это знает
+    // только Rust, и узнаёт он об этом здесь.
+    #[cfg(target_os = "android")]
+    {
+        let id = if status.routed_id.is_empty() {
+            &status.active_id
+        } else {
+            &status.routed_id
+        };
+        let name = state
+            .nodes
+            .read()
+            .iter()
+            .find(|n| &n.id == id)
+            .map(|n| n.name.clone())
+            .unwrap_or_default();
+        crate::core::android::sync_status(app, &status, name);
+    }
     let _ = app.emit(EVT_STATUS, status);
 }
 
@@ -245,12 +263,16 @@ fn required_rule_sets(split: &SplitConfig) -> Vec<ruleset::Spec> {
     tags.into_iter().filter_map(ruleset::spec).collect()
 }
 
-/// Render the current model into a sing-box document and remember the tag map.
-fn build_and_write(
+/// Render the current model into a sing-box document with the given control
+/// secret. `build_and_write` uses this process's own secret; the adoption of a
+/// tunnel started without the app compares against the secret already in the
+/// running document.
+fn build_document(
     state: &AppState,
+    clash_secret: &str,
     xray_ports: &HashMap<String, u16>,
     rule_sets: &HashSet<String>,
-) -> Result<Value> {
+) -> Result<config::BuiltConfig> {
     let nodes = effective_nodes(state);
     let settings = state.settings.read().clone();
     let split = state.split.read().clone();
@@ -260,12 +282,12 @@ fn build_and_write(
     #[cfg(target_os = "android")]
     let xray_exe: Option<std::path::PathBuf> = None;
 
-    let built = config::build(&BuildInput {
+    config::build(&BuildInput {
         nodes: &nodes,
         active_id: &active_id,
         settings: &settings,
         split: &split,
-        clash_secret: &state.secret,
+        clash_secret,
         cache_path: &state.paths.cache_file,
         xray_ports,
         xray_exe: xray_exe.as_deref(),
@@ -273,7 +295,16 @@ fn build_and_write(
         rule_set_dir: &state.paths.rule_set_dir,
         #[cfg(target_os = "android")]
         log_file: &state.paths.log_file,
-    })?;
+    })
+}
+
+/// Render the current model into a sing-box document and remember the tag map.
+fn build_and_write(
+    state: &AppState,
+    xray_ports: &HashMap<String, u16>,
+    rule_sets: &HashSet<String>,
+) -> Result<Value> {
+    let built = build_document(state, &state.secret, xray_ports, rule_sets)?;
 
     *state.tags.write() = built.tags.iter().cloned().collect();
     *state.candidates.write() = built.candidates.clone();
@@ -300,6 +331,29 @@ const FAST_CRASH_LIMIT: u32 = 3;
 /// лечится (битый конфиг, занятый порт): после трёх таких подряд остановка с
 /// честным сообщением.
 async fn handle_core_death(app: &AppHandle, session: u64, uptime_ms: Option<i64>) {
+    // На Android ядро в процессе не падает само — его останавливают: пользователь
+    // из уведомления, виджета или шторки, либо система, отдав VPN другому
+    // клиенту. Ни то ни другое перезапуском не лечится — это чистое отключение.
+    #[cfg(target_os = "android")]
+    {
+        let reason = {
+            let state = app.state::<AppState>();
+            let core = state.core.lock();
+            core.status().map(|s| s.stop_reason).unwrap_or_default()
+        };
+        match reason.as_str() {
+            "user" => {
+                shutdown(app, "");
+                return;
+            }
+            "revoked" => {
+                shutdown(app, REVOKED_MESSAGE);
+                return;
+            }
+            _ => {}
+        }
+    }
+
     let detail = core_error_line(app)
         .unwrap_or_else(|| "ядро неожиданно завершилось — подробности в журнале".into());
 
@@ -1152,6 +1206,20 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         return Err(AppError::msg(detail));
     }
 
+    attach_session(&app, session, api, tunnel_mode, mixed_port, now_ms()).await
+}
+
+/// Всё после того, как панель ядра ответила: стартовый узел для селектора,
+/// системный прокси, статус «Подключено» и фоновые задачи сеанса. Общая часть
+/// своего подключения и подхвата чужого (`adopt_running_tunnel`).
+async fn attach_session(
+    app: &AppHandle,
+    session: u64,
+    api: ClashApi,
+    tunnel_mode: TunnelMode,
+    mixed_port: u16,
+    since_ms: i64,
+) -> Result<()> {
     {
         let state = app.state::<AppState>();
         *state.clash.write() = Some(api.clone());
@@ -1173,22 +1241,22 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
     };
     if let Some(tag) = &initial_tag {
         if let Err(e) = api.select(TAG_PROXY, tag).await {
-            log_line(&app, "warn", format!("не удалось указать стартовый сервер ({e})"));
+            log_line(app, "warn", format!("не удалось указать стартовый сервер ({e})"));
         }
     }
 
     // ---- post-connect wiring ---------------------------------------------
     if tunnel_mode == TunnelMode::SystemProxy {
         if let Err(e) = sysproxy::enable(mixed_port) {
-            shutdown(&app, &format!("не удалось включить системный прокси: {e}"));
+            shutdown(app, &format!("не удалось включить системный прокси: {e}"));
             return Err(e);
         }
     }
 
-    set_status(&app, |s| {
+    set_status(app, |s| {
         s.state = ConnState::Connected;
         s.message.clear();
-        s.since_ms = Some(now_ms());
+        s.since_ms = Some(since_ms);
         s.routed_id = initial_id.unwrap_or_default();
         // Туннель поднят, но «Подключено» на экране появится после первой
         // удачной проверки сервера — её сделает сторож через секунду-другую.
@@ -1200,6 +1268,173 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
     spawn_engine_probe(app.clone(), session);
     spawn_balancer(app.clone(), session);
     Ok(())
+}
+
+// ------------------------------------------------------ туннель без Rust
+
+#[cfg(target_os = "android")]
+const REVOKED_MESSAGE: &str = "система отозвала VPN — туннель занял другой клиент";
+
+/// Что-то случилось с туннелем помимо Rust: виджет или плитка подняли его,
+/// кто-то опустил, либо ярлык попросил подключиться. События шлёт
+/// `VpnPlugin.watch` (core/android.rs).
+#[cfg(target_os = "android")]
+pub async fn on_service_event(app: AppHandle, event: crate::core::android::ServiceEvent) {
+    let live = || {
+        let state = app.state::<AppState>();
+        let live = matches!(
+            state.status.read().state,
+            ConnState::Connected | ConnState::Connecting
+        );
+        live
+    };
+    match event.kind.as_str() {
+        "started" => {
+            if event.source == "external" {
+                adopt_running_tunnel(&app).await;
+            }
+        }
+        "stopped" => {
+            if !live() {
+                return;
+            }
+            match event.reason.as_str() {
+                "user" => shutdown(&app, ""),
+                "revoked" => shutdown(&app, REVOKED_MESSAGE),
+                // Ядро остановилось само или не поднялось: этим займётся
+                // поллер трафика — у него предохранитель от бут-лупа.
+                _ => {}
+            }
+        }
+        "connectRequested" => {
+            if live() {
+                return;
+            }
+            if let Err(e) = connect(app.clone()).await {
+                // Просил ярлык, а не экран — тост показать некому; причина
+                // остаётся в статусе, откуда её видно на «Обзоре».
+                shutdown(&app, &e.to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Подхватить туннель, поднятый без приложения: виджетом, плиткой или
+/// перезапуском сервиса после того, как система убила процесс. Сервис поднял
+/// последний сгенерированный конфиг; если приложение собрало бы сейчас тот же
+/// документ, туннель остаётся как есть и просто становится нашим — панель,
+/// поллеры, балансировщик. Иначе — перезапуск с актуальным. Возвращает, есть
+/// ли в итоге подключение под управлением Rust.
+#[cfg(target_os = "android")]
+pub async fn adopt_running_tunnel(app: &AppHandle) -> bool {
+    let snapshot = {
+        let state = app.state::<AppState>();
+        if matches!(
+            state.status.read().state,
+            ConnState::Connected | ConnState::Connecting
+        ) {
+            return true;
+        }
+        let core = state.core.lock();
+        core.status()
+    };
+    let Some(snapshot) = snapshot.filter(|s| s.running) else {
+        return false;
+    };
+
+    // Документ, с которым живёт ядро, и его секрет для панели.
+    let (config_path, clash_port) = {
+        let state = app.state::<AppState>();
+        let port = state.settings.read().clash_port;
+        (state.paths.config_file.clone(), port)
+    };
+    let running: Option<Value> = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok());
+    let clash = running.as_ref().map(|c| &c["experimental"]["clash_api"]);
+    let secret = clash.and_then(|c| c["secret"].as_str()).map(str::to_owned);
+    let port = clash
+        .and_then(|c| c["external_controller"].as_str())
+        .and_then(|address| address.rsplit(':').next())
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(clash_port);
+
+    // Собрало бы приложение сейчас тот же документ? Секрет берётся из файла —
+    // иначе документы разошлись бы из-за него одного.
+    let fresh = {
+        let state = app.state::<AppState>();
+        let split = state.split.read().clone();
+        secret.as_deref().and_then(|secret| {
+            build_document(
+                &state,
+                secret,
+                &HashMap::new(),
+                &cached_rule_sets(&state.paths.rule_set_dir, &split),
+            )
+            .ok()
+        })
+    };
+    let (Some(secret), Some(built), Some(running)) = (secret, fresh, running) else {
+        // Файл не читается или документ не собирается — честный перезапуск.
+        return connect_inner(app.clone()).await.is_ok();
+    };
+    if built.json != running {
+        log_line(
+            app,
+            "info",
+            "туннель поднят без приложения, но настройки с тех пор изменились — перезапускаю",
+        );
+        return connect_inner(app.clone()).await.is_ok();
+    }
+
+    let api = ClashApi::new(port, &secret);
+    if api.version().await.is_err() {
+        log_line(
+            app,
+            "warn",
+            "туннель поднят без приложения, но панель ядра не отвечает — перезапускаю",
+        );
+        return connect_inner(app.clone()).await.is_ok();
+    }
+
+    let (session, active) = {
+        let state = app.state::<AppState>();
+        *state.tags.write() = built.tags.iter().cloned().collect();
+        *state.candidates.write() = built.candidates.clone();
+        state.fast_crashes.store(0, Ordering::SeqCst);
+        let session = state.session.fetch_add(1, Ordering::SeqCst) + 1;
+        (session, state.resolve_active_id())
+    };
+    set_status(app, |s| {
+        s.state = ConnState::Connecting;
+        s.message.clear();
+        s.tunnel_mode = TunnelMode::Tun;
+        s.active_id = active;
+    });
+    {
+        let state = app.state::<AppState>();
+        let log_app = app.clone();
+        state.core.lock().attach(move |line: LogLine| {
+            let _ = log_app.emit(EVT_LOG, line);
+        });
+    }
+    let since = if snapshot.started_at_ms > 0 {
+        snapshot.started_at_ms
+    } else {
+        now_ms()
+    };
+    let attached = attach_session(app, session, api, TunnelMode::Tun, 0, since)
+        .await
+        .is_ok();
+    if attached {
+        log_line(
+            app,
+            "info",
+            "туннель был поднят виджетом или плиткой — подключение подхвачено",
+        );
+    }
+    attached
 }
 
 #[tauri::command]

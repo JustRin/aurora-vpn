@@ -1,5 +1,6 @@
 package com.aurora.vpn
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
@@ -35,6 +36,37 @@ class MainActivity : TauriActivity() {
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    handleLaunchIntent(intent)
+  }
+
+  /** `singleTask`: a widget or tile opening the running app lands here. */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    handleLaunchIntent(intent)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    // Opening the app answers whatever the service could not do alone —
+    // a widget showing «open the app» has been obeyed.
+    if (VpnState.lastError.isNotEmpty() && VpnState.phase == Phase.IDLE) {
+      VpnState.lastError = ""
+      VpnState.lastErrorHint = 0
+      TunnelBus.changed(this)
+    }
+  }
+
+  /**
+   * A widget or the tile wanted a connection the service could not make on
+   * its own (VPN consent still to be granted, or no config yet) and opened
+   * the app for it. The request goes to Rust — right away if its runtime is
+   * up, otherwise the moment it subscribes. The extra is cleared so an
+   * activity recreated from this intent does not connect again.
+   */
+  private fun handleLaunchIntent(intent: Intent?) {
+    if (intent?.getBooleanExtra(EXTRA_CONNECT, false) != true) return
+    intent.removeExtra(EXTRA_CONNECT)
+    VpnState.requestConnect()
   }
 
   /**
@@ -64,12 +96,15 @@ class MainActivity : TauriActivity() {
     claimRecreation = false
   }
 
-  private companion object {
+  companion object {
+    /** Boolean extra: connect as soon as the Rust runtime is listening. */
+    const val EXTRA_CONNECT = "com.aurora.vpn.extra.CONNECT"
+
     /** `WryActivity`'s own key for the id, private there and mirrored here. */
-    const val WRY_ACTIVITY_ID = "__wryActivityId"
+    private const val WRY_ACTIVITY_ID = "__wryActivityId"
 
     /** Survives the activity, not the process — exactly the lifetime wanted. */
     @Volatile
-    var lastActivityId: Int? = null
+    private var lastActivityId: Int? = null
   }
 }

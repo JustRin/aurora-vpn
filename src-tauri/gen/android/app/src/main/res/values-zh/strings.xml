@@ -3,4 +3,24 @@
     <string name="vpn_active">隧道已启用</string>
     <string name="vpn_disconnect">断开</string>
     <string name="vpn_alerts_channel_name">规则通知</string>
+
+    <string name="widget_toggle_name">Aurora VPN · 开关</string>
+    <string name="widget_compact_name">Aurora VPN · 状态</string>
+    <string name="widget_full_name">Aurora VPN · 流量</string>
+    <string name="widget_toggle_desc">一键连接或断开</string>
+    <string name="widget_compact_desc">开关、状态和当前速度</string>
+    <string name="widget_full_desc">开关、服务器、速度、本次流量和时长</string>
+    <string name="widget_state_off">未连接</string>
+    <string name="widget_state_connecting">连接中…</string>
+    <string name="widget_state_on">已连接</string>
+    <string name="widget_state_no_link">服务器无响应</string>
+    <string name="widget_state_error">错误</string>
+    <string name="widget_tap_to_connect">点按以连接</string>
+    <string name="widget_no_server">未选择服务器</string>
+    <string name="widget_err_no_config">请打开应用并连接一次</string>
+    <string name="widget_err_no_consent">请打开应用并允许 VPN</string>
+    <string name="widget_err_generic">详情请查看应用</string>
+    <string name="widget_session">本次</string>
+    <string name="widget_byte_units">B|KB|MB|GB|TB</string>
+    <string name="widget_per_second">/秒</string>
 </resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark home screen: a near-black glass card, same accents as by day. -->
+    <color name="widget_card">#F20F121A</color>
+    <color name="widget_card_stroke">#1FFFFFFF</color>
+    <color name="widget_text">#F1F5F9</color>
+    <color name="widget_text_dim">#94A3B8</color>
+    <color name="widget_chip">#14FFFFFF</color>
+    <color name="widget_btn_off">#262C3A</color>
+    <color name="widget_icon_off">#94A3B8</color>
+</resources>

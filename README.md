@@ -56,6 +56,7 @@ The project has applied to the [SignPath Foundation](https://signpath.org) (free
 | **Autostart** | plain, or elevated through Task Scheduler — no UAC prompt at every login |
 | **Diagnostics** | live core log, latency test, generated-config viewer |
 | **Looks** | 6 palettes plus *follow system*, 7 interface languages |
+| **Android** | home-screen widgets — a button, status with speed, the full card with session traffic and time — plus a quick-settings tile; connects without opening the app |
 
 ## Screenshots
 

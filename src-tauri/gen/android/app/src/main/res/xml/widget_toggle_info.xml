@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 1×1: the power button. Sizes follow Android's 70·n − 30 dp rule for n cells. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_toggle_desc"
+    android:initialLayout="@layout/widget_toggle"
+    android:minWidth="40dp"
+    android:minHeight="40dp"
+    android:previewImage="@drawable/widget_preview_toggle"
+    android:previewLayout="@layout/widget_toggle"
+    android:resizeMode="none"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

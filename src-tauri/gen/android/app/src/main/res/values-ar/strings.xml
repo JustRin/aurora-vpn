@@ -3,4 +3,24 @@
     <string name="vpn_active">النفق نشط</string>
     <string name="vpn_disconnect">قطع الاتصال</string>
     <string name="vpn_alerts_channel_name">إشعارات القواعد</string>
+
+    <string name="widget_toggle_name">Aurora VPN · زر</string>
+    <string name="widget_compact_name">Aurora VPN · الحالة</string>
+    <string name="widget_full_name">Aurora VPN · حركة البيانات</string>
+    <string name="widget_toggle_desc">اتصال أو قطع بلمسة واحدة</string>
+    <string name="widget_compact_desc">زر مع الحالة والسرعة الحالية</string>
+    <string name="widget_full_desc">زر، الخادم، السرعة، بيانات الجلسة ووقتها</string>
+    <string name="widget_state_off">غير متصل</string>
+    <string name="widget_state_connecting">جارٍ الاتصال…</string>
+    <string name="widget_state_on">متصل</string>
+    <string name="widget_state_no_link">الخادم لا يستجيب</string>
+    <string name="widget_state_error">خطأ</string>
+    <string name="widget_tap_to_connect">اضغط للاتصال</string>
+    <string name="widget_no_server">لم يتم اختيار خادم</string>
+    <string name="widget_err_no_config">افتح التطبيق واتصل مرة واحدة</string>
+    <string name="widget_err_no_consent">افتح التطبيق واسمح بـ VPN</string>
+    <string name="widget_err_generic">التفاصيل في التطبيق</string>
+    <string name="widget_session">الجلسة</string>
+    <string name="widget_byte_units">بايت|ك.بايت|م.بايت|غ.بايت|ت.بايت</string>
+    <string name="widget_per_second">/ث</string>
 </resources>

@@ -9,6 +9,13 @@
 //! → libbox `StartOrReloadService(config)`. The Clash API on loopback stays
 //! the control plane afterwards, exactly as on desktop.
 //!
+//! The tunnel also has a life of its own: home-screen widgets and the
+//! quick-settings tile start it from the last generated config without any
+//! Rust runtime, and the notification, the widgets and the system can stop it
+//! behind Rust's back. [`watch`] subscribes to those events, [`sync_status`]
+//! sends Rust's own view the other way so the widgets can show the server's
+//! name and whether it answers.
+//!
 //! Logs: the generated config points `log.output` at a file in the work dir
 //! (in-process libbox has no stdout to capture); a tail task feeds those lines
 //! into the shared ring buffer and the `app://log` event stream.
@@ -21,11 +28,13 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::plugin::{Builder as PluginBuilder, PluginHandle, TauriPlugin};
 use tauri::{AppHandle, Manager, Runtime, Wry};
 
 use crate::core::log::{classify, LogBuffer, LogLine};
 use crate::error::{AppError, Result};
+use crate::state::{ConnState, Link, Status};
 
 /// Handle to the Kotlin `VpnPlugin`, registered once at startup.
 pub struct VpnHandle(pub PluginHandle<Wry>);
@@ -62,15 +71,29 @@ struct OkResponse {
     ok: bool,
 }
 
-#[derive(Deserialize)]
+/// What the service reports about itself.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct StatusResponse {
-    running: bool,
+pub struct StatusResponse {
+    pub running: bool,
+    /// `idle` · `starting` · `running`.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub phase: String,
     /// Present in the payload for adb-level debugging; the UI reads errors
     /// from the log pipeline instead.
     #[serde(default)]
     #[allow(dead_code)]
-    last_error: String,
+    pub last_error: String,
+    /// Who brought the tunnel down last: `user` (notification, widget, tile),
+    /// `revoked` (the system gave the VPN to another app), `core` (libbox
+    /// stopped itself), `error` (the start failed) — or empty when Rust did.
+    #[serde(default)]
+    pub stop_reason: String,
+    /// Wall clock of the moment the box came up, for the uptime clock of a
+    /// tunnel Rust adopts rather than starts.
+    #[serde(default)]
+    pub started_at_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +158,103 @@ pub fn list_packages(app: &AppHandle) -> Result<Vec<PackageInfo>> {
     Ok(resp.packages)
 }
 
+// ------------------------------------------------------------- events
+
+/// Something happened to the tunnel that Rust did not do itself.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceEvent {
+    /// `started` · `stopped` · `connectRequested`.
+    pub kind: String,
+    /// For `started`: `external` when a widget, the tile or a sticky restart
+    /// brought the tunnel up.
+    #[serde(default)]
+    pub source: String,
+    /// For `stopped`: same vocabulary as [`StatusResponse::stop_reason`].
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+struct WatchPayload {
+    channel: Channel<serde_json::Value>,
+}
+
+/// Keeps the subscription's channel alive for the life of the app.
+pub struct ServiceWatch(#[allow(dead_code)] Channel<serde_json::Value>);
+
+/// Subscribe to the service's events. Each one is handed to
+/// `commands::on_service_event` on the async runtime: the channel callback
+/// runs on whichever Kotlin thread sent the event — possibly the main one,
+/// which every plugin call has to go through — so nothing may call back into
+/// the plugin from inside it.
+pub fn watch(app: &AppHandle) -> Result<()> {
+    let handle = plugin(app)?;
+    let owner = app.clone();
+    let channel: Channel<serde_json::Value> = Channel::new(move |body: InvokeResponseBody| {
+        match body.deserialize::<ServiceEvent>() {
+            Ok(event) => {
+                let app = owner.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::commands::on_service_event(app, event).await;
+                });
+            }
+            Err(e) => eprintln!("событие VPN-сервиса не разобрано: {e}"),
+        }
+        Ok(())
+    });
+    handle
+        .0
+        .run_mobile_plugin::<OkResponse>(
+            "watch",
+            WatchPayload {
+                channel: channel.clone(),
+            },
+        )
+        .map_err(|e| AppError::msg(format!("не удалось подписаться на события VPN-сервиса: {e}")))?;
+    app.manage(ServiceWatch(channel));
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncPayload {
+    seq: u64,
+    state: ConnState,
+    link: Link,
+    server_name: String,
+    since_ms: i64,
+}
+
+/// Ordering guard for [`sync_status`]: deliveries can overtake each other on
+/// the blocking pool, and the Kotlin side drops anything older than what it
+/// has.
+static SYNC_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Hand the widgets and the tile Rust's view of the connection — the server's
+/// name and whether it answers, which only Rust knows. Fire-and-forget on a
+/// worker thread: a plugin call goes through the Android main thread, and the
+/// caller may be on it.
+pub fn sync_status(app: &AppHandle, status: &Status, server_name: String) {
+    let payload = SyncPayload {
+        seq: SYNC_SEQ.fetch_add(1, Ordering::SeqCst) + 1,
+        state: status.state,
+        link: status.link,
+        server_name,
+        since_ms: status.since_ms.unwrap_or(0),
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(handle) = plugin(&app) {
+            let _ = handle
+                .0
+                .run_mobile_plugin::<OkResponse>("syncStatus", payload);
+        }
+    });
+}
+
+// ------------------------------------------------------------- engine
+
 pub struct AndroidEngine {
     app: AppHandle,
     log_file: PathBuf,
@@ -165,15 +285,17 @@ impl AndroidEngine {
         ))
     }
 
-    pub fn is_running(&mut self) -> bool {
-        let Ok(handle) = plugin(&self.app) else {
-            return false;
-        };
+    /// The service's own account of itself; `None` when the bridge is down.
+    pub fn status(&self) -> Option<StatusResponse> {
+        let handle = plugin(&self.app).ok()?;
         handle
             .0
             .run_mobile_plugin::<StatusResponse>("status", Empty {})
-            .map(|s| s.running)
-            .unwrap_or(false)
+            .ok()
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        self.status().map(|s| s.running).unwrap_or(false)
     }
 
     /// Hand the generated config to the service and start the tunnel. The call
@@ -200,6 +322,17 @@ impl AndroidEngine {
 
         self.spawn_tail(on_log);
         Ok(0)
+    }
+
+    /// Follow the log of a tunnel this runtime did not start — a widget or the
+    /// tile did. The file is left alone: it holds the session so far, and the
+    /// tail starts from its beginning.
+    pub fn attach<F>(&mut self, on_log: F)
+    where
+        F: Fn(LogLine) + Send + Sync + 'static,
+    {
+        self.logs.lock().clear();
+        self.spawn_tail(on_log);
     }
 
     pub fn stop(&mut self) {

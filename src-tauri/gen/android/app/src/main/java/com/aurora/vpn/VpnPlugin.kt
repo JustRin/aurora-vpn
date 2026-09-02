@@ -15,6 +15,7 @@ import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
@@ -24,6 +25,21 @@ import io.nekohasekai.libbox.Libbox
 @InvokeArg
 class StartArgs {
     var configPath: String = ""
+}
+
+@InvokeArg
+class WatchArgs {
+    lateinit var channel: Channel
+}
+
+@InvokeArg
+class SyncArgs {
+    /** Monotonic: a late delivery must not overwrite a newer status. */
+    var seq: Long = 0
+    var state: String = ""
+    var link: String = ""
+    var serverName: String = ""
+    var sinceMs: Long = 0
 }
 
 /**
@@ -96,7 +112,8 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun stop(invoke: Invoke) {
-        VpnState.service?.stopTunnel()
+        // Rust's own decision: no reason to record, it already knows.
+        VpnState.service?.stopTunnel(StopReason.NONE)
         invoke.resolve(JSObject().put("ok", true))
     }
 
@@ -105,13 +122,62 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(
             JSObject()
                 .put("running", VpnState.running)
-                .put("lastError", VpnState.lastError),
+                .put("phase", VpnState.phase.name.lowercase())
+                .put("lastError", VpnState.lastError)
+                .put("stopReason", VpnState.stopReason)
+                .put("startedAtMs", VpnState.startedAtMs),
         )
     }
 
     @Command
     fun version(invoke: Invoke) {
         invoke.resolve(JSObject().put("version", Libbox.version()))
+    }
+
+    // ------------------------------------------------------------ outside
+
+    /**
+     * Subscribe Rust to what happens to the tunnel behind its back: a widget
+     * or the tile starting it (`started`), anything stopping it (`stopped`,
+     * with the reason), and the launcher asking for a connection the service
+     * could not make alone (`connectRequested`).
+     */
+    @Command
+    fun watch(invoke: Invoke) {
+        val args = invoke.parseArgs(WatchArgs::class.java)
+        val channel = args.channel
+        VpnState.sink = { kind, extras ->
+            val payload = JSObject().put("kind", kind)
+            for ((key, value) in extras) payload.put(key, value)
+            channel.send(payload)
+        }
+        // A request that arrived before Rust was listening.
+        VpnState.flushPending()
+        invoke.resolve(JSObject().put("ok", true))
+    }
+
+    /**
+     * Rust's view of the connection, pushed on every status change: the
+     * widgets and the tile show the server's name and whether it answers —
+     * things only Rust knows.
+     */
+    @Command
+    fun syncStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(SyncArgs::class.java)
+        if (args.seq >= VpnState.rust.seq) {
+            VpnState.rust = RustStatus(
+                seq = args.seq,
+                state = args.state,
+                link = args.link,
+                serverName = args.serverName,
+                sinceMs = args.sinceMs,
+            )
+            if (args.serverName.isNotEmpty()) {
+                TunnelPrefs.saveServerName(activity, args.serverName)
+            }
+            TunnelBus.changed(activity)
+        }
+        invoke.resolve(JSObject().put("ok", true))
     }
 
     // ------------------------------------------------------------ packages

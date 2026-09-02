@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two rows, two or three cells: big button on top, then state, server and
+     speeds, all centred. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <ImageView
+        android:id="@+id/btn"
+        android:layout_width="62dp"
+        android:layout_height="62dp"
+        android:background="@drawable/widget_btn_on"
+        android:contentDescription="@string/widget_state_off"
+        android:padding="17dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_power" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/state_dot"
+            android:layout_width="7dp"
+            android:layout_height="7dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_dot"
+            android:tint="@color/widget_ok" />
+
+        <TextView
+            android:id="@+id/state"
+            android:text="@string/widget_state_on"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:singleLine="true"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/server"
+        android:text="@string/widget_preview_server"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:ellipsize="end"
+        android:gravity="center_horizontal"
+        android:singleLine="true"
+        android:textColor="@color/widget_text_dim"
+        android:textSize="11sp" />
+
+    <LinearLayout
+        android:id="@+id/traffic"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="11dp"
+            android:layout_height="11dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_arrow_down"
+            android:tint="@color/widget_on_b" />
+
+        <TextView
+            android:id="@+id/down_speed"
+            android:text="@string/widget_preview_down"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="2dp"
+            android:fontFeatureSettings="tnum"
+            android:singleLine="true"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp" />
+
+        <ImageView
+            android:layout_width="11dp"
+            android:layout_height="11dp"
+            android:layout_marginLeft="8dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_arrow_up"
+            android:tint="@color/widget_on_a" />
+
+        <TextView
+            android:id="@+id/up_speed"
+            android:text="@string/widget_preview_up"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="2dp"
+            android:fontFeatureSettings="tnum"
+            android:singleLine="true"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp" />
+    </LinearLayout>
+</LinearLayout>

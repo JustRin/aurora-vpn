@@ -56,6 +56,7 @@ O projeto enviou uma solicitação à [SignPath Foundation](https://signpath.org
 | **Início automático** | comum ou elevado pelo Agendador de Tarefas — sem prompt do UAC a cada logon |
 | **Diagnóstico** | log ao vivo do núcleo, teste de latência, visualizador da configuração gerada |
 | **Aparência** | 6 paletas mais *seguir o sistema*, vários idiomas de interface |
+| **Android** | widgets na tela inicial — botão, status com velocidade, cartão completo com tráfego e tempo da sessão — e um bloco nas configurações rápidas; conecta sem abrir o app |
 
 ## Capturas de tela
 

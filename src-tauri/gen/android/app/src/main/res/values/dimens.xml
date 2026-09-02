@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget corners. Android 12+ overrides both with the launcher's own
+         radii (values-v31/), so the cards match every other widget. -->
+    <dimen name="widget_radius">22dp</dimen>
+    <dimen name="widget_inner_radius">12dp</dimen>
+</resources>

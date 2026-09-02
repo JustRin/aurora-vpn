@@ -3,4 +3,24 @@
     <string name="vpn_active">O túnel está ativo</string>
     <string name="vpn_disconnect">Desconectar</string>
     <string name="vpn_alerts_channel_name">Notificações de regras</string>
+
+    <string name="widget_toggle_name">Aurora VPN · Botão</string>
+    <string name="widget_compact_name">Aurora VPN · Status</string>
+    <string name="widget_full_name">Aurora VPN · Tráfego</string>
+    <string name="widget_toggle_desc">Conectar ou desconectar com um toque</string>
+    <string name="widget_compact_desc">Botão com status e velocidade atual</string>
+    <string name="widget_full_desc">Botão, servidor, velocidade, tráfego e tempo da sessão</string>
+    <string name="widget_state_off">Desconectado</string>
+    <string name="widget_state_connecting">Conectando…</string>
+    <string name="widget_state_on">Conectado</string>
+    <string name="widget_state_no_link">Servidor sem resposta</string>
+    <string name="widget_state_error">Erro</string>
+    <string name="widget_tap_to_connect">Toque para conectar</string>
+    <string name="widget_no_server">Nenhum servidor selecionado</string>
+    <string name="widget_err_no_config">Abra o app e conecte uma vez</string>
+    <string name="widget_err_no_consent">Abra o app e permita a VPN</string>
+    <string name="widget_err_generic">Detalhes no app</string>
+    <string name="widget_session">Sessão</string>
+    <string name="widget_byte_units">B|KB|MB|GB|TB</string>
+    <string name="widget_per_second">/s</string>
 </resources>

@@ -292,6 +292,16 @@ must be given to the engine inside the app's own process. So:
   streams into the **Log** page;
 - the Clash API on loopback stays the control plane — statistics, latency and
   server switching run the same code as on desktop;
+- the home-screen widgets (`Widgets.kt`: a 1×1 button, 2×1 status, 4×2 traffic —
+  all resizable, one renderer that follows the actual size) and the
+  quick-settings tile (`AuroraTileService.kt`) live without Rust: the service
+  brings up the last generated `core/config.json` on its own and reads speed
+  and traffic from libbox over its command socket (`StatsClient.kt`). When the
+  app is opened, Rust adopts such a tunnel (`adopt_running_tunnel`): if it would
+  build the same document, it simply takes over the control plane, the pollers
+  and the balancer, otherwise it restarts with the current config. A stop from
+  the notification, a widget or the system reaches Rust as the service's
+  `stop_reason`, so it is not mistaken for a core crash to recover from;
 - per-app split tunneling is done by `VpnService` itself
   (`include_package`/`exclude_package` in the tun inbound), and `PackageManager`
   provides the app list in place of a process list;
