@@ -137,10 +137,19 @@ switch — which is what lets the scenarios ("died", "got faster by a hair",
 | **Fastest** | traffic moves only to a server that beats the current one by the threshold (100 ms by default) in two consecutive rounds; the first round after connecting acts at once |
 | **Rotation** | each round moves to the next live server down the list |
 
-Common to the automatic strategies: the current node is probed every 20 seconds
-(five after a miss), the rest in rounds every few minutes, in chunks of eight so
-a round never delays the check of the current one. A candidate whose probe has
-gone stale is re-checked before the switch.
+Common to all of them, manual included: the current node is probed every 20
+seconds (five after a miss). The automatic strategies additionally sweep the
+rest every few minutes, in chunks of eight so a round never delays the check of
+the current one; a candidate whose probe has gone stale is re-checked before
+the switch. A tunnel that is up is not yet "Connected" on screen: it turns
+green only after the first successful check of the server; a server change —
+by hand or by the balancer — shows as an amber "Reconnecting…" until the new
+node answers; and two misses in a row on the current node turn the ring and
+the caption red ("Server not responding") with what to do underneath, plus a
+Windows notification. A tunnel that is up while its server stays silent is not
+a connection to the person using it, only the look of one. Under "manual" the
+machine only watches and never switches; under a balancer the red lasts only
+while it looks for a live server.
 
 An automatic switch does not cut live connections: the selector is built with
 `interrupt_exist_connections: false`, so open tabs, downloads and calls live out

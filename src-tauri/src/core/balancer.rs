@@ -227,6 +227,10 @@ impl Brain {
         self.candidates.iter().any(|c| c == tag)
     }
 
+    pub fn strategy(&self) -> Balancer {
+        self.cfg.strategy
+    }
+
     pub fn routed(&self) -> &str {
         &self.routed
     }
@@ -234,6 +238,19 @@ impl Brain {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn primary(&self) -> &str {
         &self.primary
+    }
+
+    /// Текущий узел не ответил на FAIL_LIMIT проверок подряд: трафик через
+    /// него не идёт, что бы ни говорило состояние туннеля.
+    pub fn routed_down(&self) -> bool {
+        self.health
+            .get(&self.routed)
+            .is_some_and(|health| health.fails >= FAIL_LIMIT)
+    }
+
+    /// Последняя проверка текущего узла прошла.
+    pub fn routed_alive(&self) -> bool {
+        self.health.get(&self.routed).is_some_and(Health::alive)
     }
 
     /// Пользователь выбрал сервер сам: он теперь и основной, и текущий.
@@ -312,6 +329,12 @@ impl Brain {
         self.primary_ok = 0;
         self.ahead = None;
         self.stranded_at = None;
+        // Новый узел проверяется сразу, а не по расписанию: «Переподключение»
+        // на экране должно смениться «Подключено» через секунду, а не через
+        // двадцать. Замеры при этом остаются — только срок следующей проверки.
+        if let Some(health) = self.health.get_mut(&self.routed) {
+            health.probed_at = None;
+        }
     }
 
     /// Ядро отклонило переключение — решение забыто, следующее примется по
@@ -401,6 +424,11 @@ impl Brain {
 
     /// Решение по накопленным замерам.
     fn judge(&mut self, now: Instant) -> Option<Pending> {
+        // «Вручную» — сторож без права голоса: текущий узел меряется, чтобы
+        // интерфейс знал, жив ли он, но переключает его только пользователь.
+        if self.cfg.strategy == Balancer::Manual {
+            return None;
+        }
         let routed = self.health.get(&self.routed).cloned().unwrap_or_default();
 
         // Мёртвый текущий — вне зависимости от стратегии.
@@ -960,6 +988,45 @@ mod tests {
         let other = brain(Balancer::Failover, "B", &["A", "B"]).inherit(&old);
         assert_eq!(other.routed(), "B");
         assert_eq!(other.primary_deaths, 0);
+    }
+
+    #[test]
+    fn the_node_just_switched_to_is_checked_at_once() {
+        let clock = Clock::new();
+        let mut b = brain(Balancer::Failover, "A", &["A", "B"]);
+        warm_up(&mut b, &clock, 60, &[("B", 90)]);
+        for t in [120, 125] {
+            assert_eq!(b.next(clock.at(t)), probe(&["A"]));
+            b.report_batch(&[miss("A")], clock.at(t));
+        }
+        // Замер B устарел — перед переходом его перепроверяют...
+        assert_eq!(b.next(clock.at(125)), probe(&["B"]));
+        b.report_batch(&[ok("B", 90)], clock.at(126));
+        assert_eq!(b.next(clock.at(126)), switch("A", "B", Reason::Dead { fails: 2 }));
+        b.commit("B");
+        assert!(b.routed_alive());
+        // ...и всё равно проверяют сразу после перехода, а не через 20 секунд:
+        // экрану нужно подтверждение, что новый узел отвечает уже как текущий.
+        assert_eq!(b.next(clock.at(127)), probe(&["B"]));
+    }
+
+    #[test]
+    fn manual_mode_watches_the_current_node_but_never_switches() {
+        let clock = Clock::new();
+        let mut b = brain(Balancer::Manual, "A", &[]);
+        assert_eq!(b.next(clock.at(0)), probe(&["A"]));
+        b.report_batch(&[ok("A", 60)], clock.at(0));
+        assert!(!b.routed_down());
+        for t in [20, 25] {
+            assert_eq!(b.next(clock.at(t)), probe(&["A"]));
+            b.report_batch(&[miss("A")], clock.at(t));
+        }
+        // Мёртв, но выбирать за пользователя нельзя: ни перехода, ни «некуда».
+        assert!(b.routed_down());
+        assert!(matches!(b.next(clock.at(25)), Step::Idle(_)));
+        assert_eq!(b.next(clock.at(30)), probe(&["A"]));
+        b.report_batch(&[ok("A", 60)], clock.at(30));
+        assert!(!b.routed_down());
     }
 
     #[test]

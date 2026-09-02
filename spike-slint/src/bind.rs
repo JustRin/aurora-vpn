@@ -57,9 +57,6 @@ const SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
 /// Как часто спрашивать GitHub о новом релизе. API без токена лимитируется по
 /// адресу, поэтому реже, а не чаще.
 const UPDATE_CHECK: std::time::Duration = std::time::Duration::from_secs(10 * 60);
-/// Как часто перемерять задержку до выбранного сервера. Цифра на «Обзоре»
-/// должна быть живой, а не той, что намерили полчаса назад.
-const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 thread_local! {
     /// Полный список запущенных программ: строка поиска фильтрует его на месте,
@@ -1213,34 +1210,8 @@ pub fn after_start(ui: &AppWindow, handle: &AppHandle) {
             .with_winit_window(|window| window.set_visible(false));
     }
 
-    // Задержка до выбранного сервера обновляется сама. Меряется ровно один
-    // узел: пройтись по всему списку раз в десять секунд значило бы держать
-    // постоянный веер соединений на все панели сразу.
-    {
-        let handle = handle.clone();
-        let timer = slint::Timer::default();
-        timer.start(slint::TimerMode::Repeated, PING_EVERY, move || {
-            let handle = handle.clone();
-            app::runtime().spawn(async move {
-                // Балансировщик меряет текущий узел сам и показывает замеры.
-                if handle.state().balancer.lock().is_some() {
-                    return;
-                }
-                // Узел на экране — тот, через который идёт трафик.
-                let routed = handle.state().status.read().routed_id.clone();
-                let active = if routed.is_empty() {
-                    handle.state().resolve_active_id()
-                } else {
-                    routed
-                };
-                if active.is_empty() {
-                    return;
-                }
-                let _ = api::test_latency(handle, vec![active]).await;
-            });
-        });
-        keep(timer);
-    }
+    // Задержку до текущего сервера при поднятом туннеле меряет сторож
+    // балансировщика (core/balancer.rs) — он же и решает, отвечает ли сервер.
 
     // Уведомления Windows принимает только от приложения с ярлыком в меню
     // «Пуск»; создаём его, пока галочка включена.

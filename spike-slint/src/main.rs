@@ -102,6 +102,11 @@ struct Lang {
     tray_disconnect: String,
     tray_quit: String,
     balancer_off: String,
+    state_unreachable: String,
+    state_reconnecting: String,
+    notify_unreachable_title: String,
+    notify_unreachable_body: String,
+    notify_reachable_title: String,
 }
 
 impl Lang {
@@ -169,6 +174,11 @@ impl Lang {
             tray_disconnect: s.get_tray_disconnect().into(),
             tray_quit: s.get_tray_quit().into(),
             balancer_off: s.get_toast_balancer_off().into(),
+            state_unreachable: s.get_dash_state_unreachable().into(),
+            state_reconnecting: s.get_dash_state_reconnecting().into(),
+            notify_unreachable_title: s.get_notify_unreachable_title().into(),
+            notify_unreachable_body: s.get_notify_unreachable_body().into(),
+            notify_reachable_title: s.get_notify_reachable_title().into(),
         }
     }
 

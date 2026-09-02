@@ -210,6 +210,12 @@ export const zh: Record<keyof typeof ru, string> = {
   "dash.pingMs": "{ping} 毫秒",
   "dash.clickToTest": "点击测试",
   "dash.noServer": "未选择服务器",
+  "dash.stateUnreachable": "服务器无响应",
+  "dash.stateReconnecting": "正在重新连接…",
+  "dash.unreachableHint":
+    "经「{name}」的检测失败，没有流量通过。请检查网络，换一台服务器或开启「故障转移」。",
+  "dash.unreachableAuto":
+    "经服务器的检测失败，没有流量通过。负载均衡找到可用服务器后会立即切换。",
 
   // ------------------------------------------------------ dashboard children
   "graph.down": "下载",

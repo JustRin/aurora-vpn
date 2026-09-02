@@ -25,7 +25,7 @@ use crate::error::{AppError, Result};
 use crate::link;
 use crate::model::ServerNode;
 use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
-use crate::state::{AppState, ConnState, Status, Traffic};
+use crate::state::{AppState, ConnState, Link, Status, Traffic};
 use crate::sys::autostart::{self, AutostartMode};
 use crate::sys::{elevate, procs, sysproxy};
 
@@ -430,7 +430,9 @@ async fn handle_core_death(app: &AppHandle, session: u64, uptime_ms: Option<i64>
         };
         let mut guard = state.balancer.lock();
         if let (Some(tag), Some(brain)) = (routed, guard.as_mut()) {
-            if !brain.is_safe(&tag) {
+            // «Вручную» уходить всё равно некуда — и хоронить узел по одной
+            // аварии незачем: сторож перепроверит его через секунды.
+            if brain.strategy() != Balancer::Manual && !brain.is_safe(&tag) {
                 brain.mark_dead(&tag, Instant::now());
             }
         }
@@ -622,6 +624,7 @@ fn shutdown(app: &AppHandle, message: &str) {
         status.message = message.to_string();
         status.since_ms = None;
         status.routed_id.clear();
+        status.link = Link::Connecting;
         status.system_proxy = false;
     }
     let _ = app.emit(Event::Traffic(Traffic::default()));
@@ -676,14 +679,10 @@ fn checks(n: u32) -> String {
 }
 
 /// Собрать автомат под текущие настройки и конфиг. Возвращает тег узла, на
-/// который должен смотреть селектор; None — выбор ручной, автомата нет.
+/// который должен смотреть селектор; None — узла в конфиге нет.
 fn install_brain(state: &AppState) -> Option<String> {
     let settings = state.settings.read().clone();
     let mut guard = state.balancer.lock();
-    if settings.balancer == Balancer::Manual {
-        *guard = None;
-        return None;
-    }
     let active = state.resolve_active_id();
     let primary = state.tags.read().get(&active).cloned()?;
     let cfg = balancer::Config {
@@ -691,12 +690,21 @@ fn install_brain(state: &AppState) -> Option<String> {
         tolerance: settings.balancer_tolerance_ms,
         interval: Duration::from_secs(60 * u64::from(settings.balancer_interval_min.max(1))),
     };
-    let mut brain = Brain::new(cfg, primary, state.candidates.read().clone());
+    // «Вручную» автомат тоже есть — сторожем текущего узла, без кандидатов:
+    // выбирать ему не между кем, но знать, отвечает ли сервер, интерфейс
+    // должен всегда, а не только под балансировщиком.
+    let candidates = if settings.balancer == Balancer::Manual {
+        Vec::new()
+    } else {
+        state.candidates.read().clone()
+    };
+    let mut brain = Brain::new(cfg, primary, candidates);
     if let Some(old) = guard.as_ref() {
         brain = brain.inherit(old);
     }
     let routed = brain.routed().to_string();
     *guard = Some(brain);
+    state.balancer_wake.notify_one();
     Some(routed)
 }
 
@@ -721,13 +729,65 @@ fn apply_balancer_settings(app: &AppHandle) {
         set_status(app, |s| s.active_id = routed);
     }
     let strategy = state.settings.read().balancer;
-    if strategy == Balancer::Manual {
-        *state.balancer.lock() = None;
-        log_line(app, "info", "балансировщик выключен: сервер выбирается вручную");
-        return;
-    }
     install_brain(state);
-    log_line(app, "info", format!("балансировщик: режим «{}»", strategy_name(strategy)));
+    if strategy == Balancer::Manual {
+        log_line(app, "info", "балансировщик выключен: сервер выбирается вручную");
+    } else {
+        log_line(app, "info", format!("балансировщик: режим «{}»", strategy_name(strategy)));
+    }
+}
+
+/// Отметить, что показала проверка текущего сервера. Смена связи — событие:
+/// она видна в шапке «Обзора» вместо «Подключено» и остаётся в журнале.
+fn note_link(app: &AppHandle, alive: bool, down: bool) {
+    let next = if down {
+        Link::Down
+    } else if alive {
+        Link::Up
+    } else {
+        // Одна осечка — ещё не приговор, но и не подтверждение.
+        return;
+    };
+    let (previous, name) = {
+        let state = app.state();
+        let mut status = state.status.write();
+        if status.state != ConnState::Connected || status.link == next {
+            return;
+        }
+        let previous = std::mem::replace(&mut status.link, next);
+        let routed = status.routed_id.clone();
+        drop(status);
+        let name = state
+            .nodes
+            .read()
+            .iter()
+            .find(|n| n.id == routed)
+            .map(|n| n.name.clone())
+            .unwrap_or_default();
+        (previous, name)
+    };
+    emit_status(app);
+    match next {
+        Link::Down => log_line(
+            app,
+            "warn",
+            format!("сервер «{name}» не отвечает на проверки — трафик через туннель не идёт"),
+        ),
+        Link::Up if previous == Link::Down => {
+            log_line(app, "info", format!("сервер «{name}» снова отвечает"));
+        }
+        _ => {}
+    }
+}
+
+/// Пауза поводыря, которую прерывает будильник: смена сервера или стратегии
+/// ставит новый узел на проверку сразу, а не после паузы.
+async fn nap(app: &AppHandle, wait: Duration) {
+    let state = app.state();
+    tokio::select! {
+        _ = tokio::time::sleep(wait) => {}
+        _ = state.balancer_wake.notified() => {}
+    }
 }
 
 /// Измерить узлы через ядро — один запрос на узел, все разом.
@@ -803,7 +863,12 @@ async fn apply_switch(app: &AppHandle, api: &ClashApi, session: u64, from: &str,
     if matches!(reason, Reason::Dead { .. }) {
         let _ = api.close_via(from).await;
     }
-    set_status(app, |s| s.routed_id = to_id.unwrap_or_default());
+    set_status(app, |s| {
+        s.routed_id = to_id.unwrap_or_default();
+        // Автомат перепроверит новый узел тут же (Brain::commit); до тех пор —
+        // «Переподключение…».
+        s.link = Link::Switching;
+    });
     let text = match reason {
         Reason::Initial { gain } => format!(
             "балансировщик: первый обход — «{to_name}» быстрее «{from_name}» на {gain} мс, переключаюсь"
@@ -829,8 +894,9 @@ async fn apply_switch(app: &AppHandle, api: &ClashApi, session: u64, from: &str,
 /// включить на ходу.
 fn spawn_balancer(app: AppHandle, session: u64) {
     tokio::spawn(async move {
-        // Дать ядру закончить собственный стартовый обход.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        // Секунда ядру на собственный стартовый обход; дольше ждать незачем —
+        // экран показывает «Подключение…», пока сторож не проверит сервер.
+        tokio::time::sleep(Duration::from_secs(1)).await;
         loop {
             let (api, still_ours) = {
                 let state = app.state();
@@ -850,20 +916,31 @@ fn spawn_balancer(app: AppHandle, session: u64) {
                 guard.as_mut().map(|brain| brain.next(Instant::now()))
             };
             match step {
-                None => tokio::time::sleep(Duration::from_secs(5)).await,
-                Some(Step::Idle(wait)) => {
-                    tokio::time::sleep(wait.min(Duration::from_secs(5))).await;
-                }
+                None => nap(&app, Duration::from_secs(5)).await,
+                Some(Step::Idle(wait)) => nap(&app, wait.min(Duration::from_secs(5))).await,
                 Some(Step::Probe(tags)) => {
                     let results = probe_tags(&app, &api, &tags).await;
                     let state = app.state();
                     if state.session.load(Ordering::SeqCst) != session {
                         return;
                     }
-                    if let Some(brain) = state.balancer.lock().as_mut() {
-                        brain.report_batch(&results, Instant::now());
-                    }
+                    let verdict = {
+                        let mut guard = state.balancer.lock();
+                        guard.as_mut().and_then(|brain| {
+                            brain.report_batch(&results, Instant::now());
+                            // О связи судят только по проверке текущего узла:
+                            // обход остальных о нём ничего не говорит.
+                            let routed = brain.routed();
+                            results
+                                .iter()
+                                .any(|(tag, _)| tag == routed)
+                                .then(|| (brain.routed_alive(), brain.routed_down()))
+                        })
+                    };
                     publish_latency(&app, &results);
+                    if let Some((alive, down)) = verdict {
+                        note_link(&app, alive, down);
+                    }
                 }
                 Some(Step::Switch { from, to, reason }) => {
                     apply_switch(&app, &api, session, &from, &to, reason).await;
@@ -1120,6 +1197,9 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         s.message.clear();
         s.since_ms = Some(now_ms());
         s.routed_id = initial_id.unwrap_or_default();
+        // Туннель поднят, но «Подключено» на экране появится после первой
+        // удачной проверки сервера — её сделает сторож через секунду-другую.
+        s.link = Link::Connecting;
         s.system_proxy = tunnel_mode == TunnelMode::SystemProxy;
     });
 
@@ -1254,7 +1334,6 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         if turned_off {
             state.settings.write().balancer = Balancer::Manual;
             state.save_settings()?;
-            *state.balancer.lock() = None;
         }
         let old_tag = {
             let status = state.status.read();
@@ -1265,6 +1344,10 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         };
         *state.active_id.write() = id.clone();
         state.save_ui()?;
+        // Сторож переезжает на новый узел; без ядра тегов нет и сторожить нечего.
+        if state.status.read().state == ConnState::Connected {
+            install_brain(state);
+        }
         let tag = state.tags.read().get(&id).cloned();
         let api = state.clash.read().clone();
         (api, tag, old_tag, turned_off)
@@ -1275,6 +1358,9 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         s.active_id = id.clone();
         if live {
             s.routed_id = id.clone();
+            // Новый узел ещё не проверен: «Переподключение…», пока сторож не
+            // подтвердит, что он отвечает.
+            s.link = Link::Switching;
         }
     });
 
@@ -2007,11 +2093,10 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
         (wanted, api, tags, url)
     };
 
-    // Часовой «Обзора» дёргает один узел каждые десять секунд. При опущенном
-    // туннеле мерить его нечем: ядро ради одной строки поднимать дорого, а
-    // сокетом получится ложь — чужой туннель в системе (а он в системе бывает)
-    // ответит на рукопожатие сам, у себя в памяти. Честнее оставить прошлое
-    // значение.
+    // Один узел без туннеля не меряется: ядро ради одной строки поднимать
+    // дорого, а сокетом получится ложь — чужой туннель в системе (а он в
+    // системе бывает) ответит на рукопожатие сам, у себя в памяти. Честнее
+    // оставить прошлое значение.
     if api.is_none() && !ids.is_empty() {
         return Ok(HashMap::new());
     }

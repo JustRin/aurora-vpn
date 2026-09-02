@@ -164,9 +164,19 @@ export interface Status {
   activeId: string;
   /** The node traffic goes through right now; empty while disconnected. */
   routedId: string;
+  /** The link through the current server, on top of "the tunnel is up". */
+  link: Link;
   elevated: boolean;
   systemProxy: boolean;
 }
+
+/**
+ * What the app knows about the server carrying traffic: `connecting` — the
+ * tunnel just came up and the first check is pending; `switching` — the server
+ * changed and the new one is unchecked; `up` — the last check passed; `down` —
+ * two misses in a row, no traffic flows.
+ */
+export type Link = "connecting" | "switching" | "up" | "down";
 
 /** The node worth showing: the routed one while connected, else the pick. */
 export function shownServerId(status: Status): string {

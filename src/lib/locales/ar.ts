@@ -215,6 +215,12 @@ export const ar: Record<keyof typeof ru, string> = {
   "dash.pingMs": "{ping} م.ث",
   "dash.clickToTest": "انقر للقياس",
   "dash.noServer": "لم يُحدَّد خادم",
+  "dash.stateUnreachable": "الخادم لا يستجيب",
+  "dash.stateReconnecting": "جارٍ إعادة الاتصال…",
+  "dash.unreachableHint":
+    "الفحوص عبر «{name}» تفشل ولا تمرّ أي حركة. تحقّق من الإنترنت أو اختر خادمًا آخر أو فعّل الاحتياطي.",
+  "dash.unreachableAuto":
+    "الفحوص عبر الخادم تفشل ولا تمرّ أي حركة. سينقل الموازن الحركة فور العثور على خادم حي.",
 
   // ------------------------------------------------------ dashboard children
   "graph.down": "تنزيل",

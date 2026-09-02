@@ -124,6 +124,7 @@ export const useStore = create<AppStore>((set, get) => ({
     tunnelMode: "tun",
     activeId: "",
     routedId: "",
+    link: "connecting",
     elevated: false,
     systemProxy: false,
   },

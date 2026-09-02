@@ -1421,6 +1421,22 @@ textarea {
   background: radial-gradient(circle, var(--danger-soft), transparent 62%);
   opacity: 1;
 }
+/* Tunnel up, server silent: the ring keeps its shape but turns red, so the
+   change is visible from across the room without reading the caption. */
+.power[data-state="unreachable"]::before {
+  background: radial-gradient(circle, var(--danger-soft), transparent 62%);
+  opacity: 1;
+}
+/* Server just changed, the new one not yet confirmed: the connecting arc in
+   amber — in progress, not yet a state. */
+.power[data-state="reconnecting"]::before {
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--warn) 22%, transparent),
+    transparent 62%
+  );
+  opacity: 1;
+}
 
 @keyframes breathe {
   0%,
@@ -1494,6 +1510,43 @@ textarea {
 .power[data-state="connected"] .power-core {
   color: var(--ok);
   background: radial-gradient(circle at 32% 28%, var(--core-ok-from), var(--core-ok-to));
+}
+.power[data-state="unreachable"] .power-ring {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 6px var(--danger-soft), 0 0 30px -6px var(--danger);
+}
+.power[data-state="unreachable"] .power-core {
+  color: var(--danger);
+}
+.power[data-state="reconnecting"] .power-ring {
+  border-color: transparent;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 45%,
+    var(--warn) 82%,
+    transparent 100%
+  );
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 2px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 2px)
+  );
+  animation: spin 0.95s linear infinite;
+}
+.power[data-state="reconnecting"] .power-core {
+  color: var(--warn);
+}
+.hero-state.warn {
+  color: var(--warn);
+}
+.hero-state.danger,
+.hero-note.danger {
+  color: var(--danger);
 }
 .power:hover:not(:disabled) .power-core {
   background: radial-gradient(

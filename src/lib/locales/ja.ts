@@ -217,6 +217,12 @@ export const ja: Record<keyof typeof ru, string> = {
   "dash.pingMs": "{ping} ms",
   "dash.clickToTest": "クリックで計測",
   "dash.noServer": "サーバー未選択",
+  "dash.stateUnreachable": "サーバーが応答しません",
+  "dash.stateReconnecting": "再接続中…",
+  "dash.unreachableHint":
+    "「{name}」経由の確認が通らず、通信が流れていません。ネットワークを確認するか、別のサーバーを選ぶか、フェイルオーバーを有効にしてください。",
+  "dash.unreachableAuto":
+    "サーバー経由の確認が通らず、通信が流れていません。バランサーは生きているサーバーが見つかり次第切り替えます。",
 
   // ------------------------------------------------------ dashboard children
   "graph.down": "下り",

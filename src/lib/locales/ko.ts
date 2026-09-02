@@ -211,6 +211,12 @@ export const ko: Record<keyof typeof ru, string> = {
   "dash.pingMs": "{ping} ms",
   "dash.clickToTest": "누르면 측정",
   "dash.noServer": "서버가 선택되지 않음",
+  "dash.stateUnreachable": "서버 응답 없음",
+  "dash.stateReconnecting": "다시 연결하는 중…",
+  "dash.unreachableHint":
+    "「{name}」을(를) 통한 검사가 실패하고 트래픽이 흐르지 않습니다. 인터넷을 확인하거나 다른 서버를 고르거나 장애 조치를 켜세요.",
+  "dash.unreachableAuto":
+    "서버를 통한 검사가 실패하고 트래픽이 흐르지 않습니다. 밸런서가 살아 있는 서버를 찾는 대로 옮깁니다.",
 
   // ------------------------------------------------------ dashboard children
   "graph.down": "다운",

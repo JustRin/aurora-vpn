@@ -15,7 +15,7 @@ use crate::core::log::LogLine;
 use crate::core::geoip::Country;
 use crate::model::{Network, Protocol, Security, ServerNode};
 use crate::settings::Subscription;
-use crate::state::{ConnState, Status, Traffic};
+use crate::state::{ConnState, Link, Status, Traffic};
 use crate::{tr, AppWindow, Data, Ui};
 
 /// Зеркало того, что показано на экране. Живёт в потоке цикла — трогать его
@@ -58,9 +58,9 @@ pub fn apply(ui: &AppWindow, event: Event) {
     match event {
         Event::Status(status) => {
             let (was, now) = with(|view| {
-                let was = view.status.state;
+                let was = hero(&view.status);
                 view.status = status;
-                (was, view.status.state)
+                (was, hero(&view.status))
             });
             render_status(ui);
             announce(ui, was, now);
@@ -138,7 +138,13 @@ pub fn render_status(ui: &AppWindow) {
         let connected = matches!(status.state, ConnState::Connected);
         data.set_connected(connected);
         data.set_elevated(status.elevated);
-        data.set_state_text(state_text(status.state).into());
+        data.set_state_text(state_text(status).into());
+        data.set_link(match status.link {
+            Link::Connecting => 0,
+            Link::Switching => 1,
+            Link::Up => 2,
+            Link::Down => 3,
+        });
         // Причина срыва живёт рядом с состоянием: «Ошибка» без объяснения
         // одинаково похожа на нехватку прав, мёртвый сервер и занятый порт.
         data.set_state_detail(status.message.as_str().into());
@@ -157,49 +163,82 @@ pub fn render_status(ui: &AppWindow) {
     render_active(ui);
 }
 
-/// Сообщить системе о смене состояния туннеля — если пользователь просил.
+/// Состояние на экране: туннель и связь через сервер вместе. Поднятый туннель
+/// с непроверенным сервером — всё ещё «Подключение…», после смены сервера —
+/// «Переподключение…», с молчащим — «Сервер не отвечает»: поднятый туннель
+/// сам по себе для пользователя не подключение, а его видимость.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hero {
+    Disconnected,
+    Connecting,
+    Reconnecting,
+    Connected,
+    Down,
+    Error,
+}
+
+fn hero(status: &Status) -> Hero {
+    match status.state {
+        ConnState::Disconnected => Hero::Disconnected,
+        ConnState::Connecting => Hero::Connecting,
+        ConnState::Error => Hero::Error,
+        ConnState::Connected => match status.link {
+            Link::Connecting => Hero::Connecting,
+            Link::Switching => Hero::Reconnecting,
+            Link::Up => Hero::Connected,
+            Link::Down => Hero::Down,
+        },
+    }
+}
+
+/// Сообщить системе о смене состояния — если пользователь просил.
 ///
-/// Только о переходах: одно и то же состояние, подтверждённое ядром дважды,
-/// уведомлением быть не должно. «Подключение» пропускается — это ещё не
-/// новость, а обещание.
-fn announce(ui: &AppWindow, was: ConnState, now: ConnState) {
+/// Только о переходах, и только о новостях: «Подключено» — когда сервер
+/// впервые ответил или ожил, а не после каждой смены сервера; «Подключение» и
+/// «Переподключение» — ещё не новость, а обещание.
+fn announce(ui: &AppWindow, was: Hero, now: Hero) {
     if was == now {
         return;
     }
     // Мигание — отдельный канал от уведомлений, и галочка в настройках его не
     // касается: она гасит болтовню про «подключено» и «отключено», а не сигнал
-    // о том, что туннель лёг. Окно на переднем плане система не мигает — там
-    // пользователь и так всё видит.
-    if now == ConnState::Error {
+    // о том, что интернет пропал. Окно на переднем плане система не мигает —
+    // там пользователь и так всё видит.
+    if matches!(now, Hero::Error | Hero::Down) {
         crate::sys::flash::alert(ui);
     }
     if !ui.global::<crate::Conf>().get_notifications() {
         return;
     }
-    let (title, body) = match now {
-        // В теле — подпись выбранного сервера: она уже собрана для шапки и
-        // отвечает ровно на вопрос «куда подключились».
-        ConnState::Connected => (
-            tr(|l| l.notify_connected.clone()),
-            ui.global::<Data>().get_active_label().to_string(),
+    // В теле — подпись выбранного сервера: она уже собрана для шапки и
+    // отвечает ровно на вопрос «куда подключились».
+    let label = ui.global::<Data>().get_active_label().to_string();
+    let (title, body) = match (was, now) {
+        (Hero::Down, Hero::Connected) => (tr(|l| l.notify_reachable_title.clone()), label),
+        (Hero::Connecting, Hero::Connected) => (tr(|l| l.notify_connected.clone()), label),
+        (_, Hero::Down) => (
+            tr(|l| l.notify_unreachable_title.clone()),
+            tr(|l| l.notify_unreachable_body.clone()),
         ),
-        ConnState::Disconnected => (tr(|l| l.notify_disconnected.clone()), String::new()),
-        ConnState::Error => (
+        (_, Hero::Disconnected) => (tr(|l| l.notify_disconnected.clone()), String::new()),
+        (_, Hero::Error) => (
             tr(|l| l.notify_error.clone()),
             with(|view| view.status.message.clone()),
         ),
-        ConnState::Connecting => return,
+        _ => return,
     };
     crate::sys::notify::show(&title, &body);
 }
 
-fn state_text(state: ConnState) -> String {
+fn state_text(status: &Status) -> String {
     tr(|l| {
-        match state {
-            ConnState::Disconnected => &l.state_disconnected,
-            ConnState::Connecting => &l.state_connecting,
-            ConnState::Connected => &l.state_connected,
-            ConnState::Error => &l.state_error,
+        match hero(status) {
+            Hero::Disconnected => &l.state_disconnected,
+            Hero::Connecting => &l.state_connecting,
+            Hero::Reconnecting => &l.state_reconnecting,
+            Hero::Connected => &l.state_connected,
+            Hero::Down => &l.state_unreachable,
+            Hero::Error => &l.state_error,
         }
         .clone()
     })

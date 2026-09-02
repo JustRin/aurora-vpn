@@ -74,8 +74,27 @@ pub struct Status {
     /// Узел, через который трафик идёт прямо сейчас. Совпадает с `active_id`,
     /// пока балансировщик не увёл трафик на другой; пуст без подключения.
     pub routed_id: String,
+    /// Связь через текущий сервер — то, что интерфейс показывает поверх
+    /// «туннель поднят»: поднятый туннель ещё не подключение.
+    pub link: Link,
     pub elevated: bool,
     pub system_proxy: bool,
+}
+
+/// Что известно о сервере, через который идёт трафик. Проверяет сторож
+/// балансировщика (core/balancer.rs); «Подключено» на экране — только `Up`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Link {
+    /// Туннель только что поднят, первая проверка ещё не прошла.
+    #[default]
+    Connecting,
+    /// Сервер сменили — руками или балансировщиком, — новый ещё не проверен.
+    Switching,
+    /// Последняя проверка прошла.
+    Up,
+    /// Две осечки подряд: трафик через сервер не идёт.
+    Down,
 }
 
 impl Default for Status {
@@ -88,6 +107,7 @@ impl Default for Status {
             tunnel_mode: TunnelMode::default(),
             active_id: String::new(),
             routed_id: String::new(),
+            link: Link::Connecting,
             elevated: false,
             system_proxy: false,
         }
@@ -132,8 +152,12 @@ pub struct AppState {
     /// Теги узлов, которые балансировщик вправе мерить и выбирать — состав
     /// auto-группы запущенного конфига, в порядке списка.
     pub candidates: RwLock<Vec<String>>,
-    /// Балансировщик текущего подключения; None — сервер выбран вручную.
+    /// Автомат выбора сервера текущего подключения: под балансировщиком
+    /// решает, куда идёт трафик, «вручную» только сторожит текущий узел.
     pub balancer: Mutex<Option<Brain>>,
+    /// Будильник поводыря автомата: смена сервера или стратегии не должна ждать
+    /// конца его паузы — проверка нового узла нужна сразу.
+    pub balancer_wake: tokio::sync::Notify,
 
     /// node id → the `encryption` value its server was probed to reject.
     /// While the node's link still carries that exact value, the node is
@@ -241,6 +265,7 @@ impl AppState {
             tags: RwLock::new(HashMap::new()),
             candidates: RwLock::new(Vec::new()),
             balancer: Mutex::new(None),
+            balancer_wake: tokio::sync::Notify::new(),
             engine_overrides: RwLock::new(engine_overrides),
             xray_ports: RwLock::new(HashMap::new()),
             clash: RwLock::new(None),

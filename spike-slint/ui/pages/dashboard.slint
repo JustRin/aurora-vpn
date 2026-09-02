@@ -253,6 +253,14 @@ component ServerPicker inherits Rectangle {
 export component DashboardPage inherits ScrollArea {
     pad: 28px;
 
+    // Цвет связи через сервер: зелёный — работает, оранжевый — переподключение,
+    // красный — не отвечает. Серое кольцо — туннель поднят, но первая проверка
+    // ещё не прошла: на экране это всё ещё «Подключение…».
+    property <bool> live: Data.connected && Data.link != 0;
+    property <color> ring: Data.link == 3
+        ? Theme.danger
+        : (Data.link == 1 ? Theme.warn : Theme.ok);
+
     // Для тестов: раскрыть выбор сервера, не синтезируя клик по координатам.
     in-out property <int> open-picker-req;
     public function open-picker() {
@@ -395,41 +403,44 @@ export component DashboardPage inherits ScrollArea {
                     width: 132px;
                     height: 132px;
                     // Дышащее облако света вокруг всей кнопки.
-                    if Data.connected: Glow {
+                    // Свечение — только у проверенной связи, цветом её состояния
+                    // (root.ring); зелёные ok-glow/ok-halo — свои, остальные
+                    // получаются из цвета кольца.
+                    if root.live: Glow {
                         width: 220px + 14px * Data.breath;
                         height: self.width;
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
-                        tint: Theme.ok-glow;
+                        tint: Data.link == 2 ? Theme.ok-glow : root.ring.transparentize(0.7);
                         opacity: 0.8 + 0.2 * Data.breath;
                     }
                     // 6px-ореол вплотную к кольцу (0 0 0 6px ok-halo).
-                    if Data.connected: Rectangle {
+                    if root.live: Rectangle {
                         x: -6px;
                         y: -6px;
                         width: parent.width + 12px;
                         height: parent.height + 12px;
                         border-radius: self.width / 2;
                         border-width: 6px;
-                        border-color: Theme.ok-halo;
+                        border-color: Data.link == 2 ? Theme.ok-halo : root.ring.transparentize(0.85);
                     }
                     // Внутренняя подсветка зазора (inset 0 0 24px -8px ok).
-                    if Data.connected: Rectangle {
+                    if root.live: Rectangle {
                         x: 3px;
                         y: 3px;
                         width: parent.width - 6px;
                         height: parent.height - 6px;
                         border-radius: self.width / 2;
                         border-width: 10px;
-                        border-color: Theme.ok.transparentize(0.91);
+                        border-color: root.ring.transparentize(0.91);
                     }
-                    // Само кольцо: в отключённом состоянии — просто рамка.
+                    // Само кольцо: пока связь не проверена — просто рамка.
                     Rectangle {
                         border-radius: self.width / 2;
                         border-width: 2px;
-                        border-color: Data.connected ? Theme.ok : Theme.border-strong;
-                        drop-shadow-blur: Data.connected ? 30px : 0px;
-                        drop-shadow-color: Data.connected ? Theme.ok.transparentize(0.3) : #00000000;
+                        border-color: root.live ? root.ring : Theme.border-strong;
+                        drop-shadow-blur: root.live ? 30px : 0px;
+                        drop-shadow-color: root.live ? root.ring.transparentize(0.3) : #00000000;
                     }
                     Rectangle {
                         x: 16px;
@@ -442,7 +453,7 @@ export component DashboardPage inherits ScrollArea {
                         // сплошного цвета) — поэтому круг сплошной, а объём даёт
                         // блик, который гаснет до прозрачного раньше и своих краёв,
                         // и границы круга: квадрат градиента просто не виден.
-                        background: Data.connected ? Theme.core-ok-to : Theme.core-to;
+                        background: Data.connected && Data.link == 2 ? Theme.core-ok-to : Theme.core-to;
                         border-width: 1px;
                         border-color: Theme.border;
                         // Смещённый к 32%/28% свет из веб-версии.
@@ -451,7 +462,7 @@ export component DashboardPage inherits ScrollArea {
                             y: -20px;
                             width: 120px;
                             height: 120px;
-                            background: Data.connected
+                            background: Data.connected && Data.link == 2
                                 ? @radial-gradient(circle,
                                     Theme.core-ok-from 0%,
                                     Theme.core-ok-from.transparentize(0.2) 20%,
@@ -467,7 +478,7 @@ export component DashboardPage inherits ScrollArea {
                             width: 34px;
                             height: 34px;
                             commands: Icons.power;
-                            tint: Data.connected ? Theme.ok : Theme.text-dim;
+                            tint: root.live ? root.ring : Theme.text-dim;
                             stroke-width: 2.2px;
                         }
                     }
@@ -483,7 +494,9 @@ export component DashboardPage inherits ScrollArea {
                     horizontal-stretch: 1;
                     Text {
                         text: Data.state-text;
-                        color: Theme.text;
+                        color: !Data.connected
+                            ? Theme.text
+                            : (Data.link == 3 ? Theme.danger : (Data.link == 1 ? Theme.warn : Theme.text));
                         font-size: 25px * Theme.text-scale;
                         font-weight: 680;
                         letter-spacing: -0.5px;
@@ -551,6 +564,16 @@ export component DashboardPage inherits ScrollArea {
                             max-width: 460px;
                             overflow: elide;
                         }
+                    }
+                    // Сервер не отвечает: что это значит и что делать. «Вручную»
+                    // — совет сменить сервер или включить резерв; под
+                    // балансировщиком — что он уже ищет живой.
+                    if Data.connected && Data.link == 3: Text {
+                        text: Conf.balancer == 0 ? Str.dash-unreachable-hint : Str.dash-unreachable-auto;
+                        color: Theme.danger;
+                        font-size: 12.5px * Theme.text-scale;
+                        max-width: 460px;
+                        wrap: word-wrap;
                     }
                 }
 

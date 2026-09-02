@@ -217,6 +217,12 @@ export const en: Record<keyof typeof ru, string> = {
   "dash.pingMs": "{ping} ms",
   "dash.clickToTest": "click to test",
   "dash.noServer": "no server selected",
+  "dash.stateUnreachable": "Server not responding",
+  "dash.stateReconnecting": "Reconnecting…",
+  "dash.unreachableHint":
+    "Checks through “{name}” fail and no traffic flows. Check your internet, pick another server or turn on Failover.",
+  "dash.unreachableAuto":
+    "Checks through the server fail and no traffic flows. The balancer will move traffic as soon as it finds a live server.",
 
   // ------------------------------------------------------ dashboard children
   "graph.down": "down",

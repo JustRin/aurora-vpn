@@ -21,15 +21,45 @@ import { api, errText } from "../lib/api";
 import { onBackup } from "../lib/balancers";
 import { bytes, duration, speed } from "../lib/format";
 import { type MsgKey, useT } from "../lib/i18n";
-import { ELEVATION_REQUIRED, type ClashMode, shownServerId } from "../lib/types";
+import {
+  ELEVATION_REQUIRED,
+  type ClashMode,
+  type ConnState,
+  type Status,
+  shownServerId,
+} from "../lib/types";
 import { useStore } from "../store";
 
-const STATE_KEY: Record<string, MsgKey> = {
+/**
+ * What the hero shows: the tunnel and the link through its server together.
+ * A tunnel that is up with an unchecked server is still "connecting"; after a
+ * server change it is "reconnecting" (amber) until the new one answers; with
+ * a silent server it is "server not responding" (red).
+ */
+type HeroState = ConnState | "reconnecting" | "unreachable";
+
+const STATE_KEY: Record<HeroState, MsgKey> = {
   disconnected: "dash.stateDisconnected",
   connecting: "dash.stateConnecting",
   connected: "dash.stateConnected",
   error: "dash.stateError",
+  reconnecting: "dash.stateReconnecting",
+  unreachable: "dash.stateUnreachable",
 };
+
+function heroState(status: Status): HeroState {
+  if (status.state !== "connected") return status.state;
+  switch (status.link) {
+    case "up":
+      return "connected";
+    case "switching":
+      return "reconnecting";
+    case "down":
+      return "unreachable";
+    default:
+      return "connecting";
+  }
+}
 
 // The core's third mode, Direct, is not offered: "everything past the VPN" is
 // what turning the tunnel off already does, and the power button says it more
@@ -81,6 +111,9 @@ export function Dashboard() {
   // traffic, which a balancer may have moved away from the pick.
   const activeNode = nodes.find((n) => n.id === shownServerId(status));
   const connected = status.state === "connected";
+  const hero = heroState(status);
+  const serverDown = hero === "unreachable";
+  const tone = serverDown ? " danger" : hero === "reconnecting" ? " warn" : "";
   const ping = activeNode ? latency[activeNode.id] : undefined;
 
   // Whatever lapses first is what the user needs to see first; plans with no
@@ -170,7 +203,7 @@ export function Dashboard() {
           <button
             type="button"
             className="power"
-            data-state={status.state}
+            data-state={hero}
             disabled={busy}
             onClick={() => void onPower()}
             aria-label={connected ? t("dash.disconnect") : t("dash.connect")}
@@ -182,9 +215,17 @@ export function Dashboard() {
           </button>
 
           <div className="hero-id">
-            <div className="hero-state">{t(STATE_KEY[status.state])}</div>
+            <div className={`hero-state${tone}`}>{t(STATE_KEY[hero])}</div>
 
             <ServerPicker />
+
+            {serverDown && (
+              <div className="hero-note danger">
+                {balancer && balancer !== "manual"
+                  ? t("dash.unreachableAuto")
+                  : t("dash.unreachableHint", { name: activeNode?.name ?? "" })}
+              </div>
+            )}
 
             {status.message ? (
               <div className="hero-note">{status.message}</div>
