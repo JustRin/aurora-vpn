@@ -35,6 +35,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "切换模式失败",
   "toast.latencyFailed": "延迟测试失败",
   "toast.reloadFailed": "刷新状态失败",
+  "toast.balancerOff": "已关闭自动选择：服务器为手动选择",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "极光",
@@ -94,8 +95,22 @@ export const zh: Record<keyof typeof ru, string> = {
   "set.allowLan": "局域网访问",
   "set.allowLanDesc":
     "代理监听 0.0.0.0，网络中的其他设备也能使用。仅在可信网络中启用。",
-  "set.autoSelect": "自动选择最快的服务器",
-  "set.autoSelectDesc": "内核会自行切换到延迟最低的服务器，并每 3 分钟重新检测。",
+  "set.balancer": "服务器选择",
+  "set.balancerManual": "手动",
+  "set.balancerFailover": "故障转移",
+  "set.balancerFastest": "最快",
+  "set.balancerRotate": "轮换",
+  "set.balancerManualDesc": "使用您选择的服务器，不会自动切换。",
+  "set.balancerFailoverDesc":
+    "所选服务器为主服务器。它无响应时切换到最好的可用服务器；主服务器恢复并保持稳定后再切回。现有连接不会中断。",
+  "set.balancerFastestDesc":
+    "定期检测所有服务器。只有某台服务器连续两轮都比当前服务器快出设定阈值时才会切换，延迟相近的服务器之间不会来回跳。",
+  "set.balancerRotateDesc": "每轮切换到列表中的下一个可用服务器，跳过失效的。",
+  "set.balancerInterval": "检测周期",
+  "set.balancerIntervalHint": "多久检测一次所有服务器。当前服务器每 20 秒检测一次。",
+  "set.balancerTolerance": "切换阈值",
+  "set.balancerToleranceHint": "另一台服务器至少要快这么多。",
+  "set.everyMin": "每 {n} 分钟",
 
   "set.subsSection": "订阅",
   "set.subAuto": "自动刷新",
@@ -204,6 +219,10 @@ export const zh: Record<keyof typeof ru, string> = {
   "pick.noServer": "未选择服务器",
   "pick.select": "选择服务器",
   "pick.testAll": "全部测试",
+  "pick.badgeFailover": "故障转移",
+  "pick.badgeBackup": "备用服务器",
+  "pick.badgeFastest": "最快",
+  "pick.badgeRotate": "轮换",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "服务器",

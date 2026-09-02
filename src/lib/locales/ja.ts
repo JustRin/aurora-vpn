@@ -35,6 +35,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "モードを切り替えられませんでした",
   "toast.latencyFailed": "レイテンシの計測に失敗しました",
   "toast.reloadFailed": "状態を更新できませんでした",
+  "toast.balancerOff": "自動選択をオフにしました。サーバーを手動で選びました",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "オーロラ",
@@ -97,9 +98,24 @@ export const ja: Record<keyof typeof ru, string> = {
   "set.allowLan": "LAN からの利用",
   "set.allowLanDesc":
     "プロキシが 0.0.0.0 で待ち受け、同じネットワークの他の端末からも使えるようになります。信頼できるネットワークでのみ有効にしてください。",
-  "set.autoSelect": "最速のサーバーを選ぶ",
-  "set.autoSelectDesc":
-    "コアがレイテンシの最も低いサーバーへ自動で切り替え、3 分ごとに測り直します。",
+  "set.balancer": "サーバーの選択",
+  "set.balancerManual": "手動",
+  "set.balancerFailover": "フェイルオーバー",
+  "set.balancerFastest": "最速",
+  "set.balancerRotate": "ローテーション",
+  "set.balancerManualDesc": "選んだサーバーをそのまま使います。自動では切り替わりません。",
+  "set.balancerFailoverDesc":
+    "選んだサーバーがメインです。応答しなくなると最良の生きているサーバーへ移り、メインが復帰して安定したら戻ります。既存の接続は切れません。",
+  "set.balancerFastestDesc":
+    "すべてのサーバーを定期的に計測します。設定したしきい値以上に速いサーバーが 2 回続けて現れたときだけ切り替えるので、同じくらいの遅延のサーバー間で行き来しません。",
+  "set.balancerRotateDesc":
+    "毎回、リストの次の生きているサーバーへ移ります。落ちているサーバーは飛ばします。",
+  "set.balancerInterval": "計測の間隔",
+  "set.balancerIntervalHint":
+    "すべてのサーバーを計測する間隔。使用中のサーバーは 20 秒ごとに計測します。",
+  "set.balancerTolerance": "切り替えのしきい値",
+  "set.balancerToleranceHint": "別のサーバーが少なくともこれだけ速い必要があります。",
+  "set.everyMin": "{n} 分ごと",
 
   "set.subsSection": "サブスクリプション",
   "set.subAuto": "自動で更新する",
@@ -210,6 +226,10 @@ export const ja: Record<keyof typeof ru, string> = {
   "pick.noServer": "サーバーが選ばれていません",
   "pick.select": "サーバーを選ぶ",
   "pick.testAll": "すべて計測",
+  "pick.badgeFailover": "フェイルオーバー",
+  "pick.badgeBackup": "予備サーバー",
+  "pick.badgeFastest": "最速",
+  "pick.badgeRotate": "ローテーション",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "サーバー",

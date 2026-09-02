@@ -20,7 +20,7 @@ import { Empty, Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { bytes, duration, speed } from "../lib/format";
 import { type MsgKey, useT } from "../lib/i18n";
-import { ELEVATION_REQUIRED, type ClashMode } from "../lib/types";
+import { ELEVATION_REQUIRED, type ClashMode, shownServerId } from "../lib/types";
 import { useStore } from "../store";
 
 const STATE_KEY: Record<string, MsgKey> = {
@@ -75,7 +75,9 @@ export function Dashboard() {
     return () => window.clearInterval(id);
   }, [status.state]);
 
-  const activeNode = nodes.find((n) => n.id === status.activeId);
+  // The latency tile and the picker agree on one node: the one carrying
+  // traffic, which a balancer may have moved away from the pick.
+  const activeNode = nodes.find((n) => n.id === shownServerId(status));
   const connected = status.state === "connected";
   const ping = activeNode ? latency[activeNode.id] : undefined;
 

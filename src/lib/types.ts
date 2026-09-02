@@ -79,9 +79,17 @@ export interface Settings {
   themeDark: boolean;
   themeBackground: string;
   latencyUrl: string;
-  autoSelect: boolean;
+  /** Who picks the server; strategies are described in core/balancer.rs. */
+  balancer: Balancer;
+  /** Minutes between full sweeps of every server. */
+  balancerIntervalMin: number;
+  /** `fastest` only: another server must beat the current one by this much. */
+  balancerToleranceMs: number;
   subAutoUpdateMin: number;
 }
+
+/** `manual` — the pinned server; the rest let the app switch on its own. */
+export type Balancer = "manual" | "failover" | "fastest" | "rotate";
 
 export type ThemeChoice =
   | "system"
@@ -152,9 +160,19 @@ export interface Status {
   sinceMs: number | null;
   mode: ClashMode;
   tunnelMode: TunnelMode;
+  /** The server the user picked; with a balancer, the primary. */
   activeId: string;
+  /** The node traffic goes through right now; empty while disconnected. */
+  routedId: string;
   elevated: boolean;
   systemProxy: boolean;
+}
+
+/** The node worth showing: the routed one while connected, else the pick. */
+export function shownServerId(status: Status): string {
+  return status.state === "connected" && status.routedId
+    ? status.routedId
+    : status.activeId;
 }
 
 export interface Traffic {

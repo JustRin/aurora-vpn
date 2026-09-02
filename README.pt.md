@@ -52,6 +52,7 @@ O projeto enviou uma solicitação à [SignPath Foundation](https://signpath.org
 | **Túnel dividido** | por aplicativo — *apenas estes pela VPN* ou *todos, menos estes* |
 | **Roteamento** | conjuntos de regras geográficas RU/CN, bloqueio de anúncios, suas próprias listas de domínios e sub-redes |
 | **Troca** | servidor e o modo regras / tudo pela VPN mudam ao vivo, sem reiniciar o núcleo |
+| **Balanceador** | reserva, mais rápido com limiar ou rodízio — decidido pelo app, não pelo urltest do núcleo, então servidores com latência parecida não ficam alternando |
 | **Início automático** | comum ou elevado pelo Agendador de Tarefas — sem prompt do UAC a cada logon |
 | **Diagnóstico** | log ao vivo do núcleo, teste de latência, visualizador da configuração gerada |
 | **Aparência** | 6 paletas mais *seguir o sistema*, vários idiomas de interface |

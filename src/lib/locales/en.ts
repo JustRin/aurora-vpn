@@ -35,6 +35,7 @@ export const en: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "Failed to switch mode",
   "toast.latencyFailed": "Latency test failed",
   "toast.reloadFailed": "Failed to refresh state",
+  "toast.balancerOff": "Automatic selection is off: server picked by hand",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "Aurora",
@@ -97,9 +98,24 @@ export const en: Record<keyof typeof ru, string> = {
   "set.allowLan": "LAN access",
   "set.allowLanDesc":
     "The proxy listens on 0.0.0.0 so other devices on the network can use it. Enable only on a trusted network.",
-  "set.autoSelect": "Pick the fastest server",
-  "set.autoSelectDesc":
-    "The core switches to the lowest-latency server on its own and re-checks every 3 minutes.",
+  "set.balancer": "Server selection",
+  "set.balancerManual": "Manual",
+  "set.balancerFailover": "Failover",
+  "set.balancerFastest": "Fastest",
+  "set.balancerRotate": "Rotation",
+  "set.balancerManualDesc": "The server you picked is used. Nothing switches on its own.",
+  "set.balancerFailoverDesc":
+    "Your pick is the primary. When it stops answering, traffic moves to the best live server and returns once the primary is back and stays up. Live connections are not cut.",
+  "set.balancerFastestDesc":
+    "Every server is checked on a schedule. Traffic moves only to one that beats the current server by the threshold in two consecutive rounds, so servers with similar latency don't swap back and forth.",
+  "set.balancerRotateDesc":
+    "Each round moves to the next live server down the list; dead ones are skipped.",
+  "set.balancerInterval": "Check interval",
+  "set.balancerIntervalHint":
+    "How often all servers are checked. The current one is checked every 20 seconds.",
+  "set.balancerTolerance": "Switch threshold",
+  "set.balancerToleranceHint": "Another server has to be at least this much faster.",
+  "set.everyMin": "every {n} min",
 
   "set.subsSection": "Subscriptions",
   "set.subAuto": "Refresh automatically",
@@ -210,6 +226,10 @@ export const en: Record<keyof typeof ru, string> = {
   "pick.noServer": "No server selected",
   "pick.select": "Select server",
   "pick.testAll": "Test all",
+  "pick.badgeFailover": "failover",
+  "pick.badgeBackup": "backup server",
+  "pick.badgeFastest": "fastest",
+  "pick.badgeRotate": "rotation",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "Servers",

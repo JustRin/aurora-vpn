@@ -172,6 +172,41 @@ impl ClashApi {
             .await?;
         Ok(())
     }
+
+    /// Закрыть соединения, идущие через `tag` — любое звено цепочки (`chains`
+    /// в ответе панели: от исходящего до узла). Точечнее, чем `DELETE
+    /// /connections`: прямые соединения — локальная сеть, обход — остаются, и
+    /// сеть ядро не сбрасывает.
+    pub async fn close_via(&self, tag: &str) -> Result<usize> {
+        let body: ConnectionsResponse = self
+            .request(reqwest::Method::GET, "/connections")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let ids = ids_via(&body.connections.unwrap_or_default(), tag);
+        for id in &ids {
+            let _ = self
+                .request(reqwest::Method::DELETE, &format!("/connections/{}", urlencode(id)))
+                .send()
+                .await;
+        }
+        Ok(ids.len())
+    }
+}
+
+/// Идентификаторы соединений, в чьей цепочке исходящих есть `tag`.
+fn ids_via(connections: &[serde_json::Value], tag: &str) -> Vec<String> {
+    connections
+        .iter()
+        .filter(|conn| {
+            conn["chains"]
+                .as_array()
+                .is_some_and(|chain| chain.iter().any(|hop| hop == tag))
+        })
+        .filter_map(|conn| conn["id"].as_str().map(str::to_string))
+        .collect()
 }
 
 /// Percent-encode a path/query segment. Proxy tags carry spaces and non-ASCII
@@ -199,5 +234,20 @@ mod tests {
         assert_eq!(urlencode("Москва"), "%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0");
         assert_eq!(urlencode("a/b?c=d"), "a%2Fb%3Fc%3Dd");
         assert_eq!(urlencode("plain-tag_1.0~x"), "plain-tag_1.0~x");
+    }
+
+    #[test]
+    fn only_connections_routed_through_the_tag_are_picked() {
+        // Цепочка — от узла к группе: у прокси-соединения это [узел, proxy],
+        // у прямого — [direct]. Закрывать надо первые и не трогать вторые.
+        let connections = vec![
+            json!({ "id": "one", "chains": ["0-Tokyo", "proxy"] }),
+            json!({ "id": "two", "chains": ["direct"] }),
+            json!({ "id": "three", "chains": ["1-Berlin", "proxy"] }),
+            json!({ "id": "four" }),
+        ];
+        assert_eq!(ids_via(&connections, "proxy"), vec!["one", "three"]);
+        assert_eq!(ids_via(&connections, "0-Tokyo"), vec!["one"]);
+        assert!(ids_via(&connections, "auto").is_empty());
     }
 }

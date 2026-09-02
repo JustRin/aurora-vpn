@@ -511,10 +511,45 @@ export component SettingsPage inherits ScrollArea {
                 checked <=> Conf.allow-lan;
             }
             Divider { }
-            ToggleRow {
-                label: Str.set-auto-select;
-                desc: Str.set-auto-select-desc;
-                checked <=> Conf.auto-select;
+            // Кто выбирает сервер. Пояснение под подписью — про выбранный
+            // вариант: у каждой стратегии свой характер, и одной строкой на
+            // всех его не объяснить.
+            StackRow {
+                label: Str.set-balancer;
+                desc: Conf.balancer == 1
+                    ? Str.set-balancer-failover-desc
+                    : (Conf.balancer == 2
+                        ? Str.set-balancer-fastest-desc
+                        : (Conf.balancer == 3 ? Str.set-balancer-rotate-desc : Str.set-balancer-manual-desc));
+                Select {
+                    width: 190px;
+                    options: [Str.set-balancer-manual, Str.set-balancer-failover, Str.set-balancer-fastest, Str.set-balancer-rotate];
+                    current <=> Conf.balancer;
+                }
+            }
+            if Conf.balancer != 0: HorizontalLayout {
+                spacing: 14px;
+                padding-bottom: 8px;
+                Field {
+                    label: Str.set-balancer-interval;
+                    hint: Str.set-balancer-interval-hint;
+                    horizontal-stretch: 1;
+                    Select {
+                        options: ["1 \{Str.unit-min}", "3 \{Str.unit-min}", "5 \{Str.unit-min}", "10 \{Str.unit-min}", "30 \{Str.unit-min}"];
+                        current <=> Conf.balancer-interval;
+                    }
+                }
+                // Порог есть только у «самого быстрого»: остальным сравнивать
+                // задержки незачем.
+                if Conf.balancer == 2: Field {
+                    label: Str.set-balancer-tolerance;
+                    hint: Str.set-balancer-tolerance-hint;
+                    horizontal-stretch: 1;
+                    Select {
+                        options: ["50 \{Str.unit-ms}", "100 \{Str.unit-ms}", "200 \{Str.unit-ms}", "300 \{Str.unit-ms}"];
+                        current <=> Conf.balancer-tolerance;
+                    }
+                }
             }
         }
 

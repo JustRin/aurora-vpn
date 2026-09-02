@@ -35,6 +35,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "Falha ao trocar de modo",
   "toast.latencyFailed": "O teste de latência falhou",
   "toast.reloadFailed": "Falha ao atualizar o estado",
+  "toast.balancerOff": "Seleção automática desligada: servidor escolhido à mão",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "Aurora",
@@ -97,9 +98,24 @@ export const pt: Record<keyof typeof ru, string> = {
   "set.allowLan": "Acesso pela rede local",
   "set.allowLanDesc":
     "O proxy escuta em 0.0.0.0 para que outros dispositivos da rede possam usá-lo. Ative apenas em uma rede confiável.",
-  "set.autoSelect": "Escolher o servidor mais rápido",
-  "set.autoSelectDesc":
-    "O núcleo muda sozinho para o servidor de menor latência e refaz a checagem a cada 3 minutos.",
+  "set.balancer": "Seleção de servidor",
+  "set.balancerManual": "Manual",
+  "set.balancerFailover": "Reserva",
+  "set.balancerFastest": "Mais rápido",
+  "set.balancerRotate": "Rodízio",
+  "set.balancerManualDesc": "O servidor que você escolheu é usado. Nada muda sozinho.",
+  "set.balancerFailoverDesc":
+    "O servidor escolhido é o principal. Se ele parar de responder, o tráfego vai para o melhor servidor vivo e volta quando o principal retornar e se manter estável. As conexões ativas não são cortadas.",
+  "set.balancerFastestDesc":
+    "Todos os servidores são verificados periodicamente. O tráfego só muda para um servidor que supere o atual pelo limiar em duas rodadas seguidas, então servidores com latência parecida não ficam alternando.",
+  "set.balancerRotateDesc":
+    "A cada rodada passa para o próximo servidor vivo da lista; os que caíram são pulados.",
+  "set.balancerInterval": "Intervalo de verificação",
+  "set.balancerIntervalHint":
+    "Com que frequência todos os servidores são verificados. O atual é verificado a cada 20 segundos.",
+  "set.balancerTolerance": "Limiar de troca",
+  "set.balancerToleranceHint": "Outro servidor precisa ser pelo menos isto mais rápido.",
+  "set.everyMin": "a cada {n} min",
 
   "set.subsSection": "Assinaturas",
   "set.subAuto": "Atualizar automaticamente",
@@ -211,6 +227,10 @@ export const pt: Record<keyof typeof ru, string> = {
   "pick.noServer": "Nenhum servidor selecionado",
   "pick.select": "Escolher servidor",
   "pick.testAll": "Testar todos",
+  "pick.badgeFailover": "reserva",
+  "pick.badgeBackup": "servidor reserva",
+  "pick.badgeFastest": "mais rápido",
+  "pick.badgeRotate": "rodízio",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "Servidores",

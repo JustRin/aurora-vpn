@@ -35,6 +35,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "تعذّر تبديل الوضع",
   "toast.latencyFailed": "فشل قياس زمن الاستجابة",
   "toast.reloadFailed": "تعذّر تحديث الحالة",
+  "toast.balancerOff": "أُوقف الاختيار التلقائي: اخترتَ الخادم يدويًا",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "الشفق",
@@ -97,9 +98,22 @@ export const ar: Record<keyof typeof ru, string> = {
   "set.allowLan": "الوصول من الشبكة المحلية",
   "set.allowLanDesc":
     "يستمع الوكيل على 0.0.0.0 ليستخدمه بقية أجهزة الشبكة. فعّله في الشبكات الموثوقة فقط.",
-  "set.autoSelect": "اختيار أسرع خادم",
-  "set.autoSelectDesc":
-    "تنتقل النواة وحدها إلى الخادم الأقل زمن استجابة، وتعيد الفحص كل 3 دقائق.",
+  "set.balancer": "اختيار الخادم",
+  "set.balancerManual": "يدوي",
+  "set.balancerFailover": "احتياطي",
+  "set.balancerFastest": "الأسرع",
+  "set.balancerRotate": "بالتناوب",
+  "set.balancerManualDesc": "يُستخدم الخادم الذي اخترته، ولا يتبدّل شيء تلقائيًا.",
+  "set.balancerFailoverDesc":
+    "الخادم الذي اخترته هو الأساسي. إذا توقّف عن الاستجابة ينتقل التدفّق إلى أفضل خادم حي، ويعود حين يرجع الأساسي ويستقر. الاتصالات القائمة لا تُقطع.",
+  "set.balancerFastestDesc":
+    "تُفحص كل الخوادم وفق جدول. لا ينتقل التدفّق إلا إلى خادم يتفوّق على الحالي بالحدّ المضبوط في جولتين متتاليتين، فلا يتأرجح بين خوادم متقاربة الزمن.",
+  "set.balancerRotateDesc": "في كل جولة ينتقل إلى الخادم الحي التالي في القائمة، متجاوزًا المعطّل.",
+  "set.balancerInterval": "فترة الفحص",
+  "set.balancerIntervalHint": "كم مرّة تُفحص كل الخوادم. الخادم الحالي يُفحص كل 20 ثانية.",
+  "set.balancerTolerance": "حدّ التبديل",
+  "set.balancerToleranceHint": "يجب أن يكون الخادم الآخر أسرع بهذا القدر على الأقل.",
+  "set.everyMin": "كل {n} دقيقة",
 
   "set.subsSection": "الاشتراكات",
   "set.subAuto": "التحديث تلقائيًا",
@@ -210,6 +224,10 @@ export const ar: Record<keyof typeof ru, string> = {
   "pick.noServer": "لم يُحدَّد خادم",
   "pick.select": "اختيار خادم",
   "pick.testAll": "قياس الكل",
+  "pick.badgeFailover": "احتياطي",
+  "pick.badgeBackup": "خادم احتياطي",
+  "pick.badgeFastest": "الأسرع",
+  "pick.badgeRotate": "بالتناوب",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "الخوادم",

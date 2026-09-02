@@ -60,6 +60,9 @@ pub struct BuiltConfig {
     /// `(node id, sing-box outbound tag)` so the UI can drive the Clash API,
     /// which addresses proxies by tag rather than by our internal id.
     pub tags: Vec<(String, String)>,
+    /// Теги узлов, которые можно мерить через ядро и между которыми вправе
+    /// переключаться балансировщик: состав auto-группы, в порядке списка.
+    pub candidates: Vec<String>,
 }
 
 /// Outbound tags end up in logs and in the Clash API URL path, so keep them
@@ -311,10 +314,13 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // отвергает, а без авто-группы не собирается селектор.
     let auto_members = if auto_members.is_empty() { node_tags.clone() } else { auto_members };
 
+    // Группа остаётся ради панелей Clash и стартового обхода, но трафик через
+    // неё не водят: узел выбирает балансировщик приложения (core/balancer.rs),
+    // а селектор всегда указывает на конкретный узел.
     outbounds.push(json!({
         "type": "urltest",
         "tag": TAG_AUTO,
-        "outbounds": auto_members,
+        "outbounds": auto_members.clone(),
         "url": settings.latency_url,
         "interval": "3m",
         "tolerance": 50,
@@ -327,12 +333,6 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         .map(|(_, t)| t.clone())
         .unwrap_or_else(|| node_tags[0].clone());
 
-    let default_tag = if settings.auto_select {
-        TAG_AUTO.to_string()
-    } else {
-        active_tag
-    };
-
     let mut selector_members = vec![TAG_AUTO.to_string()];
     selector_members.extend(node_tags.iter().cloned());
 
@@ -340,9 +340,12 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         "type": "selector",
         "tag": TAG_PROXY,
         "outbounds": selector_members,
-        "default": default_tag,
-        // Without this, switching servers leaves live sockets on the old node.
-        "interrupt_exist_connections": true
+        "default": active_tag,
+        // Переключение селектора живых соединений не рвёт — так балансировщик
+        // меняет узел незаметно. Ручная смена сервера закрывает соединения
+        // через прокси сама, точечно (ClashApi::close_via): иначе они доживали
+        // бы на прежнем узле.
+        "interrupt_exist_connections": false
     }));
     outbounds.push(json!({ "type": "direct", "tag": TAG_DIRECT }));
 
@@ -698,7 +701,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         "route": Value::Object(route)
     });
 
-    Ok(BuiltConfig { json: config, tags })
+    Ok(BuiltConfig { json: config, tags, candidates: auto_members })
 }
 
 #[cfg(test)]
@@ -1009,16 +1012,52 @@ mod tests {
     }
 
     #[test]
-    fn auto_select_switches_the_default_to_urltest() {
-        let settings = Settings { auto_select: true, ..Default::default() };
-        let cfg = build_with(settings, SplitConfig::default());
+    fn the_selector_never_cuts_connections_on_its_own() {
+        // Автоматический переход балансировщика должен быть незаметным; рвать
+        // соединения — дело ручной смены сервера, и она делает это сама.
+        let cfg = build_with(Settings::default(), SplitConfig::default());
         let selector = cfg["outbounds"]
             .as_array()
             .unwrap()
             .iter()
             .find(|o| o["tag"] == json!(TAG_PROXY))
             .unwrap();
-        assert_eq!(selector["default"], json!(TAG_AUTO));
+        assert_eq!(selector["interrupt_exist_connections"], json!(false));
+    }
+
+    #[test]
+    fn probe_safe_nodes_are_reported_as_balancer_candidates() {
+        // Балансировщик меряет и выбирает ровно то, что дозванивается без
+        // риска уронить ядро, — состав auto-группы, в порядке списка.
+        let mut nodes = vec![node("Tokyo", "a"), node("Junk", "b"), node("Berlin", "c")];
+        nodes[1].protocol = Protocol::Vmess;
+        nodes[1].network = crate::model::Network::Ws;
+        nodes[1].security = Security::None;
+        nodes[1].public_key = String::new();
+        let settings = Settings::default();
+        let split = SplitConfig::default();
+        let built = build(&BuildInput {
+            nodes: &nodes,
+            active_id: "b",
+            settings: &settings,
+            split: &split,
+            clash_secret: "secret",
+            cache_path: &PathBuf::from("cache.db"),
+            xray_ports: &HashMap::new(),
+            xray_exe: None,
+            rule_sets: &all_sets(),
+            rule_set_dir: &PathBuf::from("rules"),
+        })
+        .unwrap();
+        assert_eq!(built.candidates, vec!["0-Tokyo".to_string(), "2-Berlin".to_string()]);
+        // Выбранный вручную узел селектор берёт по умолчанию, даже хрупкий.
+        let selector = built.json["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["tag"] == json!(TAG_PROXY))
+            .unwrap();
+        assert_eq!(selector["default"], json!("1-Junk"));
     }
 
     #[test]

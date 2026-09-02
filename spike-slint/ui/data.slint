@@ -112,6 +112,9 @@ export global Data {
     in-out property <string> active-label;
     in-out property <string> active-latency;
     in-out property <string> active-tier;
+    // Трафик увёл балансировщик «с резервом»: показанный узел — не выбранный
+    // пользователем, а его замена на время, пока выбранный не отвечает.
+    in-out property <bool> on-backup;
 
     // Живые показания «Обзора» — их ведут таймеры в main.rs.
     in-out property <string> state-text: "Отключено";
@@ -219,7 +222,12 @@ export global Conf {
     in-out property <string> latency-url: "https://www.gstatic.com/generate_204";
     in-out property <int> log-level: 2;     // trace debug info warn error
     in-out property <bool> allow-lan: false;
-    in-out property <bool> auto-select: false;
+    // Кто выбирает сервер: 0 вручную, 1 с резервом, 2 самый быстрый,
+    // 3 по кругу — порядок settings::Balancer.
+    in-out property <int> balancer: 0;
+    // Индексы в BALANCER_MINUTES и BALANCER_TOLERANCE из bind.rs.
+    in-out property <int> balancer-interval: 1;
+    in-out property <int> balancer-tolerance: 1;
     in-out property <int> sub-auto: 2;      // 0 никогда … 4 раз в сутки
 
     // 0 как в системе, дальше по порядку Str.LANGS: 1 ru, 2 en, 3 zh, 4 ja,

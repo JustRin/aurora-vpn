@@ -35,6 +35,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "toast.modeSwitchFailed": "모드를 전환하지 못했습니다",
   "toast.latencyFailed": "지연 시간 측정에 실패했습니다",
   "toast.reloadFailed": "상태를 새로 고치지 못했습니다",
+  "toast.balancerOff": "자동 선택을 껐습니다. 서버를 직접 선택했습니다",
 
   // ------------------------------------------------------------------ themes
   "theme.dark": "오로라",
@@ -94,9 +95,22 @@ export const ko: Record<keyof typeof ru, string> = {
   "set.allowLan": "LAN 접근",
   "set.allowLanDesc":
     "프록시가 0.0.0.0에서 대기하여 같은 네트워크의 다른 기기도 쓸 수 있습니다. 신뢰할 수 있는 네트워크에서만 켜세요.",
-  "set.autoSelect": "가장 빠른 서버 선택",
-  "set.autoSelectDesc":
-    "코어가 지연 시간이 가장 낮은 서버로 알아서 전환하고 3분마다 다시 확인합니다.",
+  "set.balancer": "서버 선택",
+  "set.balancerManual": "수동",
+  "set.balancerFailover": "장애 조치",
+  "set.balancerFastest": "가장 빠른",
+  "set.balancerRotate": "순환",
+  "set.balancerManualDesc": "선택한 서버를 그대로 사용합니다. 자동으로 전환되지 않습니다.",
+  "set.balancerFailoverDesc":
+    "선택한 서버가 기본 서버입니다. 응답이 없으면 살아 있는 서버 중 가장 좋은 곳으로 옮기고, 기본 서버가 복구되어 안정되면 되돌아옵니다. 기존 연결은 끊기지 않습니다.",
+  "set.balancerFastestDesc":
+    "모든 서버를 주기적으로 검사합니다. 두 번 연속 임계값 이상 더 빠른 서버가 있을 때만 옮기므로, 지연 시간이 비슷한 서버 사이를 오가지 않습니다.",
+  "set.balancerRotateDesc": "매 회차마다 목록의 다음 살아 있는 서버로 옮깁니다. 죽은 서버는 건너뜁니다.",
+  "set.balancerInterval": "검사 주기",
+  "set.balancerIntervalHint": "모든 서버를 검사하는 주기. 현재 서버는 20초마다 검사합니다.",
+  "set.balancerTolerance": "전환 임계값",
+  "set.balancerToleranceHint": "다른 서버가 최소 이만큼 더 빨라야 합니다.",
+  "set.everyMin": "{n}분마다",
 
   "set.subsSection": "구독",
   "set.subAuto": "자동으로 새로 고침",
@@ -206,6 +220,10 @@ export const ko: Record<keyof typeof ru, string> = {
   "pick.noServer": "선택된 서버 없음",
   "pick.select": "서버 선택",
   "pick.testAll": "전체 측정",
+  "pick.badgeFailover": "장애 조치",
+  "pick.badgeBackup": "예비 서버",
+  "pick.badgeFastest": "가장 빠른",
+  "pick.badgeRotate": "순환",
 
   // ------------------------------------------------------------------ servers
   "srv.title": "서버",

@@ -2,7 +2,7 @@
 // плитками, плюс выбор сервера и карточки подписок.
 
 import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider } from "../theme.slint";
-import { Btn, Dot, Alert, Empty, ScrollArea } from "../widgets.slint";
+import { Btn, Dot, Chip, Alert, Empty, ScrollArea } from "../widgets.slint";
 import { SubCard } from "../cards.slint";
 import { Data, Conf, Ui } from "../data.slint";
 import { Str } from "../i18n.slint";
@@ -18,6 +18,14 @@ component ServerPicker inherits Rectangle {
     background: touch.has-hover || menu.is-open ? Theme.sunken : #00000000;
     animate background { duration: 130ms; }
 
+    // Стратегия балансировщика — подписью у имени: видно, что сервер выбирает
+    // не пользователь, а на резерве — что выбранный сейчас недоступен.
+    property <string> badge: Conf.balancer == 1
+        ? (Data.on-backup ? Str.pick-badge-backup : Str.pick-badge-failover)
+        : (Conf.balancer == 2
+            ? Str.pick-badge-fastest
+            : (Conf.balancer == 3 ? Str.pick-badge-rotate : ""));
+
     HorizontalLayout {
         padding-left: 11px;
         padding-right: 10px;
@@ -28,6 +36,13 @@ component ServerPicker inherits Rectangle {
             overflow: elide;
             font-size: 13.5px * Theme.text-scale;
             color: touch.has-hover || menu.is-open ? Theme.text : Theme.text-dim;
+        }
+        if root.badge != "": VerticalLayout {
+            alignment: center;
+            Chip {
+                label: root.badge;
+                kind: Conf.balancer == 1 && Data.on-backup ? "warn" : "accent";
+            }
         }
         if Data.active-latency != "": VerticalLayout {
             alignment: center;

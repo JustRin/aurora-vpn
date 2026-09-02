@@ -38,7 +38,9 @@ export const api = {
 
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   setSplit: (split: SplitConfig) => invoke<void>("set_split", { split }),
-  setActiveServer: (id: string) => invoke<void>("set_active_server", { id }),
+  /** Resolves to `true` when the balancer had to be switched off for the pick
+   * to stick (fastest / rotation would otherwise move traffic back). */
+  setActiveServer: (id: string) => invoke<boolean>("set_active_server", { id }),
   setClashMode: (mode: ClashMode) => invoke<void>("set_clash_mode", { mode }),
 
   addLinks: (text: string) => invoke<ImportReport>("add_links", { text }),

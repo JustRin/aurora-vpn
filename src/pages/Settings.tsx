@@ -11,12 +11,25 @@ import { THEMES } from "../lib/themes";
 import {
   ELEVATION_REQUIRED,
   type AutostartMode,
+  type Balancer,
   type LangChoice,
   type ResourceGroup,
   type TunStack,
   type TunnelMode,
 } from "../lib/types";
 import { useStore } from "../store";
+
+/** One explanation per strategy, shown under the picker for the chosen one. */
+const BALANCER_HELP: Record<Balancer, MsgKey> = {
+  manual: "set.balancerManualDesc",
+  failover: "set.balancerFailoverDesc",
+  fastest: "set.balancerFastestDesc",
+  rotate: "set.balancerRotateDesc",
+};
+
+/** Sweep periods offered, in minutes, and «fastest» thresholds, in ms. */
+const BALANCER_MINUTES = [1, 3, 5, 10, 30];
+const BALANCER_TOLERANCE = [50, 100, 200, 300];
 
 /** The two decks of the page: everything sing-box (tunnel, DNS, ports,
  * subscriptions) versus everything client-side (language, theme, startup,
@@ -270,12 +283,63 @@ export function Settings() {
               checked={settings.allowLan}
               onChange={(allowLan) => void save({ allowLan })}
             />
-            <ToggleRow
-              label={t("set.autoSelect")}
-              desc={t("set.autoSelectDesc")}
-              checked={settings.autoSelect}
-              onChange={(autoSelect) => void save({ autoSelect })}
-            />
+            {/* Who picks the server. The description follows the chosen
+                strategy: each one behaves differently enough that a single
+                line could not explain them all. */}
+            <div className="toggle-row stack">
+              <div className="grow">
+                <div className="toggle-label">{t("set.balancer")}</div>
+                <div className="toggle-desc">{t(BALANCER_HELP[settings.balancer ?? "manual"])}</div>
+              </div>
+              <select
+                className="select"
+                value={settings.balancer ?? "manual"}
+                onChange={(e) => void save({ balancer: e.target.value as Balancer })}
+              >
+                <option value="manual">{t("set.balancerManual")}</option>
+                <option value="failover">{t("set.balancerFailover")}</option>
+                <option value="fastest">{t("set.balancerFastest")}</option>
+                <option value="rotate">{t("set.balancerRotate")}</option>
+              </select>
+            </div>
+            {settings.balancer && settings.balancer !== "manual" && (
+              <div className="grid-2" style={{ marginTop: 4 }}>
+                <Field label={t("set.balancerInterval")} hint={t("set.balancerIntervalHint")}>
+                  <select
+                    className="select"
+                    value={String(settings.balancerIntervalMin)}
+                    onChange={(e) =>
+                      void save({ balancerIntervalMin: Number(e.target.value) })
+                    }
+                  >
+                    {BALANCER_MINUTES.map((n) => (
+                      <option key={n} value={n}>
+                        {t("set.everyMin", { n })}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {/* Only «fastest» compares latencies; the others have no use
+                    for a threshold. */}
+                {settings.balancer === "fastest" && (
+                  <Field label={t("set.balancerTolerance")} hint={t("set.balancerToleranceHint")}>
+                    <select
+                      className="select"
+                      value={String(settings.balancerToleranceMs)}
+                      onChange={(e) =>
+                        void save({ balancerToleranceMs: Number(e.target.value) })
+                      }
+                    >
+                      {BALANCER_TOLERANCE.map((ms) => (
+                        <option key={ms} value={ms}>
+                          {t("dash.pingMs", { ping: ms })}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="section-title">{t("set.subsSection")}</div>

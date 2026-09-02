@@ -135,14 +135,24 @@ pub fn render_status(ui: &AppWindow) {
     let data = ui.global::<Data>();
     with(|view| {
         let status = &view.status;
-        data.set_connected(matches!(status.state, ConnState::Connected));
+        let connected = matches!(status.state, ConnState::Connected);
+        data.set_connected(connected);
         data.set_elevated(status.elevated);
         data.set_state_text(state_text(status.state).into());
         // Причина срыва живёт рядом с состоянием: «Ошибка» без объяснения
         // одинаково похожа на нехватку прав, мёртвый сервер и занятый порт.
         data.set_state_detail(status.message.as_str().into());
-        data.set_active_id(status.active_id.as_str().into());
-        view.active_id = status.active_id.clone();
+        // На экране — узел, через который трафик идёт прямо сейчас:
+        // балансировщик мог увести его с выбранного. Без подключения
+        // показывать нечего, кроме выбранного.
+        let shown = if connected && !status.routed_id.is_empty() {
+            status.routed_id.as_str()
+        } else {
+            status.active_id.as_str()
+        };
+        data.set_active_id(shown.into());
+        data.set_on_backup(connected && shown != status.active_id);
+        view.active_id = shown.to_string();
     });
     render_active(ui);
 }

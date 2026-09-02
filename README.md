@@ -52,6 +52,7 @@ The project has applied to the [SignPath Foundation](https://signpath.org) (free
 | **Split tunneling** | per app — *only these through the VPN* or *everything but these* |
 | **Routing** | RU/CN geo rule sets, ad blocking, your own domain and subnet lists |
 | **Switching** | server and rules/everything-via-VPN mode change live, without restarting the core |
+| **Balancer** | failover, fastest-with-threshold or rotation — decided by the app, not by the core's urltest, so servers with similar latency don't flap |
 | **Autostart** | plain, or elevated through Task Scheduler — no UAC prompt at every login |
 | **Diagnostics** | live core log, latency test, generated-config viewer |
 | **Looks** | 6 palettes plus *follow system*, 7 interface languages |

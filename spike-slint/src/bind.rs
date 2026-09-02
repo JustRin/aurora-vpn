@@ -16,7 +16,7 @@ use crate::api::{self, Snapshot};
 use crate::app::{self, AppHandle};
 use crate::error::Result;
 use crate::model::{Network, Protocol, Security, ServerNode};
-use crate::settings::{AppRule, Settings, SplitConfig, SplitMode, TunStack, TunnelMode};
+use crate::settings::{AppRule, Balancer, Settings, SplitConfig, SplitMode, TunStack, TunnelMode};
 use crate::state::AppState;
 use crate::sys::autostart::AutostartMode;
 use crate::sys::{autostart, clipboard, dialog, procs};
@@ -42,6 +42,11 @@ const NETWORKS: [Network; 5] = [
 const LOG_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 /// Значения выпадающего списка автообновления подписок, в минутах.
 const SUB_AUTO_MINUTES: [u32; 5] = [0, 180, 360, 720, 1440];
+/// Период обхода серверов балансировщиком, в минутах, — по порядку списка в
+/// settings.slint.
+const BALANCER_MINUTES: [u32; 5] = [1, 3, 5, 10, 30];
+/// Порог «самого быстрого», в миллисекундах, — тем же порядком.
+const BALANCER_TOLERANCE: [u32; 4] = [50, 100, 200, 300];
 /// Режимы переключателя на «Обзоре». Третий режим ядра, `Direct`, сюда не
 /// вынесен: «весь трафик мимо VPN» — это и есть выключенный туннель, а кнопка
 /// питания говорит об этом понятнее. Придёт он снаружи (Clash API) — строка
@@ -190,7 +195,24 @@ fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
     conf.set_latency_url(s.latency_url.as_str().into());
     conf.set_log_level(LOG_LEVELS.iter().position(|l| *l == s.log_level).unwrap_or(2) as i32);
     conf.set_allow_lan(s.allow_lan);
-    conf.set_auto_select(s.auto_select);
+    conf.set_balancer(match s.balancer {
+        Balancer::Manual => 0,
+        Balancer::Failover => 1,
+        Balancer::Fastest => 2,
+        Balancer::Rotate => 3,
+    });
+    conf.set_balancer_interval(
+        BALANCER_MINUTES
+            .iter()
+            .position(|m| *m == s.balancer_interval_min)
+            .unwrap_or(1) as i32,
+    );
+    conf.set_balancer_tolerance(
+        BALANCER_TOLERANCE
+            .iter()
+            .position(|ms| *ms == s.balancer_tolerance_ms)
+            .unwrap_or(1) as i32,
+    );
     conf.set_sub_auto(
         SUB_AUTO_MINUTES
             .iter()
@@ -246,7 +268,21 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
             .unwrap_or(&"info")
             .to_string(),
         allow_lan: conf.get_allow_lan(),
-        auto_select: conf.get_auto_select(),
+        balancer: match conf.get_balancer() {
+            1 => Balancer::Failover,
+            2 => Balancer::Fastest,
+            3 => Balancer::Rotate,
+            _ => Balancer::Manual,
+        },
+        balancer_interval_min: BALANCER_MINUTES
+            .get(conf.get_balancer_interval().max(0) as usize)
+            .copied()
+            .unwrap_or(3),
+        balancer_tolerance_ms: BALANCER_TOLERANCE
+            .get(conf.get_balancer_tolerance().max(0) as usize)
+            .copied()
+            .unwrap_or(100),
+        auto_select: false,
         sub_auto_update_min: SUB_AUTO_MINUTES
             .get(conf.get_sub_auto().max(0) as usize)
             .copied()
@@ -453,7 +489,24 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
         let handle = handle.clone();
         move |id| {
             let id = id.to_string();
-            run(&handle, move |h| async move { api::set_active_server(h, id).await });
+            let handle = handle.clone();
+            app::runtime().spawn(async move {
+                let reporter = handle.clone();
+                match api::set_active_server(handle, id).await {
+                    // Балансировщик пришлось выключить: показать это и в
+                    // настройках, и всплывашкой — иначе список врёт.
+                    Ok(true) => reporter.with_ui(|ui| {
+                        ui.global::<Conf>().set_balancer(0);
+                        let text = crate::tr(|l| l.balancer_off.clone());
+                        view::toast(ui, "info", &text, "");
+                    }),
+                    Ok(false) => {}
+                    Err(e) => {
+                        let text = human(e.to_string());
+                        reporter.with_ui(move |ui| view::toast(ui, "error", &text, ""));
+                    }
+                }
+            });
         }
     });
 
@@ -1169,7 +1222,17 @@ pub fn after_start(ui: &AppWindow, handle: &AppHandle) {
         timer.start(slint::TimerMode::Repeated, PING_EVERY, move || {
             let handle = handle.clone();
             app::runtime().spawn(async move {
-                let active = handle.state().resolve_active_id();
+                // Балансировщик меряет текущий узел сам и показывает замеры.
+                if handle.state().balancer.lock().is_some() {
+                    return;
+                }
+                // Узел на экране — тот, через который идёт трафик.
+                let routed = handle.state().status.read().routed_id.clone();
+                let active = if routed.is_empty() {
+                    handle.state().resolve_active_id()
+                } else {
+                    routed
+                };
                 if active.is_empty() {
                     return;
                 }

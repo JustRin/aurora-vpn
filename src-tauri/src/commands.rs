@@ -13,6 +13,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::core::balancer::{self, Brain, Reason, Step};
 use crate::core::clash::ClashApi;
 use crate::core::config::{self, BuildInput, TAG_PROXY};
 use crate::core::log::LogLine;
@@ -22,7 +23,7 @@ use crate::core::xray;
 use crate::error::{AppError, Result};
 use crate::link;
 use crate::model::ServerNode;
-use crate::settings::{Settings, SplitConfig, Subscription, TunnelMode};
+use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
 use crate::state::{AppState, ConnState, Status, Traffic};
 use crate::sys::autostart::{self, AutostartMode};
 use crate::sys::{elevate, procs, sysproxy};
@@ -275,6 +276,7 @@ fn build_and_write(
     })?;
 
     *state.tags.write() = built.tags.iter().cloned().collect();
+    *state.candidates.write() = built.candidates.clone();
 
     std::fs::create_dir_all(&state.paths.work_dir)?;
     std::fs::write(
@@ -334,6 +336,22 @@ async fn handle_core_death(app: &AppHandle, session: u64, uptime_ms: Option<i64>
             text: format!("ядро аварийно завершилось ({detail}) — перезапускаю туннель"),
         },
     );
+    // Ядро упало, пока трафик шёл через хрупкий узел (vmess+ws: неудачный
+    // дозвон роняет процесс) — для балансировщика это смерть узла. После
+    // перезапуска он уйдёт с него, а не будет ронять ядро снова и снова.
+    {
+        let state = app.state::<AppState>();
+        let routed = {
+            let status = state.status.read();
+            state.tags.read().get(&status.routed_id).cloned()
+        };
+        let mut guard = state.balancer.lock();
+        if let (Some(tag), Some(brain)) = (routed, guard.as_mut()) {
+            if !brain.is_safe(&tag) {
+                brain.mark_dead(&tag, Instant::now());
+            }
+        }
+    }
     // connect_inner (а не connect: тот открывает новый эпизод и обнулил бы
     // счётчик аварий) сам поднимет статус, ядро и поллеры; о неудаче он тоже
     // сообщает сам — путь фоновый, причина остаётся в статусе «Ошибка».
@@ -597,6 +615,7 @@ fn shutdown(app: &AppHandle, message: &str) {
     }
     let _ = std::fs::remove_file(&state.paths.pid_file);
     *state.clash.write() = None;
+    *state.balancer.lock() = None;
     *state.traffic.write() = Traffic::default();
 
     // Only touch the system proxy if this app is the one that switched it on —
@@ -615,10 +634,274 @@ fn shutdown(app: &AppHandle, message: &str) {
         };
         status.message = message.to_string();
         status.since_ms = None;
+        status.routed_id.clear();
         status.system_proxy = false;
     }
     let _ = app.emit(EVT_TRAFFIC, Traffic::default());
     emit_status(app);
+}
+
+// --------------------------------------------------------------- balancer
+
+/// Строка в журнал от самого приложения — рядом со строками ядра.
+fn log_line(app: &AppHandle, level: &str, text: impl Into<String>) {
+    let _ = app.emit(
+        EVT_LOG,
+        LogLine {
+            seq: 0,
+            level: level.into(),
+            text: text.into(),
+        },
+    );
+}
+
+/// Узел по тегу исходящего.
+fn id_of(state: &AppState, tag: &str) -> Option<String> {
+    state
+        .tags
+        .read()
+        .iter()
+        .find(|(_, t)| t.as_str() == tag)
+        .map(|(id, _)| id.clone())
+}
+
+/// Имя узла по тегу — для журнала; без узла остаётся тег.
+fn name_of(state: &AppState, tag: &str) -> String {
+    id_of(state, tag)
+        .and_then(|id| state.nodes.read().iter().find(|n| n.id == id).map(|n| n.name.clone()))
+        .unwrap_or_else(|| tag.to_string())
+}
+
+fn strategy_name(strategy: Balancer) -> &'static str {
+    match strategy {
+        Balancer::Manual => "вручную",
+        Balancer::Failover => "с резервом",
+        Balancer::Fastest => "самый быстрый",
+        Balancer::Rotate => "по кругу",
+    }
+}
+
+/// «2 проверки», «5 проверок», «21 проверку» — для журнала.
+fn checks(n: u32) -> String {
+    let word = match (n % 10, n % 100) {
+        (1, tail) if tail != 11 => "проверку",
+        (2..=4, tail) if !(12..=14).contains(&tail) => "проверки",
+        _ => "проверок",
+    };
+    format!("{n} {word}")
+}
+
+/// Собрать автомат под текущие настройки и конфиг. Возвращает тег узла, на
+/// который должен смотреть селектор; None — выбор ручной, автомата нет.
+fn install_brain(state: &AppState) -> Option<String> {
+    let settings = state.settings.read().clone();
+    let mut guard = state.balancer.lock();
+    if settings.balancer == Balancer::Manual {
+        *guard = None;
+        return None;
+    }
+    let active = state.resolve_active_id();
+    let primary = state.tags.read().get(&active).cloned()?;
+    let cfg = balancer::Config {
+        strategy: settings.balancer,
+        tolerance: settings.balancer_tolerance_ms,
+        interval: Duration::from_secs(60 * u64::from(settings.balancer_interval_min.max(1))),
+    };
+    let mut brain = Brain::new(cfg, primary, state.candidates.read().clone());
+    if let Some(old) = guard.as_ref() {
+        brain = brain.inherit(old);
+    }
+    let routed = brain.routed().to_string();
+    *guard = Some(brain);
+    Some(routed)
+}
+
+/// Стратегию сменили при живом подключении: ядро не трогают, меняется только
+/// автомат.
+fn apply_balancer_settings(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.status.read().state != ConnState::Connected {
+        *state.balancer.lock() = None;
+        return;
+    }
+    let strategy = state.settings.read().balancer;
+    if strategy == Balancer::Manual {
+        // Выключили автоматику: трафик остаётся, где шёл, и этот узел
+        // становится выбранным — пользователь доволен нынешним сервером, а не
+        // тем, что был закреплён до балансировщика.
+        let routed = state.status.read().routed_id.clone();
+        let known = !routed.is_empty() && state.nodes.read().iter().any(|n| n.id == routed);
+        *state.balancer.lock() = None;
+        if known {
+            *state.active_id.write() = routed.clone();
+            let _ = state.save_ui();
+            set_status(app, |s| s.active_id = routed);
+        }
+        log_line(app, "info", "балансировщик выключен: сервер выбирается вручную");
+        return;
+    }
+    install_brain(&state);
+    log_line(app, "info", format!("балансировщик: режим «{}»", strategy_name(strategy)));
+}
+
+/// Измерить узлы через ядро — один запрос на узел, все разом.
+async fn probe_tags(app: &AppHandle, api: &ClashApi, tags: &[String]) -> Vec<(String, Option<u32>)> {
+    let url = {
+        let state = app.state::<AppState>();
+        let url = state.settings.read().latency_url.clone();
+        url
+    };
+    let mut tasks = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let (api, url, tag) = (api.clone(), url.clone(), tag.clone());
+        tasks.push(tokio::spawn(async move {
+            let value = api.delay(&tag, &url, 5000).await.unwrap_or(None);
+            (tag, value)
+        }));
+    }
+    let mut results = Vec::with_capacity(tags.len());
+    for task in tasks {
+        if let Ok(pair) = task.await {
+            results.push(pair);
+        }
+    }
+    results
+}
+
+/// Замеры балансировщика — те же, что мерит кнопка «Проверить»: показать их
+/// в списке, а не держать при себе.
+fn publish_latency(app: &AppHandle, results: &[(String, Option<u32>)]) {
+    let state = app.state::<AppState>();
+    let mut batch: HashMap<String, Option<u32>> = HashMap::new();
+    for (tag, value) in results {
+        if let Some(id) = id_of(&state, tag) {
+            batch.insert(id, *value);
+        }
+    }
+    if batch.is_empty() {
+        return;
+    }
+    {
+        let mut latency = state.latency.write();
+        for (id, value) in &batch {
+            latency.insert(id.clone(), *value);
+        }
+    }
+    let _ = app.emit(EVT_LATENCY, batch);
+}
+
+/// Переключить селектор по решению автомата.
+async fn apply_switch(app: &AppHandle, api: &ClashApi, session: u64, from: &str, to: &str, reason: Reason) {
+    let selected = api.select(TAG_PROXY, to).await;
+    let (from_name, to_name, to_id) = {
+        let state = app.state::<AppState>();
+        if state.session.load(Ordering::SeqCst) != session {
+            return;
+        }
+        {
+            let mut guard = state.balancer.lock();
+            let Some(brain) = guard.as_mut() else { return };
+            match &selected {
+                Ok(()) => brain.commit(to),
+                Err(_) => brain.abort(),
+            }
+        }
+        (name_of(&state, from), name_of(&state, to), id_of(&state, to))
+    };
+    if let Err(e) = selected {
+        log_line(app, "warn", format!("балансировщик: ядро отклонило переход на «{to_name}» ({e})"));
+        return;
+    }
+    // С мёртвого узла соединения уносятся вместе с трафиком: им всё равно не
+    // жить, а приложения, ждущие от него ответа, узнают об этом сразу.
+    if matches!(reason, Reason::Dead { .. }) {
+        let _ = api.close_via(from).await;
+    }
+    set_status(app, |s| s.routed_id = to_id.unwrap_or_default());
+    let text = match reason {
+        Reason::Initial { gain } => format!(
+            "балансировщик: первый обход — «{to_name}» быстрее «{from_name}» на {gain} мс, переключаюсь"
+        ),
+        Reason::Dead { fails } => format!(
+            "балансировщик: «{from_name}» не ответил на {} подряд — переключаюсь на «{to_name}»",
+            checks(fails)
+        ),
+        Reason::Faster { gain } => format!(
+            "балансировщик: «{to_name}» быстрее «{from_name}» на {gain} мс два обхода подряд — переключаюсь"
+        ),
+        Reason::Recovered => format!(
+            "балансировщик: основной сервер «{to_name}» снова отвечает — возвращаюсь на него"
+        ),
+        Reason::Rotation => format!("балансировщик: по кругу — следующий сервер «{to_name}»"),
+    };
+    log_line(app, "info", text);
+}
+
+/// Поводырь балансировщика: спрашивает автомат, что делать, и делает — меряет
+/// узлы через панель ядра, переключает селектор, пишет в журнал. Живёт, пока
+/// жив сеанс; без автомата (ручной выбор) просто ждёт — стратегию могут
+/// включить на ходу.
+fn spawn_balancer(app: AppHandle, session: u64) {
+    tauri::async_runtime::spawn(async move {
+        // Дать ядру закончить собственный стартовый обход.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        loop {
+            let (api, still_ours) = {
+                let state = app.state::<AppState>();
+                let ours = state.session.load(Ordering::SeqCst) == session
+                    && state.status.read().state == ConnState::Connected;
+                let api = state.clash.read().clone();
+                (api, ours)
+            };
+            if !still_ours {
+                return;
+            }
+            let Some(api) = api else { return };
+
+            let step = {
+                let state = app.state::<AppState>();
+                let mut guard = state.balancer.lock();
+                guard.as_mut().map(|brain| brain.next(Instant::now()))
+            };
+            match step {
+                None => tokio::time::sleep(Duration::from_secs(5)).await,
+                Some(Step::Idle(wait)) => {
+                    tokio::time::sleep(wait.min(Duration::from_secs(5))).await;
+                }
+                Some(Step::Probe(tags)) => {
+                    let results = probe_tags(&app, &api, &tags).await;
+                    let state = app.state::<AppState>();
+                    if state.session.load(Ordering::SeqCst) != session {
+                        return;
+                    }
+                    if let Some(brain) = state.balancer.lock().as_mut() {
+                        brain.report_batch(&results, Instant::now());
+                    }
+                    publish_latency(&app, &results);
+                }
+                Some(Step::Switch { from, to, reason }) => {
+                    apply_switch(&app, &api, session, &from, &to, reason).await;
+                }
+                Some(Step::Stranded) => {
+                    let name = {
+                        let state = app.state::<AppState>();
+                        let routed = state
+                            .balancer
+                            .lock()
+                            .as_ref()
+                            .map(|brain| brain.routed().to_string())
+                            .unwrap_or_default();
+                        name_of(&state, &routed)
+                    };
+                    log_line(
+                        &app,
+                        "warn",
+                        format!("балансировщик: «{name}» не отвечает, а живых серверов среди остальных нет — остаюсь на нём"),
+                    );
+                }
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------- commands
@@ -795,6 +1078,26 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         *state.clash.write() = Some(api.clone());
     }
 
+    // ---- стартовый узел ---------------------------------------------------
+    // Селектор помнит прошлый выбор в cache.db и ставит его выше `default`,
+    // так что указать узел явно — единственный способ знать, через что идёт
+    // трафик. У балансировщика это узел, на котором он остановился до
+    // перезапуска ядра; без него — выбранный сервер.
+    let (initial_tag, initial_id) = {
+        let state = app.state::<AppState>();
+        let tag = install_brain(&state).or_else(|| {
+            let active = state.resolve_active_id();
+            state.tags.read().get(&active).cloned()
+        });
+        let id = tag.as_deref().and_then(|tag| id_of(&state, tag));
+        (tag, id)
+    };
+    if let Some(tag) = &initial_tag {
+        if let Err(e) = api.select(TAG_PROXY, tag).await {
+            log_line(&app, "warn", format!("не удалось указать стартовый сервер ({e})"));
+        }
+    }
+
     // ---- post-connect wiring ---------------------------------------------
     if tunnel_mode == TunnelMode::SystemProxy {
         if let Err(e) = sysproxy::enable(mixed_port) {
@@ -807,11 +1110,13 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         s.state = ConnState::Connected;
         s.message.clear();
         s.since_ms = Some(now_ms());
+        s.routed_id = initial_id.unwrap_or_default();
         s.system_proxy = tunnel_mode == TunnelMode::SystemProxy;
     });
 
     spawn_traffic_poller(app.clone(), session);
     spawn_engine_probe(app.clone(), session);
+    spawn_balancer(app.clone(), session);
     Ok(())
 }
 
@@ -845,10 +1150,10 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
         changed
     };
     // Decided before the write below: afterwards both sides are the new value.
-    let tunnel_changed = {
+    let (tunnel_changed, balancer_changed) = {
         let state = app.state::<AppState>();
-        let changed = state.settings.read().tunnel_changed(&settings);
-        changed
+        let current = state.settings.read();
+        (current.tunnel_changed(&settings), current.balancer_changed(&settings))
     };
     {
         let state = app.state::<AppState>();
@@ -870,6 +1175,11 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
     if tunnel_changed {
         return restart_if_running(&app).await;
     }
+    // Стратегия балансировщика живёт в приложении: переставляется на ходу,
+    // ядро не перезапускается.
+    if balancer_changed {
+        apply_balancer_settings(&app);
+    }
     Ok(())
 }
 
@@ -883,9 +1193,10 @@ pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<()> {
     restart_if_running(&app).await
 }
 
+/// Выбрать сервер. Возвращает, пришлось ли ради этого выключить балансировщик.
 #[tauri::command]
-pub async fn set_active_server(app: AppHandle, id: String) -> Result<()> {
-    let (api, tag) = {
+pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
+    let (api, tag, old_tag, strategy, turned_off) = {
         let state = app.state::<AppState>();
         {
             let nodes = state.nodes.read();
@@ -893,20 +1204,59 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<()> {
                 return Err(AppError::msg("сервер не найден"));
             }
         }
+        // Выбор руками при «самом быстром» и «по кругу» — отказ от автоматики:
+        // иначе балансировщик увёл бы трафик обратно через минуту, и щелчок
+        // выглядел бы сломанным. «С резервом» с ручным выбором дружит: узел
+        // просто становится основным.
+        let strategy = state.settings.read().balancer;
+        let turned_off = matches!(strategy, Balancer::Fastest | Balancer::Rotate);
+        if turned_off {
+            state.settings.write().balancer = Balancer::Manual;
+            state.save_settings()?;
+            *state.balancer.lock() = None;
+        }
+        let old_tag = {
+            let status = state.status.read();
+            let tags = state.tags.read();
+            tags.get(&status.routed_id)
+                .or_else(|| tags.get(&status.active_id))
+                .cloned()
+        };
         *state.active_id.write() = id.clone();
         state.save_ui()?;
         let tag = state.tags.read().get(&id).cloned();
         let api = state.clash.read().clone();
-        (api, tag)
+        (api, tag, old_tag, strategy, turned_off)
     };
 
-    set_status(&app, |s| s.active_id = id.clone());
+    let live = api.is_some() && tag.is_some();
+    set_status(&app, |s| {
+        s.active_id = id.clone();
+        if live {
+            s.routed_id = id.clone();
+        }
+    });
 
     // While connected, retarget the selector instead of rebuilding the tunnel.
     if let (Some(api), Some(tag)) = (api, tag) {
         api.select(TAG_PROXY, &tag).await?;
+        // Ручная смена — единственная, что рвёт соединения: селектор сам этого
+        // больше не делает (config.rs), а доживать на прежнем узле им незачем.
+        let stale = old_tag.filter(|old| *old != tag);
+        let _ = api.close_via(stale.as_deref().unwrap_or(TAG_PROXY)).await;
+        if strategy == Balancer::Failover {
+            let state = app.state::<AppState>();
+            let mut guard = state.balancer.lock();
+            if let Some(brain) = guard.as_mut() {
+                brain.set_primary(&tag);
+            }
+            drop(guard);
+        }
     }
-    Ok(())
+    if turned_off {
+        log_line(&app, "info", "балансировщик выключен: сервер выбран вручную");
+    }
+    Ok(turned_off)
 }
 
 #[tauri::command]

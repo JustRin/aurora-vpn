@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "android")]
 use crate::core::android::AndroidEngine;
+use crate::core::balancer::Brain;
 use crate::core::clash::ClashApi;
 #[cfg(not(target_os = "android"))]
 use crate::core::process::{CoreSupervisor, Engine};
@@ -68,7 +69,11 @@ pub struct Status {
     pub since_ms: Option<i64>,
     pub mode: String,
     pub tunnel_mode: TunnelMode,
+    /// Сервер, выбранный пользователем: у балансировщика — основной.
     pub active_id: String,
+    /// Узел, через который трафик идёт прямо сейчас. Совпадает с `active_id`,
+    /// пока балансировщик не увёл трафик на другой; пуст без подключения.
+    pub routed_id: String,
     pub elevated: bool,
     pub system_proxy: bool,
 }
@@ -82,6 +87,7 @@ impl Default for Status {
             mode: "Rule".into(),
             tunnel_mode: TunnelMode::default(),
             active_id: String::new(),
+            routed_id: String::new(),
             elevated: false,
             system_proxy: false,
         }
@@ -123,6 +129,11 @@ pub struct AppState {
     pub latency: RwLock<HashMap<String, Option<u32>>>,
     /// node id → outbound tag of the currently running core.
     pub tags: RwLock<HashMap<String, String>>,
+    /// Теги узлов, которые балансировщик вправе мерить и выбирать — состав
+    /// auto-группы запущенного конфига, в порядке списка.
+    pub candidates: RwLock<Vec<String>>,
+    /// Балансировщик текущего подключения; None — сервер выбран вручную.
+    pub balancer: Mutex<Option<Brain>>,
 
     /// node id → the `encryption` value its server was probed to reject.
     /// While the node's link still carries that exact value, the node is
@@ -170,7 +181,12 @@ impl AppState {
         std::fs::create_dir_all(&paths.work_dir)?;
 
         let store = Store::new(paths.config_dir.clone())?;
-        let settings: Settings = store.load("settings");
+        let mut settings: Settings = store.load("settings");
+        // Прежний тумблер «выбирать самый быстрый» переезжает в стратегию — и
+        // сразу на диск, чтобы не переезжать заново при каждом запуске.
+        if settings.migrate() {
+            let _ = store.save("settings", &settings);
+        }
         let nodes: Vec<ServerNode> = store.load("servers");
         let subs: Vec<Subscription> = store.load("subscriptions");
         let split: SplitConfig = store.load("split");
@@ -223,6 +239,8 @@ impl AppState {
             active_id: RwLock::new(ui.active_id),
             latency: RwLock::new(HashMap::new()),
             tags: RwLock::new(HashMap::new()),
+            candidates: RwLock::new(Vec::new()),
+            balancer: Mutex::new(None),
             engine_overrides: RwLock::new(engine_overrides),
             xray_ports: RwLock::new(HashMap::new()),
             clash: RwLock::new(None),

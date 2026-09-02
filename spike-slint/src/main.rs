@@ -101,6 +101,7 @@ struct Lang {
     tray_connect: String,
     tray_disconnect: String,
     tray_quit: String,
+    balancer_off: String,
 }
 
 impl Lang {
@@ -167,6 +168,7 @@ impl Lang {
             tray_connect: s.get_tray_connect().into(),
             tray_disconnect: s.get_tray_disconnect().into(),
             tray_quit: s.get_tray_quit().into(),
+            balancer_off: s.get_toast_balancer_off().into(),
         }
     }
 

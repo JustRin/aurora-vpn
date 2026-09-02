@@ -69,10 +69,34 @@ pub struct Settings {
     pub theme_dark: bool,
     pub theme_background: String,
     pub latency_url: String,
-    /// Prefer the `urltest` group (lowest latency wins) over a pinned node.
+    /// Кто выбирает сервер: пользователь или балансировщик (core/balancer.rs).
+    pub balancer: Balancer,
+    /// Период полного обхода серверов балансировщиком, минуты.
+    pub balancer_interval_min: u32,
+    /// «Самый быстрый»: на сколько миллисекунд другой сервер должен быть
+    /// быстрее, чтобы на него перейти.
+    pub balancer_tolerance_ms: u32,
+    /// Прежний тумблер «выбирать самый быстрый». Читается только ради переезда
+    /// в `balancer` (`migrate`) и обратно не записывается.
+    #[serde(skip_serializing)]
     pub auto_select: bool,
     /// Minutes between automatic subscription refreshes; 0 disables it.
     pub sub_auto_update_min: u32,
+}
+
+/// Кто выбирает сервер. Стратегии описаны в core/balancer.rs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Balancer {
+    /// Работает выбранный сервер; само ничего не переключается.
+    #[default]
+    Manual,
+    /// Выбранный сервер основной: упал — лучший из живых, ожил — обратно.
+    Failover,
+    /// Самый быстрый по обходам, с допуском и без метаний.
+    Fastest,
+    /// Каждый обход — следующий живой по списку.
+    Rotate,
 }
 
 impl Default for Settings {
@@ -105,6 +129,9 @@ impl Default for Settings {
             theme_dark: true,
             theme_background: "#0a0c12".into(),
             latency_url: "https://www.gstatic.com/generate_204".into(),
+            balancer: Balancer::Manual,
+            balancer_interval_min: 3,
+            balancer_tolerance_ms: 100,
             auto_select: false,
             // Refresh once a day out of the box: a silently stale server list is
             // the most common way one of these clients stops working.
@@ -138,7 +165,12 @@ impl Settings {
             fake_ip,
             // Baked into the `urltest` outbound of the generated document.
             latency_url,
-            auto_select,
+            // Живут в приложении, а не в документе: балансировщик
+            // перенастраивается на ходу, без перезапуска ядра.
+            balancer: _,
+            balancer_interval_min: _,
+            balancer_tolerance_ms: _,
+            auto_select: _,
             // UI-only: never part of the generated document.
             auto_connect: _,
             start_minimized: _,
@@ -164,7 +196,27 @@ impl Settings {
             || *dns_strategy != next.dns_strategy
             || *fake_ip != next.fake_ip
             || *latency_url != next.latency_url
-            || *auto_select != next.auto_select
+    }
+
+    /// Переменилось ли что-то для балансировщика. Ядро при этом не трогают:
+    /// стратегия живёт в приложении и переустанавливается на ходу.
+    pub fn balancer_changed(&self, next: &Settings) -> bool {
+        self.balancer != next.balancer
+            || self.balancer_interval_min != next.balancer_interval_min
+            || self.balancer_tolerance_ms != next.balancer_tolerance_ms
+    }
+
+    /// Переезд с тумблера «выбирать самый быстрый» на стратегии. Возвращает,
+    /// изменилось ли что-то — тогда файл стоит перезаписать.
+    pub fn migrate(&mut self) -> bool {
+        if !self.auto_select {
+            return false;
+        }
+        self.auto_select = false;
+        if self.balancer == Balancer::Manual {
+            self.balancer = Balancer::Fastest;
+        }
+        true
     }
 }
 
@@ -242,7 +294,7 @@ impl Default for SplitConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{Balancer, Settings};
 
     #[test]
     fn ui_preferences_do_not_touch_the_tunnel() {
@@ -266,7 +318,32 @@ mod tests {
         let base = Settings::default();
         assert!(base.tunnel_changed(&Settings { dns_remote: "9.9.9.9".into(), ..base.clone() }));
         assert!(base.tunnel_changed(&Settings { mixed_port: 1080, ..base.clone() }));
-        assert!(base.tunnel_changed(&Settings { auto_select: true, ..base.clone() }));
+    }
+
+    #[test]
+    fn the_balancer_is_reconfigured_live_rather_than_by_a_restart() {
+        let base = Settings::default();
+        let next = Settings { balancer: Balancer::Fastest, balancer_tolerance_ms: 200, ..base.clone() };
+        assert!(!base.tunnel_changed(&next));
+        assert!(base.balancer_changed(&next));
+        assert!(!base.balancer_changed(&base.clone()));
+    }
+
+    #[test]
+    fn the_old_fastest_toggle_becomes_the_fastest_strategy() {
+        let mut settings: Settings = serde_json::from_str(r#"{"autoSelect": true}"#).unwrap();
+        assert!(settings.migrate());
+        assert_eq!(settings.balancer, Balancer::Fastest);
+        // И не записывается обратно: следующий запуск ничего не переедет заново.
+        assert!(!serde_json::to_string(&settings).unwrap().contains("autoSelect"));
+
+        let mut explicit: Settings =
+            serde_json::from_str(r#"{"autoSelect": true, "balancer": "failover"}"#).unwrap();
+        assert!(explicit.migrate());
+        assert_eq!(explicit.balancer, Balancer::Failover);
+
+        let mut untouched = Settings::default();
+        assert!(!untouched.migrate());
     }
 }
 

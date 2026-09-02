@@ -14,7 +14,14 @@ import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
 import { tNow, useT } from "../lib/i18n";
-import type { ImportReport, Network, Protocol, Security, ServerNode } from "../lib/types";
+import {
+  type ImportReport,
+  type Network,
+  type Protocol,
+  type Security,
+  type ServerNode,
+  shownServerId,
+} from "../lib/types";
 import { useStore } from "../store";
 
 const PROTOCOLS: Protocol[] = [
@@ -66,7 +73,9 @@ export function Servers() {
   const nodes = useStore((s) => s.nodes);
   const subs = useStore((s) => s.subscriptions);
   const latency = useStore((s) => s.latency);
-  const activeId = useStore((s) => s.status.activeId);
+  // Highlight the node carrying traffic, not just the pick: a balancer may
+  // have moved it.
+  const activeId = useStore((s) => shownServerId(s.status));
   const testing = useStore((s) => s.busy.latency);
   const selectServer = useStore((s) => s.selectServer);
   const refreshLatency = useStore((s) => s.refreshLatency);

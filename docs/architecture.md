@@ -113,6 +113,54 @@ which app a connection belongs to.
 
 ---
 
+## Balancer
+
+sing-box can pick a server on its own — the `urltest` group — but it has a
+single criterion: the lowest latency of the last probe, with a tolerance. It has
+no notion of "this server just died": after a failed dial it waits for the next
+scheduled round, and there is one round for everyone, every few minutes. Hence
+the picture familiar from Hiddify: servers whose latency differs by noise swap
+places every round, while a dead one keeps the traffic until the interval ends.
+
+So the decisions are made by the app (`core/balancer.rs`), and the core only
+measures and switches: probes go through the Clash API
+(`/proxies/<tag>/delay`), a switch is a command to the selector
+(`PUT /proxies/proxy`). The `Brain` state machine knows nothing about the
+network: it is fed probe results and says what to probe next and when to
+switch — which is what lets the scenarios ("died", "got faster by a hair",
+"recovered and died again") be tested on model time.
+
+| Strategy | Behaviour |
+|---|---|
+| **Manual** | the picked server is used; nothing switches on its own |
+| **Failover** | the pick is the primary. Two misses in a row and traffic moves to the best live server; once the primary stays up, it returns. Every further return takes twice as long, so a flapping server gradually drops out |
+| **Fastest** | traffic moves only to a server that beats the current one by the threshold (100 ms by default) in two consecutive rounds; the first round after connecting acts at once |
+| **Rotation** | each round moves to the next live server down the list |
+
+Common to the automatic strategies: the current node is probed every 20 seconds
+(five after a miss), the rest in rounds every few minutes, in chunks of eight so
+a round never delays the check of the current one. A candidate whose probe has
+gone stale is re-checked before the switch.
+
+An automatic switch does not cut live connections: the selector is built with
+`interrupt_exist_connections: false`, so open tabs, downloads and calls live out
+on the old node while new connections take the new one. The exception is a dead
+node: connections through it are closed one by one (`DELETE /connections/<id>`
+by the `chains` field) so applications stop waiting for an answer that will not
+come. A manual server switch closes proxied connections itself — as the
+selector used to.
+
+Changing the strategy or its parameters does not restart the core: only the
+state machine is replaced. Picking a server by hand under "fastest" or
+"rotation" turns the automation off — otherwise the balancer would move the
+traffic back a minute later; under "failover" the pick simply becomes the
+primary. vmess+ws nodes that are not carried by Xray are neither probed nor
+chosen by the machine: a failed dial to such a node crashes the core (see the
+auto group in `core/config.rs`); the user may still make one the primary, but
+while traffic goes elsewhere it is left alone.
+
+---
+
 ## The driver and administrator rights
 
 In TUN mode sing-box brings up a virtual network adapter through **Wintun** (the
@@ -279,6 +327,7 @@ src-tauri/src/           Tauri build
   link.rs                link and subscription parsing
   settings.rs            settings, split tunneling rules
   core/config.rs         sing-box configuration assembly  ← the main logic
+  core/balancer.rs       server selection strategies: failover, fastest, rotation
   core/process.rs        core launch, log capture, shutdown (desktop)
   core/android.rs        bridge to VpnService/libbox (Android)
   core/clash.rs          Clash API client (stats, latency, switching)

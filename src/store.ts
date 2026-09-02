@@ -123,6 +123,7 @@ export const useStore = create<AppStore>((set, get) => ({
     mode: "Rule",
     tunnelMode: "tun",
     activeId: "",
+    routedId: "",
     elevated: false,
     systemProxy: false,
   },
@@ -291,12 +292,25 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   async selectServer(id) {
-    const previous = get().status.activeId;
-    set((s) => ({ status: { ...s.status, activeId: id } }));
+    const { activeId, routedId, state } = get().status;
+    set((s) => ({
+      status: {
+        ...s.status,
+        activeId: id,
+        // Connected, the pick takes over the traffic at once.
+        routedId: state === "connected" ? id : s.status.routedId,
+      },
+    }));
     try {
-      await api.setActiveServer(id);
+      const balancerOff = await api.setActiveServer(id);
+      // A pick under «fastest» / «rotation» turns the balancer off on the
+      // backend — mirror it here, or the settings page keeps lying.
+      if (balancerOff) {
+        set((s) => ({ settings: { ...s.settings, balancer: "manual" } }));
+        get().toast("info", tNow("toast.balancerOff"));
+      }
     } catch (e) {
-      set((s) => ({ status: { ...s.status, activeId: previous } }));
+      set((s) => ({ status: { ...s.status, activeId, routedId } }));
       get().toast("error", tNow("toast.serverSwitchFailed"), errText(e));
     }
   },

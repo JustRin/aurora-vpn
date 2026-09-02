@@ -315,6 +315,12 @@ jobs:
     env:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
+      # Вся история ради заметок: список коммитов с прошлого релиза. Checkout
+      # идёт первым — он чистит рабочий каталог и снёс бы скачанные артефакты.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -355,8 +361,8 @@ jobs:
           ls -la artifacts
 
       # An OS → download table built from the assets that actually exist, so a
-      # skipped platform never turns into a dead link. GitHub appends the
-      # auto-generated changelog below this body.
+      # skipped platform never turns into a dead link. Below it — what changed,
+      # commit by commit since the previous release (scripts/release-notes.mjs).
       - name: Compose release notes
         shell: bash
         run: |
@@ -411,6 +417,11 @@ jobs:
             echo "---"
             echo ""
           } > body.md
+          # Title and body of every commit since the previous tag, each linked
+          # to its commit, plus a compare link — the llama.cpp way. This is our
+          # own changelog, so GitHub's generated one (a bare «Full Changelog»
+          # line for a repository without pull requests) is not requested.
+          node scripts/release-notes.mjs "$GITHUB_REF_NAME" >> body.md
           cat body.md
 
       - name: Publish release
@@ -418,4 +429,3 @@ jobs:
         with:
           files: artifacts/*
           body_path: body.md
-          generate_release_notes: true
