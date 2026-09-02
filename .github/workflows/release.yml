@@ -237,7 +237,12 @@ jobs:
 
       # Real signing when the secrets exist; the debug key otherwise, so a fork
       # without secrets still gets an installable artifact.
+      # The debug key is minted fresh on every runner, so a debug-signed APK
+      # never installs over the previous release — the phone answers «package
+      # conflicts with an existing package». The mode is recorded for the
+      # release notes, which must say so instead of letting the phone say it.
       - name: Configure signing
+        id: signing
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -253,8 +258,10 @@ jobs:
               echo "keyPassword=$ANDROID_KEY_PASSWORD"
             } > src-tauri/gen/android/app/keystore.properties
             echo "Release keystore configured."
+            echo "mode=release" >> "$GITHUB_OUTPUT"
           else
-            echo "No ANDROID_KEYSTORE secret — falling back to the debug key."
+            echo "::warning::No ANDROID_KEYSTORE secret — the APKs are signed with a throwaway debug key and will not install over a previous release."
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build per-ABI APKs
@@ -294,6 +301,8 @@ jobs:
             [ -f "upload/AuroraVPN-${VER}-android-${want}.apk" ] ||
               echo "::warning::no ${want} APK was produced"
           done
+          # Travels with the APKs to the publish job; it is not an asset.
+          echo "${{ steps.signing.outputs.mode }}" > upload/android-signing.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -376,6 +385,11 @@ jobs:
           # and bury the universal APK in the middle. Each variant is collected
           # on its own so the row can be ordered by who needs it: the one that
           # cannot be picked wrongly, then the common phone, then the rest.
+          # Whether the APKs carry the release key or a throwaway one (see the
+          # Android job's «Configure signing»): a debug-signed APK never installs
+          # over the previous release, and the notes must say so.
+          ANDROID_SIGNING="$(cat artifacts/android-signing.txt 2>/dev/null || echo unknown)"
+          rm -f artifacts/android-signing.txt
           WIN="" LINUX="" MAC=""
           AND_ANY="" AND_64="" AND_32="" AND_X64=""
           for f in $(ls artifacts); do
@@ -409,6 +423,9 @@ jobs:
             echo ""
             echo "**Windows** keeps itself updated: when a new version is out, a button shows up in the app's bottom-left corner. A SmartScreen warning on a fresh download means the build is not code-signed yet, not that it is malicious: \"More info\" → \"Run anyway\" («Подробнее» → «Выполнить в любом случае»)."
             echo "**Android**: take the first APK if you are not sure — it fits every phone, it is just larger because it carries all four architectures. The rest are a quarter of the size but must match the device: arm64 for anything modern, arm32 for older phones, x64 for emulators. A mismatch installs as «Приложение не установлено, так как оно несовместимо с вашим телефоном»."
+            if [ "$ANDROID_SIGNING" = "debug" ]; then
+              echo "**Android, warning**: this build's APKs are signed with a throwaway key and will not install over a previous version — uninstall it first. / Эти APK подписаны одноразовым ключом и не встанут поверх установленной версии — сначала удалите её."
+            fi
             echo "**macOS**: the image is unsigned — on first launch right-click → \"Open\"."
             echo "**Linux**: TUN mode needs root; make the AppImage executable (\`chmod +x\`)."
             echo ""

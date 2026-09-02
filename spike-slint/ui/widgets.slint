@@ -849,11 +849,39 @@ export component Toast inherits Rectangle {
     init => { root.shown = true; }
 
     property <bool> visible-now: root.shown && !root.leaving;
-    // Высотой распоряжается раскладка, поэтому анимируется не она, а потолок:
-    // ограничение раскладка соблюдает, и колонка сообщений едет вместе с ним.
-    max-height: root.visible-now ? content.preferred-height : 0px;
+    // Высоту меряют невидимые копии строк с жёсткой шириной 372px (400 минус
+    // отступы): у них нет раскладки-родителя, и ширина при промере всегда та
+    // же, что у строк при отрисовке. Сама раскладка меряла заголовок то при
+    // 372, то при 400 — ширине тоста до вычета отступов, — и высота оседала
+    // однострочной, хотя текст рисовался в две строки: вторая уходила за край.
+    // Проявлялось с системным шрифтом: встроенный шире, и при обеих ширинах
+    // переносился одинаково. Меряется в нужный вес: полужирный шире обычного.
+    property <length> line-width: 372px;
+    property <length> measured: 24px
+        + title-probe.preferred-height
+        + (root.detail != "" ? 3px + detail-probe.preferred-height : 0px);
+    title-probe := Text {
+        visible: false;
+        width: root.line-width;
+        text: root.text;
+        font-size: 13px * Theme.text-scale;
+        font-weight: 550;
+        wrap: word-wrap;
+    }
+    detail-probe := Text {
+        visible: false;
+        width: root.line-width;
+        text: root.detail;
+        font-size: 12px * Theme.text-scale;
+        wrap: word-wrap;
+    }
+    // Высотой распоряжается раскладка, поэтому анимируются не она, а её
+    // рамки — min и max разом, чтобы раскладке было не из чего выбирать:
+    // колонка сообщений едет вместе с ними.
+    min-height: root.visible-now ? root.measured : 0px;
+    max-height: root.visible-now ? root.measured : 0px;
     opacity: root.visible-now ? 1.0 : 0.0;
-    animate max-height, opacity {
+    animate min-height, max-height, opacity {
         duration: 220ms;
         easing: ease-out;
     }

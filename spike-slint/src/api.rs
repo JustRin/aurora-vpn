@@ -2357,10 +2357,12 @@ fn installer_suffix() -> &'static str {
 /// naming convention has already changed once.
 fn pick_installer_url(assets: &[Value]) -> Option<String> {
     let suffix = installer_suffix();
-    let arch: &[&str] = if std::env::consts::ARCH == "aarch64" {
-        &["aarch64", "arm64"]
-    } else {
-        &["x64", "x86_64", "amd64"]
+    // 32-bit ARM phones are still around: without their own row they would be
+    // handed the x64 APK and refuse it as incompatible.
+    let arch: &[&str] = match std::env::consts::ARCH {
+        "aarch64" => &["aarch64", "arm64"],
+        "arm" => &["arm32", "armv7"],
+        _ => &["x64", "x86_64", "amd64"],
     };
     let named = |a: &&Value| {
         a["name"]
@@ -2433,6 +2435,83 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
     }))
 }
 
+/// Скачать файл целиком, дозакачивая после обрывов.
+///
+/// Релизы GitHub отдаёт CDN, который понимает Range, а связь при скачивании
+/// рвётся нередко — особенно без туннеля, когда до GitHub доходят через
+/// дросселирующего провайдера. «error decoding response body» у reqwest —
+/// ровно такой обрыв посреди тела ответа, и до сих пор он был приговором всей
+/// загрузке. Теперь — поводом попросить остаток с того же байта.
+async fn download_resumable(
+    url: &str,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<Vec<u8>> {
+    const ATTEMPTS: u32 = 6;
+    let client = crate::net::http_client();
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut total: Option<u64> = None;
+    let mut last_error = String::new();
+    for attempt in 1..=ATTEMPTS {
+        if attempt > 1 {
+            tokio::time::sleep(Duration::from_secs(2 * u64::from(attempt - 1))).await;
+        }
+        let mut request = client
+            .get(url)
+            .header("User-Agent", "aurora-vpn-updater")
+            .timeout(Duration::from_secs(600));
+        if !bytes.is_empty() {
+            request = request.header("Range", format!("bytes={}-", bytes.len()));
+        }
+        let mut resp = match request.send().await.and_then(|r| r.error_for_status()) {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_error = e.to_string();
+                continue;
+            }
+        };
+        if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+            // «bytes 1234-99999/100000»: полный размер — после косой черты.
+            total = resp
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.rsplit('/').next())
+                .and_then(|v| v.parse().ok())
+                .or(total);
+        } else {
+            // Сервер докачку не понял и прислал файл с начала.
+            bytes.clear();
+            total = resp.content_length();
+        }
+        let mut broken = false;
+        loop {
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
+                    bytes.extend_from_slice(&chunk);
+                    progress(bytes.len() as u64, total);
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    last_error = e.to_string();
+                    broken = true;
+                    break;
+                }
+            }
+        }
+        if !broken {
+            if total.is_none_or(|t| bytes.len() as u64 >= t) {
+                return Ok(bytes);
+            }
+            // Сервер закрыл соединение раньше конца файла — тот же обрыв.
+            last_error = format!("получено {} из {} байт", bytes.len(), total.unwrap_or(0));
+        }
+    }
+    Err(AppError::msg(format!(
+        "не удалось скачать обновление ({ATTEMPTS} попыток): {last_error}. \
+         Без туннеля до GitHub доходит не всегда — подключитесь и попробуйте ещё раз"
+    )))
+}
+
 /// Windows: download the installer (streaming progress to the UI), release the
 /// tunnel and the system proxy, then hand control to a silent NSIS install
 /// (`/S /UPDATE /R`) that restarts the app when the files are replaced.
@@ -2454,32 +2533,14 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
             .map_err(|e| AppError::msg(format!("не удалось открыть страницу загрузки: {e}")));
     }
 
-    let mut resp = crate::net::http_client()
-        .get(&url)
-        .header("User-Agent", "aurora-vpn-updater")
-        .timeout(Duration::from_secs(600))
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| AppError::msg(format!("не удалось скачать обновление: {e}")))?;
-
-    let total = resp.content_length();
-    let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
     let mut last_tick = Instant::now();
-    while let Some(chunk) = resp
-        .chunk()
-        .await
-        .map_err(|e| AppError::msg(format!("не удалось скачать обновление: {e}")))?
-    {
-        bytes.extend_from_slice(&chunk);
+    let bytes = download_resumable(&url, |downloaded, total| {
         if last_tick.elapsed() >= Duration::from_millis(150) {
             last_tick = Instant::now();
-            let _ = app.emit(Event::UpdateProgress(UpdateProgress {
-                    downloaded: bytes.len() as u64,
-                    total,
-                }));
+            app.emit(Event::UpdateProgress(UpdateProgress { downloaded, total }));
         }
-    }
+    })
+    .await?;
     // A truncated download would install nothing but still kill the session.
     if bytes.len() < 1_000_000 {
         return Err(AppError::msg("скачанный установщик неполный — попробуйте ещё раз"));

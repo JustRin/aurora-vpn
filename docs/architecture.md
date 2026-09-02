@@ -402,9 +402,15 @@ npm run tauri android build -- --apk
 ```
 
 CI does the same in the `build-android` job; the resulting AAR is cached per
-version. Release APK signing comes from the `ANDROID_KEYSTORE*` secrets; without
-them the APK is signed with a debug key (it installs, but updates will require a
-reinstall).
+version. Release APK signing comes from the `ANDROID_KEYSTORE*` secrets (the
+PKCS12 file in base64, the store password, the alias, the key password).
+Without them the APK is signed with a debug key that every GitHub runner mints
+afresh: such a build installs, but never over the previous one — the phone
+answers «package conflicts with an existing package» — so the job flags it
+with a warning and the release notes get a paragraph about reinstalling. The
+key is for the life of the app: changing it forces every user to reinstall once
+more, so the keystore and its password live in a backup. A local release build
+takes the same key from `app/keystore.properties` (git-ignored).
 
 ### Tests
 
