@@ -5,8 +5,8 @@ import {
     Btn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
     ModalShell, ModalFoot
 } from "../widgets.slint";
-import { NodeGroupSection } from "../cards.slint";
-import { Data, Ui, Draft } from "../data.slint";
+import { NodeGroupSection, BalancerRow } from "../cards.slint";
+import { Data, Conf, Ui, Draft } from "../data.slint";
 import { Str } from "../i18n.slint";
 
 export component ServersPage inherits ScrollArea {
@@ -74,6 +74,21 @@ export component ServersPage inherits ScrollArea {
     }
     Rectangle { height: 24px; }
 
+    // ------------------------------------------------------ балансировщики
+    // Стратегии стоят в одном списке с серверами, отдельными пунктами: так их
+    // видно и включают их тем же жестом, что и сервер. Одному серверу выбирать
+    // не из чего — раздел появляется со второго.
+    if Data.nodes.length >= 2: VerticalLayout {
+        spacing: 8px;
+        SectionTitle { text: Str.pick-balancers-caps; }
+        Rectangle { height: 4px; }
+        for kind in [1, 2, 3]: BalancerRow {
+            kind: kind;
+            select => { Conf.balancer = kind; }
+        }
+        Rectangle { height: 14px; }
+    }
+
     // ------------------------------------------------- подписки и серверы
     // Одним списком: подписка — заголовок раздела, её серверы раскрываются
     // под ним. Отдельной полосы карточек больше нет — на четвёртой подписке
@@ -115,9 +130,12 @@ export component ServersPage inherits ScrollArea {
 
     if Data.nodes.length > 0: VerticalLayout {
         spacing: 10px;
+        // Подсвечен ровно один пункт списка: при ручном выборе — сервер, при
+        // балансировщике — его строка, а серверу достаётся отметка «сейчас».
         for group in Data.groups: NodeGroupSection {
             group: group;
-            active-id: Data.active-id;
+            active-id: Conf.balancer == 0 ? Data.active-id : "";
+            routed-id: Conf.balancer != 0 ? Data.active-id : "";
             toggle => { Data.toggle-group(group.sub.id); }
             refresh => { Data.refresh-sub(group.sub.id); }
             remove => { Data.delete-sub(group.sub.id); }

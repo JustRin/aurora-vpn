@@ -708,19 +708,21 @@ fn apply_balancer_settings(app: &AppHandle) {
         *state.balancer.lock() = None;
         return;
     }
+    // Узел, через который идёт трафик, становится выбранным: для «вручную»
+    // это и есть сервер, для «с резервом» — основной, остальным всё равно.
+    // Так смена стратегии сама по себе трафик не дёргает, а пользователь
+    // получает тот сервер, который видел подсвеченным, а не закреплённый до
+    // балансировщика.
+    let routed = state.status.read().routed_id.clone();
+    let known = !routed.is_empty() && state.nodes.read().iter().any(|n| n.id == routed);
+    if known && *state.active_id.read() != routed {
+        *state.active_id.write() = routed.clone();
+        let _ = state.save_ui();
+        set_status(app, |s| s.active_id = routed);
+    }
     let strategy = state.settings.read().balancer;
     if strategy == Balancer::Manual {
-        // Выключили автоматику: трафик остаётся, где шёл, и этот узел
-        // становится выбранным — пользователь доволен нынешним сервером, а не
-        // тем, что был закреплён до балансировщика.
-        let routed = state.status.read().routed_id.clone();
-        let known = !routed.is_empty() && state.nodes.read().iter().any(|n| n.id == routed);
         *state.balancer.lock() = None;
-        if known {
-            *state.active_id.write() = routed.clone();
-            let _ = state.save_ui();
-            set_status(app, |s| s.active_id = routed);
-        }
         log_line(app, "info", "балансировщик выключен: сервер выбирается вручную");
         return;
     }
@@ -1233,7 +1235,7 @@ pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<()> {
 
 /// Выбрать сервер. Возвращает, пришлось ли ради этого выключить балансировщик.
 pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
-    let (api, tag, old_tag, strategy, turned_off) = {
+    let (api, tag, old_tag, turned_off) = {
         let state = app.state();
         {
             let nodes = state.nodes.read();
@@ -1241,12 +1243,14 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
                 return Err(AppError::msg("сервер не найден"));
             }
         }
-        // Выбор руками при «самом быстром» и «по кругу» — отказ от автоматики:
-        // иначе балансировщик увёл бы трафик обратно через минуту, и щелчок
-        // выглядел бы сломанным. «С резервом» с ручным выбором дружит: узел
-        // просто становится основным.
+        // Выбор сервера руками — отказ от автоматики, как выбор конкретного
+        // узла вместо группы в Hiddify: в списке подсвечен ровно один пункт,
+        // и это тот, кто решает, куда идёт трафик. Иначе «самый быстрый»
+        // увёл бы трафик обратно через минуту, а «с резервом» показывал бы
+        // одно, делая другое. Основной для резерва выбирается наоборот:
+        // сначала сервер, потом пункт «С резервом» — он берёт текущий.
         let strategy = state.settings.read().balancer;
-        let turned_off = matches!(strategy, Balancer::Fastest | Balancer::Rotate);
+        let turned_off = strategy != Balancer::Manual;
         if turned_off {
             state.settings.write().balancer = Balancer::Manual;
             state.save_settings()?;
@@ -1263,7 +1267,7 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         state.save_ui()?;
         let tag = state.tags.read().get(&id).cloned();
         let api = state.clash.read().clone();
-        (api, tag, old_tag, strategy, turned_off)
+        (api, tag, old_tag, turned_off)
     };
 
     let live = api.is_some() && tag.is_some();
@@ -1281,14 +1285,6 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         // больше не делает (config.rs), а доживать на прежнем узле им незачем.
         let stale = old_tag.filter(|old| *old != tag);
         let _ = api.close_via(stale.as_deref().unwrap_or(TAG_PROXY)).await;
-        if strategy == Balancer::Failover {
-            let state = app.state();
-            let mut guard = state.balancer.lock();
-            if let Some(brain) = guard.as_mut() {
-                brain.set_primary(&tag);
-            }
-            drop(guard);
-        }
     }
     if turned_off {
         log_line(&app, "info", "балансировщик выключен: сервер выбран вручную");

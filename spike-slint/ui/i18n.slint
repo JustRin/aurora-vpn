@@ -214,11 +214,16 @@ export global Str {
     out property <string> dash-no-server: root.tr(["сервер не выбран", "no server selected", "未选择服务器", "サーバー未選択", "서버가 선택되지 않음", "لم يُحدَّد خادم", "nenhum servidor selecionado"]);
     out property <string> pick-no-server: root.tr(["Сервер не выбран", "No server selected", "未选择服务器", "サーバーが選ばれていません", "선택된 서버 없음", "لم يُحدَّد خادم", "Nenhum servidor selecionado"]);
     out property <string> pick-test-all: root.tr(["Проверить все", "Test all", "全部测试", "すべて計測", "전체 측정", "قياس الكل", "Testar todos"]);
-    // Подпись балансировщика у имени сервера на «Обзоре».
-    out property <string> pick-badge-failover: root.tr(["с резервом", "failover", "故障转移", "フェイルオーバー", "장애 조치", "احتياطي", "reserva"]);
+    // Балансировщики в одном списке с серверами — как «Auto» у Hiddify.
+    out property <string> pick-balancers-caps: root.tr(["БАЛАНСИРОВЩИКИ", "BALANCERS", "负载均衡", "バランサー", "밸런서", "الموازنات", "BALANCEADORES"]);
     out property <string> pick-badge-backup: root.tr(["резервный сервер", "backup server", "备用服务器", "予備サーバー", "예비 서버", "خادم احتياطي", "servidor reserva"]);
-    out property <string> pick-badge-fastest: root.tr(["самый быстрый", "fastest", "最快", "最速", "가장 빠른", "الأسرع", "mais rápido"]);
-    out property <string> pick-badge-rotate: root.tr(["по кругу", "rotation", "轮换", "ローテーション", "순환", "بالتناوب", "rodízio"]);
+    // «сейчас: Germany-2» — через какой узел балансировщик ведёт трафик.
+    out property <string> pick-now: root.tr(["сейчас:", "now:", "当前：", "現在:", "현재:", "الآن:", "agora:"]);
+    out property <string> pick-now-chip: root.tr(["сейчас", "now", "当前", "現在", "현재", "الآن", "agora"]);
+    out property <string> pick-primary: root.tr(["основной:", "primary:", "主服务器：", "メイン:", "기본:", "الأساسي:", "principal:"]);
+    out property <string> pick-primary-down: root.tr(["основной не отвечает", "primary is down", "主服务器无响应", "メインが応答しません", "기본 서버 응답 없음", "الأساسي لا يستجيب", "principal fora do ar"]);
+    out property <string> pick-fastest-meta: root.tr(["по задержке, без метаний между равными", "by latency, no flapping between equals", "按延迟选择，相近的不来回跳", "遅延で選択、僅差では切り替えない", "지연 시간 기준, 비슷하면 오가지 않음", "حسب الزمن، دون تأرجح بين المتقاربين", "por latência, sem alternar entre iguais"]);
+    out property <string> pick-rotate-meta: root.tr(["следующий живой сервер каждый обход", "next live server every round", "每轮换到下一个可用服务器", "毎回、次の生きているサーバーへ", "매 회차 다음 살아 있는 서버로", "الخادم الحي التالي في كل جولة", "próximo servidor vivo a cada rodada"]);
     out property <string> toast-balancer-off: root.tr(["Автовыбор выключен: сервер выбран вручную", "Automatic selection is off: server picked by hand", "已关闭自动选择：服务器为手动选择", "自動選択をオフにしました。サーバーを手動で選びました", "자동 선택을 껐습니다. 서버를 직접 선택했습니다", "أُوقف الاختيار التلقائي: اخترتَ الخادم يدويًا", "Seleção automática desligada: servidor escolhido à mão"]);
     out property <string> srv-subtitle-before: root.tr(["Вставьте ссылки", "Paste", "粘贴面板给出的", "パネルの", "패널에서 받은", "الصق روابط", "Cole os links"]);
     out property <string> srv-subtitle-after: root.tr(["из вашей панели — ссылка подписки тоже подойдёт.", "links from your panel — a subscription URL works too.", "链接 —— 订阅地址同样可以。", "リンクを貼り付けてください。サブスクリプション URL でも構いません。", "링크를 붙여 넣으세요 — 구독 URL도 됩니다.", "من لوحتك — ورابط الاشتراك يصلح كذلك.", "do seu painel — uma URL de assinatura também serve."]);

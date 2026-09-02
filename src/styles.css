@@ -1252,6 +1252,25 @@ textarea {
   color: var(--text);
 }
 
+/* Who is in charge, before the name: a server, or a strategy's own icon. */
+.picker-btn-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.picker-btn-icon.balancer {
+  color: var(--accent-text);
+}
+.picker-btn-icon.warn {
+  color: var(--warn);
+}
+
+.picker-section {
+  padding: 8px 10px 4px;
+}
+.picker-section + .picker-item {
+  margin-top: 0;
+}
+
 .picker-caret {
   flex-shrink: 0;
   opacity: 0.6;
@@ -1775,6 +1794,49 @@ textarea {
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+/* Icon slot shared by server rows and balancer rows: the two kinds of entry
+   sit in one list and must read differently at a glance — a muted server
+   icon against an accent-tinted strategy icon (warn-tinted on a backup). */
+.node-icon,
+.picker-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--sunken);
+  color: var(--text-muted);
+}
+.node-icon {
+  width: 30px;
+  height: 30px;
+}
+.picker-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.node-icon.balancer,
+.picker-icon.balancer {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.node-icon.warn,
+.picker-icon.warn {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+}
+.node.active .node-icon,
+.picker-item.on .picker-icon {
+  color: var(--accent-text);
+}
+.node-meta.warn,
+.picker-meta.warn {
+  color: var(--warn);
 }
 
 .node-name {

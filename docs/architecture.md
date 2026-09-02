@@ -150,14 +150,18 @@ by the `chains` field) so applications stop waiting for an answer that will not
 come. A manual server switch closes proxied connections itself — as the
 selector used to.
 
-Changing the strategy or its parameters does not restart the core: only the
-state machine is replaced. Picking a server by hand under "fastest" or
-"rotation" turns the automation off — otherwise the balancer would move the
-traffic back a minute later; under "failover" the pick simply becomes the
-primary. vmess+ws nodes that are not carried by Xray are neither probed nor
-chosen by the machine: a failed dial to such a node crashes the core (see the
-auto group in `core/config.rs`); the user may still make one the primary, but
-while traffic goes elsewhere it is left alone.
+In the interface the strategies are separate entries in the same list as the
+servers — like Hiddify's "Auto" group — with icons of their own, so they read
+differently from a server at a glance; the parameters (round period,
+threshold) stay in settings. Exactly one entry is highlighted: whichever
+decides where traffic goes. Picking a server by hand turns the automation off;
+picking a strategy takes the current server as the primary (for failover) and
+never moves traffic by itself. Changing the strategy or its parameters does not
+restart the core: only the state machine is replaced. vmess+ws nodes that are
+not carried by Xray are neither probed nor chosen by the machine: a failed dial
+to such a node crashes the core (see the auto group in `core/config.rs`); the
+user may still make one the primary, but while traffic goes elsewhere it is
+left alone.
 
 ---
 

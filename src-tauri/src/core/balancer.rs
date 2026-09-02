@@ -237,6 +237,11 @@ impl Brain {
     }
 
     /// Пользователь выбрал сервер сам: он теперь и основной, и текущий.
+    ///
+    /// В интерфейсе ручной выбор выключает автомат целиком (см.
+    /// `set_active_server`), так что снаружи это пока никто не зовёт; оставлено
+    /// как честная операция автомата — на случай панелей Clash и тестов.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_primary(&mut self, tag: &str) {
         self.primary = tag.to_string();
         self.routed = tag.to_string();

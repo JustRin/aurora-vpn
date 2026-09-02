@@ -3,7 +3,7 @@
 
 import { Theme, Icons, Card, NavIcon, MicroRow } from "theme.slint";
 import { IconBtn, Chip, Dot, Meter, Switch, RoundRect } from "widgets.slint";
-import { ServerNode, SubInfo, NodeGroup, AppRule, RunningApp } from "data.slint";
+import { ServerNode, SubInfo, NodeGroup, AppRule, RunningApp, Data, Conf } from "data.slint";
 import { Str } from "i18n.slint";
 
 // .sub-card: остаток срока и трафика по данным панели.
@@ -126,6 +126,9 @@ export component SubCard inherits Card {
 export component NodeRow inherits Rectangle {
     in property <ServerNode> node;
     in property <bool> active;
+    // Через этот узел ведёт трафик балансировщик: подсвечен его пункт, а
+    // строке сервера достаётся только отметка «сейчас».
+    in property <bool> routed;
     callback select();
     callback copy-link();
     callback edit();
@@ -185,6 +188,28 @@ export component NodeRow inherits Rectangle {
             }
         }
 
+        // Серый значок сервера — пара акцентному значку стратегии в том же
+        // столбце: по нему два вида строк различаются с первого взгляда.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                border-radius: 9px;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.sunken;
+                NavIcon {
+                    commands: Icons.server;
+                    width: 16px;
+                    height: 16px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    tint: root.active ? Theme.accent-text : Theme.text-muted;
+                }
+            }
+        }
+
         VerticalLayout {
             alignment: center;
             spacing: 2px;
@@ -199,6 +224,10 @@ export component NodeRow inherits Rectangle {
             HorizontalLayout {
                 spacing: 7px;
                 alignment: start;
+                if root.routed: Chip {
+                    label: Str.pick-now-chip;
+                    kind: "accent";
+                }
                 Chip { label: root.node.proto; }
                 if root.node.country != "": Text {
                     text: root.node.country;
@@ -283,6 +312,140 @@ export component NodeRow inherits Rectangle {
     }
 }
 
+// .balancer-row: стратегия выбора сервера в одном списке с серверами — как
+// «Auto» у Hiddify: отдельный пункт, а не тумблер в настройках. Своя иконка
+// отличает её от сервера с первого взгляда. Подписи и состояние берутся из
+// глобалов, поэтому строка одинаково служит странице серверов и меню выбора
+// на «Обзоре» (compact: ниже, без радиокнопки, на прозрачной подложке).
+export component BalancerRow inherits Rectangle {
+    // 1 с резервом, 2 самый быстрый, 3 по кругу — порядок settings::Balancer.
+    in property <int> kind;
+    in property <bool> compact;
+    callback select();
+
+    property <bool> active: Conf.balancer == root.kind;
+    // На резерве: выбранный сервер не отвечает, трафик идёт через замену.
+    property <bool> alarmed: root.kind == 1 && root.active && Data.on-backup;
+    property <string> icon: root.kind == 1
+        ? Icons.life-buoy
+        : (root.kind == 2 ? Icons.zap : Icons.repeat);
+    property <string> label: root.kind == 1
+        ? Str.set-balancer-failover
+        : (root.kind == 2 ? Str.set-balancer-fastest : Str.set-balancer-rotate);
+    // Пока стратегия ведёт трафик — через кого; иначе, что она станет делать.
+    property <string> meta: root.active && Data.connected
+        ? (root.alarmed
+            ? "\{Str.pick-now} \{Data.active-name} · \{Str.pick-primary-down}"
+            : "\{Str.pick-now} \{Data.active-name}")
+        : (root.kind == 1
+            ? "\{Str.pick-primary} \{Data.pinned-name}"
+            : (root.kind == 2 ? Str.pick-fastest-meta : Str.pick-rotate-meta));
+
+    height: root.compact ? 48px : 62px;
+    vertical-stretch: 0;
+    border-radius: root.compact ? 8px : 12px;
+    border-width: root.compact ? 0px : 1px;
+    border-color: root.active ? Theme.accent : Theme.border;
+    background: root.compact
+        ? (root.active ? Theme.accent-soft : (touch.has-hover ? Theme.panel-hover : #00000000))
+        : (touch.has-hover && !root.active ? Theme.panel-hover : Theme.panel);
+    animate background { duration: 130ms; }
+    drop-shadow-blur: root.active && !root.compact ? 20px : 0px;
+    drop-shadow-color: root.active && !root.compact ? Theme.accent.transparentize(0.6) : #00000000;
+
+    if root.active && !root.compact: Rectangle {
+        border-radius: 12px;
+        background: Theme.accent-soft;
+    }
+    if !root.compact: Rectangle {
+        x: 12px;
+        y: 1px;
+        width: parent.width - 24px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+
+    touch := TouchArea {
+        clicked => { root.select(); }
+    }
+
+    HorizontalLayout {
+        padding-left: root.compact ? 10px : 14px;
+        padding-right: root.compact ? 10px : 14px;
+        spacing: root.compact ? 10px : 13px;
+
+        if !root.compact: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: root.active ? Theme.accent : Theme.border-strong;
+                if root.active: Rectangle {
+                    x: 4px;
+                    y: 4px;
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: Theme.accent;
+                }
+            }
+        }
+
+        // Значок в кружке: у серверов на этом месте серый, у стратегий —
+        // акцентный, на резерве — предупреждающий.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: root.compact ? 26px : 30px;
+                height: root.compact ? 26px : 30px;
+                border-radius: root.compact ? 8px : 9px;
+                background: root.alarmed ? Theme.warn.transparentize(0.82) : Theme.accent-soft;
+                NavIcon {
+                    commands: root.icon;
+                    width: root.compact ? 14px : 16px;
+                    height: root.compact ? 14px : 16px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    tint: root.alarmed ? Theme.warn : Theme.accent-text;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: root.compact ? 1px : 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.label;
+                overflow: elide;
+                font-size: 13.5px * Theme.text-scale;
+                font-weight: 550;
+                color: root.compact
+                    ? (root.active ? Theme.accent-text : Theme.text-dim)
+                    : Theme.text;
+            }
+            Text {
+                text: root.meta;
+                overflow: elide;
+                font-size: 11.5px * Theme.text-scale;
+                color: root.alarmed ? Theme.warn : Theme.text-muted;
+            }
+        }
+
+        if root.compact && root.active: VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: Icons.check;
+                width: 13px;
+                height: 13px;
+                tint: Theme.accent-text;
+            }
+        }
+    }
+}
+
 // Раздел списка серверов: подписка, под ней — её серверы.
 //
 // Полосой карточек подписки жить перестали: четвёртая уже выдавливала соседей
@@ -291,6 +454,8 @@ export component NodeRow inherits Rectangle {
 export component NodeGroupSection inherits VerticalLayout {
     in property <NodeGroup> group;
     in property <string> active-id;
+    // Узел, через который сейчас ведёт трафик балансировщик (см. NodeRow).
+    in property <string> routed-id;
     callback toggle();
     callback refresh();
     callback remove();
@@ -452,6 +617,7 @@ export component NodeGroupSection inherits VerticalLayout {
         for node in root.group.nodes: NodeRow {
             node: node;
             active: node.id == root.active-id;
+            routed: node.id == root.routed-id;
             select => { root.select(node.id); }
             copy-link => { root.copy-link(node.id); }
             edit => { root.edit(node.id); }

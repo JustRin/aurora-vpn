@@ -18,6 +18,7 @@ import { SubscriptionCard } from "../components/SubscriptionCard";
 import { TrafficGraph } from "../components/TrafficGraph";
 import { Empty, Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
+import { onBackup } from "../lib/balancers";
 import { bytes, duration, speed } from "../lib/format";
 import { type MsgKey, useT } from "../lib/i18n";
 import { ELEVATION_REQUIRED, type ClashMode, shownServerId } from "../lib/types";
@@ -55,6 +56,7 @@ export function Dashboard() {
   const nodes = useStore((s) => s.nodes);
   const latency = useStore((s) => s.latency);
   const allSubs = useStore((s) => s.subscriptions);
+  const balancer = useStore((s) => s.settings.balancer);
   const busy = useStore((s) => s.busy.connection);
   const testing = useStore((s) => s.busy.latency);
   const refreshLatency = useStore((s) => s.refreshLatency);
@@ -187,11 +189,17 @@ export function Dashboard() {
             {status.message ? (
               <div className="hero-note">{status.message}</div>
             ) : connected ? (
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
                 <span className="uptime-chip">
                   <Timer size={12} />
                   {duration(status.sinceMs)}
                 </span>
+                {/* Failover is on a stand-in: the pick stopped answering. Down
+                    here rather than in the picker button, which has no room
+                    for a chip next to the server name. */}
+                {onBackup(balancer, status) && (
+                  <span className="chip warn">{t("pick.badgeBackup")}</span>
+                )}
               </div>
             ) : null}
           </div>

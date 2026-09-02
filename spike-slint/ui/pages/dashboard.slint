@@ -1,9 +1,9 @@
 // Страница «Обзор» — Dashboard.tsx: герой с кнопкой питания, графиком и
 // плитками, плюс выбор сервера и карточки подписок.
 
-import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider } from "../theme.slint";
+import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider, SectionTitle } from "../theme.slint";
 import { Btn, Dot, Chip, Alert, Empty, ScrollArea } from "../widgets.slint";
-import { SubCard } from "../cards.slint";
+import { SubCard, BalancerRow } from "../cards.slint";
 import { Data, Conf, Ui } from "../data.slint";
 import { Str } from "../i18n.slint";
 
@@ -18,31 +18,42 @@ component ServerPicker inherits Rectangle {
     background: touch.has-hover || menu.is-open ? Theme.sunken : #00000000;
     animate background { duration: 130ms; }
 
-    // Стратегия балансировщика — подписью у имени: видно, что сервер выбирает
-    // не пользователь, а на резерве — что выбранный сейчас недоступен.
-    property <string> badge: Conf.balancer == 1
-        ? (Data.on-backup ? Str.pick-badge-backup : Str.pick-badge-failover)
-        : (Conf.balancer == 2
-            ? Str.pick-badge-fastest
-            : (Conf.balancer == 3 ? Str.pick-badge-rotate : ""));
+    // Кто ведёт трафик: сервер — или стратегия, и через кого она сейчас. На
+    // резерве предупреждение: выбранный сервер не отвечает.
+    property <bool> auto: Conf.balancer != 0;
+    property <bool> alarmed: Conf.balancer == 1 && Data.on-backup;
+    property <string> strategy: Conf.balancer == 1
+        ? Str.set-balancer-failover
+        : (Conf.balancer == 2 ? Str.set-balancer-fastest : Str.set-balancer-rotate);
+    property <string> icon: Conf.balancer == 1
+        ? Icons.life-buoy
+        : (Conf.balancer == 2 ? Icons.zap : (Conf.balancer == 3 ? Icons.repeat : Icons.server));
+    // Строк в меню: серверы плюс три стратегии, когда есть из чего выбирать.
+    property <int> rows: Data.nodes.length + (Data.nodes.length >= 2 ? 3 : 0);
 
     HorizontalLayout {
         padding-left: 11px;
         padding-right: 10px;
         spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            NavIcon {
+                commands: root.icon;
+                width: 15px;
+                height: 15px;
+                tint: root.alarmed
+                    ? Theme.warn
+                    : (root.auto ? Theme.accent-text : Theme.text-muted);
+            }
+        }
         Text {
-            text: Data.active-label == "" ? Str.pick-no-server : Data.active-label;
+            text: Data.active-label == ""
+                ? Str.pick-no-server
+                : (root.auto ? "\{root.strategy} · \{Data.active-name}" : Data.active-label);
             vertical-alignment: center;
             overflow: elide;
             font-size: 13.5px * Theme.text-scale;
             color: touch.has-hover || menu.is-open ? Theme.text : Theme.text-dim;
-        }
-        if root.badge != "": VerticalLayout {
-            alignment: center;
-            Chip {
-                label: root.badge;
-                kind: Conf.balancer == 1 && Data.on-backup ? "warn" : "accent";
-            }
         }
         if Data.active-latency != "": VerticalLayout {
             alignment: center;
@@ -82,7 +93,7 @@ component ServerPicker inherits Rectangle {
         x: -11px;
         y: root.height + 6px;
         width: 380px;
-        height: min(300px, Data.nodes.length * 48px + 12px) + 43px;
+        height: min(300px, root.rows * 48px + (Data.nodes.length >= 2 ? 52px : 0px) + 12px) + 43px;
         Rectangle {
             background: Theme.elevated-solid;
             border-radius: 12px;
@@ -102,10 +113,38 @@ component ServerPicker inherits Rectangle {
                 ScrollArea {
                     pad: 6px;
                     vertical-stretch: 1;
-                    for node in Data.nodes: Rectangle {
+                    // Стратегии — отдельными пунктами над серверами, как «Auto»
+                    // у Hiddify; одному серверу выбирать не из чего.
+                    if Data.nodes.length >= 2: VerticalLayout {
+                        spacing: 2px;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            SectionTitle { text: Str.pick-balancers-caps; }
+                        }
+                        for kind in [1, 2, 3]: BalancerRow {
+                            kind: kind;
+                            compact: true;
+                            select => {
+                                Conf.balancer = kind;
+                                menu.close();
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-top: 8px;
+                            padding-bottom: 4px;
+                            SectionTitle { text: Str.nav-servers-caps; }
+                        }
+                    }
+                    for node in Data.nodes: row := Rectangle {
                         height: 48px;
                         border-radius: 8px;
-                        background: node.id == Data.active-id
+                        // Подсвечен ровно один пункт: сервер — при ручном выборе,
+                        // при балансировщике его строка, а серверу — «сейчас».
+                        property <bool> on: Conf.balancer == 0 && node.id == Data.active-id;
+                        background: row.on
                             ? Theme.accent-soft
                             : (item.has-hover ? Theme.panel-hover : #00000000);
                         item := TouchArea {
@@ -120,12 +159,21 @@ component ServerPicker inherits Rectangle {
                             spacing: 10px;
                             VerticalLayout {
                                 alignment: center;
-                                width: 14px;
-                                if node.id == Data.active-id: NavIcon {
-                                    commands: Icons.check;
-                                    width: 13px;
-                                    height: 13px;
-                                    tint: Theme.accent-text;
+                                Rectangle {
+                                    width: 26px;
+                                    height: 26px;
+                                    border-radius: 8px;
+                                    border-width: 1px;
+                                    border-color: Theme.border;
+                                    background: Theme.sunken;
+                                    NavIcon {
+                                        commands: Icons.server;
+                                        width: 14px;
+                                        height: 14px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        tint: row.on ? Theme.accent-text : Theme.text-muted;
+                                    }
                                 }
                             }
                             VerticalLayout {
@@ -148,6 +196,13 @@ component ServerPicker inherits Rectangle {
                                     color: Theme.text-muted;
                                 }
                             }
+                            if Conf.balancer != 0 && node.id == Data.active-id: VerticalLayout {
+                                alignment: center;
+                                Chip {
+                                    label: Str.pick-now-chip;
+                                    kind: "accent";
+                                }
+                            }
                             VerticalLayout {
                                 alignment: center;
                                 Dot { tier: node.tier; }
@@ -160,6 +215,15 @@ component ServerPicker inherits Rectangle {
                                     min-width: 46px;
                                     font-size: 11.5px * Theme.text-scale;
                                     color: Theme.text-muted;
+                                }
+                            }
+                            if Conf.balancer == 0 && node.id == Data.active-id: VerticalLayout {
+                                alignment: center;
+                                NavIcon {
+                                    commands: Icons.check;
+                                    width: 13px;
+                                    height: 13px;
+                                    tint: Theme.accent-text;
                                 }
                             }
                         }
@@ -432,6 +496,7 @@ export component DashboardPage inherits ScrollArea {
                     Rectangle { height: 10px; }
                     HorizontalLayout {
                         alignment: start;
+                        spacing: 8px;
                         if Data.connected: Rectangle {
                             height: 22px;
                             border-radius: 11px;
@@ -458,6 +523,16 @@ export component DashboardPage inherits ScrollArea {
                                     font-size: 11.5px * Theme.text-scale;
                                     vertical-alignment: center;
                                 }
+                            }
+                        }
+                        // «С резервом» на замене: выбранный сервер не отвечает.
+                        // Здесь, а не в пикере: рядом с именем сервера чипу
+                        // места нет — он выдавливает подпись до многоточия.
+                        if Data.connected && Conf.balancer == 1 && Data.on-backup: VerticalLayout {
+                            alignment: center;
+                            Chip {
+                                label: Str.pick-badge-backup;
+                                kind: "warn";
                             }
                         }
                         // Сорвавшееся подключение объясняется здесь, а не

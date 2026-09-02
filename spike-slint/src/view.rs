@@ -388,6 +388,15 @@ pub fn toggle_group(ui: &AppWindow, id: &str) {
 fn render_active(ui: &AppWindow) {
     let data = ui.global::<Data>();
     with(|view| {
+        // Выбранный пользователем узел — для строки «основной: …» у пункта
+        // «С резервом», пока трафик идёт через другой.
+        let pinned = view
+            .nodes
+            .iter()
+            .find(|node| node.id == view.status.active_id)
+            .map(|node| node.name.as_str())
+            .unwrap_or_default();
+        data.set_pinned_name(pinned.into());
         let active = view
             .nodes
             .iter()

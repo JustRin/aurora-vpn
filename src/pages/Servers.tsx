@@ -12,6 +12,7 @@ import { useState } from "react";
 import { SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
+import { BALANCERS, balancerMeta, onBackup } from "../lib/balancers";
 import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
 import { tNow, useT } from "../lib/i18n";
 import {
@@ -73,9 +74,16 @@ export function Servers() {
   const nodes = useStore((s) => s.nodes);
   const subs = useStore((s) => s.subscriptions);
   const latency = useStore((s) => s.latency);
-  // Highlight the node carrying traffic, not just the pick: a balancer may
-  // have moved it.
-  const activeId = useStore((s) => shownServerId(s.status));
+  const status = useStore((s) => s.status);
+  const balancer = useStore((s) => s.settings.balancer ?? "manual");
+  const saveSettings = useStore((s) => s.saveSettings);
+  // Exactly one row is highlighted across both sections: the balancer while
+  // it decides, else the server carrying traffic. Under a balancer the routed
+  // server only gets a «now» marker.
+  const shownId = shownServerId(status);
+  const activeId = balancer === "manual" ? shownId : "";
+  const routedId = balancer === "manual" ? "" : shownId;
+  const backup = onBackup(balancer, status);
   const testing = useStore((s) => s.busy.latency);
   const selectServer = useStore((s) => s.selectServer);
   const refreshLatency = useStore((s) => s.refreshLatency);
@@ -176,6 +184,48 @@ export function Servers() {
         </>
       )}
 
+      {/* The strategies sit in the same list as the servers, as separate
+          entries — the way Hiddify lists its «Auto» group — so they are seen
+          and switched on with the same gesture. One server leaves nothing to
+          choose from, so the section appears from the second. */}
+      {nodes.length >= 2 && (
+        <>
+          <div className="section-title">{t("pick.balancers")}</div>
+          <div className="list">
+            {BALANCERS.map((entry) => {
+              const on = balancer === entry.id;
+              const alarmed = on && backup;
+              const Icon = entry.icon;
+              return (
+                <div
+                  key={entry.id}
+                  className={`node${on ? " active" : ""}`}
+                  onDoubleClick={() => void saveSettings({ balancer: entry.id })}
+                >
+                  <button
+                    type="button"
+                    className="node-radio"
+                    aria-label={t(entry.label)}
+                    onClick={() => void saveSettings({ balancer: entry.id })}
+                  />
+                  <span className={`node-icon ${alarmed ? "warn" : "balancer"}`}>
+                    <Icon size={16} />
+                  </span>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="node-name truncate">{t(entry.label)}</div>
+                    <div className={`node-meta${alarmed ? " warn" : ""}`}>
+                      <span className="truncate">
+                        {balancerMeta(t, entry, balancer, status, nodes)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       <div className="section-title">
         {t("srv.title")} {nodes.length > 0 && <span>({nodes.length})</span>}
       </div>
@@ -213,9 +263,18 @@ export function Servers() {
                   aria-label={t("srv.selectServer")}
                   onClick={() => void selectServer(node.id)}
                 />
+                {/* The muted server icon pairs with the accent strategy icon in
+                    the same column: the two kinds of row read differently at
+                    a glance. */}
+                <span className="node-icon">
+                  <ServerIcon size={16} />
+                </span>
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="node-name truncate">{node.name}</div>
                   <div className="node-meta">
+                    {node.id === routedId && (
+                      <span className="chip accent">{t("pick.nowChip")}</span>
+                    )}
                     <span className="chip">{protocolLabel(node.protocol)}</span>
                     <span>{transportLabel(node.security, node.network)}</span>
                     <span>·</span>
