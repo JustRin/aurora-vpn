@@ -1,0 +1,36 @@
+# Environment for every process cargo spawns, build scripts included — which is
+# the only way the block below reaches wry's. At the repository root rather than
+# next to `src-tauri/Cargo.toml` because cargo looks for this file from its own
+# working directory upwards, and the Android build reaches cargo through gradle
+# and the Tauri CLI: from here it is found whichever of the two they pick.
+#
+# wry generates the Kotlin half of the webview into
+# `gen/android/app/src/main/java/com/aurora/vpn/generated/`. Those files are
+# neither ours to edit nor ours to keep: `app/.gitignore` excludes
+# `/src/main/**/generated`, and wry's build script rewrites every one of them
+# whenever what it would produce differs from what is on disk — it declares its
+# own output with `cargo:rerun-if-changed`, so editing a generated file is what
+# summons the build script that reverts the edit. `{{class-extension}}` is the
+# seam wry leaves for code that has to live *inside* one of those classes, and
+# `WRY_<CLASSNAME>_CLASS_EXTENSION` is how it gets filled.
+#
+# Only the Android build reads this; on every other target wry's build script
+# never looks at the variable.
+
+[env]
+
+# Keep a dead WebView renderer from taking the tunnel with it.
+# `WebViewRendererGuard.kt`, next to `MainActivity.kt`, holds the reasoning and
+# all of the behaviour — this is only the hook, which the generated class can be
+# given no other way. Fully-qualified annotations on purpose: the imports of the
+# generated file are fixed, and `android.webkit.*` is already among them.
+WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION = '''
+// ---- Aurora VPN, injected from .cargo/config.toml ----
+    // The WebViewClient default, `false`, tells the framework to kill the app
+    // process when the renderer dies — and AuroraVpnService holds the TUN in
+    // that process. Returning `true` costs us the UI instead of the tunnel.
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.O)
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean =
+        WebViewRendererGuard.onRenderProcessGone(view, detail)
+    // ---- end Aurora VPN ----
+'''

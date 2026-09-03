@@ -287,6 +287,13 @@ must be given to the engine inside the app's own process. So:
 - sing-box is built into **libbox** (gomobile) and lives inside a Kotlin service
   (`gen/android/.../AuroraVpnService.kt`); it receives the TUN descriptor through
   `PlatformInterface.openTun`, and the same config `core/config.rs` builds;
+- the UI shares that process, so a dead WebView renderer must not be allowed to
+  end it: left to the default `WebViewClient`, `onRenderProcessGone` kills the
+  app and takes the tunnel with it. The override answers `true` and rebuilds the
+  UI — or just closes it — while the service and its notification stay up
+  (`WebViewRendererGuard.kt`, reached from wry's generated `RustWebViewClient`
+  through the injection in `.cargo/config.toml`, since edits to generated
+  files do not survive a build);
 - the Rust bridge is `core/android.rs`: a Tauri plugin calls the Kotlin
   start/stop/status commands, while the core writes logs to a file that Rust
   streams into the **Log** page;
