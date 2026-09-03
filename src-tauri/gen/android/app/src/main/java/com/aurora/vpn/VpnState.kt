@@ -1,6 +1,7 @@
 package com.aurora.vpn
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /** Where the tunnel is in its life, as seen by the service itself. */
 enum class Phase { IDLE, STARTING, RUNNING }
@@ -134,5 +135,58 @@ object VpnState {
         if (sink == null || !pendingConnect) return
         pendingConnect = false
         emit("connectRequested")
+    }
+
+    // ------------------------------------------------------------- activity
+
+    @Volatile private var current: MainActivity? = null
+
+    /**
+     * The activity that can host a system dialog right now, or null while none
+     * exists. Tauri hands every plugin the first activity and never swaps it
+     * (`PluginManager.onActivityCreate` returns early on the second one), so
+     * after Android recreated the UI the plugin's own `activity` is a dead one:
+     * still fine as a Context, useless for anything the user has to answer.
+     * This is the way to the live one.
+     */
+    val activity: MainActivity?
+        get() = current?.takeUnless { it.isDestroyed || it.isFinishing }
+
+    fun bindActivity(activity: MainActivity) {
+        current = activity
+    }
+
+    fun unbindActivity(activity: MainActivity) {
+        // Only the incumbent may retract itself: a destroy that lands after its
+        // replacement has bound must not unbind the live activity. Dropping the
+        // reference is what keeps a destroyed activity from outliving itself
+        // here — the getter above already refuses to hand one out.
+        if (current === activity) {
+            current = null
+        }
+    }
+
+    // -------------------------------------------------------------- consent
+
+    /**
+     * One-shot completion for a pending VPN-consent request. Two things can
+     * answer it — the result of the system dialog, and the re-check
+     * `MainActivity.onResume` runs when that result died with the activity that
+     * launched it — so the hand-off has to be atomic: the loser must not
+     * resolve the same invoke a second time.
+     */
+    private val consent = AtomicReference<((Boolean) -> Unit)?>()
+
+    val consentPending: Boolean
+        get() = consent.get() != null
+
+    fun awaitConsent(callback: (Boolean) -> Unit) {
+        // Nothing would ever answer a displaced request, and its caller is a
+        // blocked Rust thread; deny it now rather than leak it.
+        consent.getAndSet(callback)?.invoke(false)
+    }
+
+    fun finishConsent(granted: Boolean) {
+        consent.getAndSet(null)?.invoke(granted)
     }
 }

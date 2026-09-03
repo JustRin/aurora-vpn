@@ -7,11 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
-import android.util.Log
-import androidx.activity.result.ActivityResult
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -54,37 +50,38 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun prepare(invoke: Invoke) {
+        // `activity` is the one Tauri handed the plugin at startup and never
+        // swapped (PluginManager.onActivityCreate returns early on the second
+        // one), so once Android has recreated the UI it is a dead activity:
+        // still a working Context, but unable to host anything the user has to
+        // answer. Those go to the live one.
+        val live = VpnState.activity
+
         // Notifications are cosmetic (the FGS runs without them); ask once,
-        // never block the tunnel on the answer.
+        // never block the tunnel on the answer — not even on there being a
+        // window to ask in.
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            try {
-                ActivityCompat.requestPermissions(
-                    activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001,
-                )
-            } catch (e: Exception) {
-                // Tauri hands every plugin the first activity and never swaps it
-                // (PluginManager.onActivityCreate returns early on the second
-                // one), so after Android recreated the activity this one is
-                // dead and cannot host a dialog. Cosmetic means cosmetic: the
-                // tunnel still starts.
-                Log.w("VpnPlugin", "notification permission prompt skipped: ${e.message}")
-            }
+            live?.requestNotificationPermission()
         }
 
         val intent = VpnService.prepare(activity)
         if (intent == null) {
             invoke.resolve(JSObject().put("granted", true))
-        } else {
-            startActivityForResult(invoke, intent, "onPrepareResult")
+            return
         }
-    }
-
-    @ActivityCallback
-    fun onPrepareResult(invoke: Invoke, result: ActivityResult) {
-        invoke.resolve(JSObject().put("granted", result.resultCode == Activity.RESULT_OK))
+        if (live == null) {
+            invoke.reject("нет окна для системного запроса разрешения")
+            return
+        }
+        // Armed before the launch, because the answer may outlive this activity
+        // and come back through MainActivity.onResume instead of the launcher.
+        VpnState.awaitConsent { granted ->
+            invoke.resolve(JSObject().put("granted", granted))
+        }
+        live.requestVpnConsent(intent)
     }
 
     // ------------------------------------------------------------- tunnel
