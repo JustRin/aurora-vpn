@@ -39,6 +39,17 @@ The project has applied to the [SignPath Foundation](https://signpath.org) (free
 
 </details>
 
+<details>
+<summary><b>macOS says “Apple could not verify…” or “damaged”</b></summary>
+
+<br>
+
+The builds are not signed with an Apple Developer ID. Download the `.pkg`: when macOS refuses it the first time, click **Done**, open **System Settings → Privacy & Security**, scroll down to *Security* and click **Open Anyway** (on macOS 13/14, right-click the `.pkg` → **Open** does the same). The installed app starts without any warning.
+
+“Damaged and can’t be opened” is an app taken out of a `.dmg` of the older releases: the browser marks it quarantined, and Gatekeeper offers no way around the refusal. Install the `.pkg`, or strip the flag by hand: `xattr -cr "/Applications/Aurora VPN.app"`.
+
+</details>
+
 ## Features
 
 | | |

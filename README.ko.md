@@ -39,6 +39,17 @@ TUN 모드, 앱별 분할 터널링, 규칙 기반 라우팅 — Windows, Androi
 
 </details>
 
+<details>
+<summary><b>macOS에 "Apple에서 …을(를) 확인할 수 없습니다" 또는 "손상되었습니다"가 뜹니다</b></summary>
+
+<br>
+
+빌드는 Apple Developer ID로 서명되어 있지 않습니다. `.pkg`를 받으세요. 처음 열 때 macOS가 거부하면 **[완료]**를 누른 뒤 **[시스템 설정] → [개인정보 보호 및 보안]**을 열고 "보안" 항목까지 내려가 **[그래도 열기]**를 누르세요 (macOS 13/14에서는 `.pkg`를 우클릭 → [열기]로도 됩니다). 설치된 앱은 경고 없이 실행됩니다.
+
+"손상되어 열 수 없습니다"는 이전 버전의 `.dmg`에서 꺼낸 앱입니다. 브라우저가 격리 플래그를 붙이고 Gatekeeper는 이를 우회하게 해 주지 않습니다. `.pkg`를 사용하거나 플래그를 직접 지우세요: `xattr -cr "/Applications/Aurora VPN.app"`
+
+</details>
+
 ## 기능
 
 | | |

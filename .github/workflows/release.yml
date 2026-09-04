@@ -70,13 +70,16 @@ jobs:
           - os: ubuntu-latest
             bundles: deb,rpm,appimage
             artifact: linux-x64
+          # `app`, not `dmg`: the image is not what ships on macOS (see «Wrap
+          # the app bundle» below), and Tauri deletes the .app after bundling
+          # unless `app` itself is among the requested bundles.
           - os: macos-latest
-            bundles: dmg
+            bundles: app
             target: aarch64-apple-darwin
             core: darwin-arm64
             artifact: macos-arm64
           - os: macos-latest
-            bundles: dmg
+            bundles: app
             target: x86_64-apple-darwin
             core: darwin-x64
             artifact: macos-x64
@@ -138,8 +141,62 @@ jobs:
           fi
           npm run tauri build -- $ARGS
 
+      # macOS ships as a .pkg rather than the .dmg Tauri makes. The builds carry
+      # no Apple Developer ID signature, and on Apple Silicon every binary is at
+      # least ad-hoc signed by the linker — once a browser has put the
+      # quarantine flag on such an app, Gatekeeper reports it as «повреждено»
+      # and offers nothing but the Trash: neither right-click → Open nor «Open
+      # Anyway» exists for that verdict. An unsigned installer package only
+      # gets the ordinary «unidentified developer» warning, which the user can
+      # override, and the files it installs carry no quarantine flag, so the
+      # app then opens like any other. Non-relocatable on purpose: the payload
+      # always lands in /Applications, even when an older copy sits in
+      # Downloads — otherwise the Installer would «upgrade» that copy in place.
+      - name: Wrap the app bundle into an installer package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p 'require("./package.json").version')"
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Aurora VPN.app"
+          STAGE="$RUNNER_TEMP/pkgroot"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE" upload
+          # A clean root with nothing but the bundle; ditto keeps symlinks and
+          # permissions intact.
+          ditto "$APP" "$STAGE/Aurora VPN.app"
+          cat > "$RUNNER_TEMP/component.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <array>
+            <dict>
+              <key>RootRelativeBundlePath</key>
+              <string>Aurora VPN.app</string>
+              <key>BundleIsRelocatable</key>
+              <false/>
+              <key>BundleIsVersionChecked</key>
+              <false/>
+              <key>BundleOverwriteAction</key>
+              <string>upgrade</string>
+            </dict>
+          </array>
+          </plist>
+          EOF
+          PKG="upload/AuroraVPN-${VER}-${{ matrix.artifact }}.pkg"
+          pkgbuild --root "$STAGE" \
+            --component-plist "$RUNNER_TEMP/component.plist" \
+            --identifier com.aurora.vpn \
+            --version "$PKG_VERSION" \
+            --install-location /Applications \
+            "$PKG"
+          # The payload must actually contain the app, not an empty root.
+          pkgutil --payload-files "$PKG" | grep -q 'Aurora VPN.app/Contents/MacOS/'
+          ls -la upload
+
       # Uniform, space-free names: the download table in the release notes and
-      # the in-app updater both key off these exact patterns.
+      # the in-app updater both key off these exact patterns. The macOS .pkg is
+      # already sitting in upload/ under its final name.
       - name: Collect artifacts
         shell: bash
         run: |
@@ -147,7 +204,7 @@ jobs:
           mkdir -p upload
           find src-tauri/target -path '*/bundle/*' \
             \( -name '*-setup.exe' -o -name '*.deb' -o -name '*.rpm' \
-               -o -name '*.AppImage' -o -name '*.dmg' \) \
+               -o -name '*.AppImage' \) \
             -exec cp {} upload/ \;
           cd upload
           for f in *; do
@@ -156,7 +213,6 @@ jobs:
               *.AppImage)  mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.AppImage" ;;
               *.deb)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.deb" ;;
               *.rpm)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.rpm" ;;
-              *.dmg)       mv "$f" "AuroraVPN-${VER}-${{ matrix.artifact }}.dmg" ;;
             esac
           done
           ls -la
@@ -398,8 +454,8 @@ jobs:
               *linux-x64.AppImage)    LINUX+="$(badge 'AppImage_x64' 'e95420' 'linux' "$f")" ;;
               *linux-x64.deb)         LINUX+="$(badge 'DEB_x64' 'a81d33' 'debian' "$f")" ;;
               *linux-x64.rpm)         LINUX+="$(badge 'RPM_x64' '294172' 'fedora' "$f")" ;;
-              *macos-arm64.dmg)       MAC+="$(badge 'DMG_Apple_Silicon' '000000' 'apple' "$f")" ;;
-              *macos-x64.dmg)         MAC+="$(badge 'DMG_Intel' '4a4a4a' 'apple' "$f")" ;;
+              *macos-arm64.pkg)       MAC+="$(badge 'PKG_Apple_Silicon' '000000' 'apple' "$f")" ;;
+              *macos-x64.pkg)         MAC+="$(badge 'PKG_Intel' '4a4a4a' 'apple' "$f")" ;;
               # `--` is how shields.io escapes a literal dash. Parentheses would
               # render too, but they sit inside a Markdown link destination and
               # only survive there while they stay balanced — not a thing to
@@ -426,7 +482,7 @@ jobs:
             if [ "$ANDROID_SIGNING" = "debug" ]; then
               echo "**Android, warning**: this build's APKs are signed with a throwaway key and will not install over a previous version — uninstall it first. / Эти APK подписаны одноразовым ключом и не встанут поверх установленной версии — сначала удалите её."
             fi
-            echo "**macOS**: the image is unsigned — on first launch right-click → \"Open\"."
+            echo "**macOS**: the package is not signed with an Apple Developer ID, so the first open is refused with «Apple could not verify…» («Не удалось проверить…»). Click Done («Готово»), open System Settings → Privacy & Security («Системные настройки» → «Конфиденциальность и безопасность»), scroll to Security and click Open Anyway («Всё равно открыть»), then run the installer again; on macOS 13/14 a right-click → Open on the .pkg does the same. The installed app opens without any warning."
             echo "**Linux**: TUN mode needs root; make the AppImage executable (\`chmod +x\`)."
             echo ""
             echo "sha256 checksums are listed under Assets below."

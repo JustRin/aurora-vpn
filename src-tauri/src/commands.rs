@@ -2245,7 +2245,7 @@ fn installer_suffix() -> &'static str {
     if cfg!(windows) {
         "-setup.exe"
     } else if cfg!(target_os = "macos") {
-        ".dmg"
+        ".pkg"
     } else if cfg!(target_os = "android") {
         ".apk"
     } else {
@@ -2418,7 +2418,7 @@ async fn download_resumable(
 /// Windows: download the installer (streaming progress to the UI), release the
 /// tunnel and the system proxy, then hand control to a silent NSIS install
 /// (`/S /UPDATE /R`) that restarts the app when the files are replaced.
-/// Elsewhere the package (or the release page) opens in the browser — .dmg and
+/// Elsewhere the package (or the release page) opens in the browser — .pkg and
 /// .AppImage installs are inherently manual.
 #[tauri::command]
 pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
@@ -2697,8 +2697,8 @@ mod tests {
             asset("AuroraVPN-1.0.0-windows-x64-setup.exe"),
             asset("AuroraVPN-1.0.0-linux-x64.AppImage"),
             asset("AuroraVPN-1.0.0-linux-x64.deb"),
-            asset("AuroraVPN-1.0.0-macos-arm64.dmg"),
-            asset("AuroraVPN-1.0.0-macos-x64.dmg"),
+            asset("AuroraVPN-1.0.0-macos-arm64.pkg"),
+            asset("AuroraVPN-1.0.0-macos-x64.pkg"),
         ];
 
         let url = pick_installer_url(&assets).expect("an installer for the host platform");

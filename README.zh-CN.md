@@ -39,6 +39,17 @@ TUN 模式、按应用分流与基于规则的路由 —— 覆盖 Windows、And
 
 </details>
 
+<details>
+<summary><b>macOS 提示“Apple 无法验证…”或“已损坏”</b></summary>
+
+<br>
+
+构建未使用 Apple Developer ID 签名。请下载 `.pkg`：首次打开被 macOS 拒绝时，点击**“完成”**，然后打开**“系统设置” → “隐私与安全性”**，向下滚动到“安全性”，点击**“仍要打开”**（在 macOS 13/14 上，右键点击 `.pkg` → “打开”效果相同）。安装后的应用启动时不会再有任何警告。
+
+“已损坏，无法打开”是旧版本 `.dmg` 里的应用：浏览器给它打上了隔离标记，Gatekeeper 不允许绕过。请改用 `.pkg`，或手动去掉标记：`xattr -cr "/Applications/Aurora VPN.app"`。
+
+</details>
+
 ## 功能
 
 | | |

@@ -408,6 +408,16 @@ npm run app          # development run
 npm run app:build    # AppImage / deb / rpm / dmg
 ```
 
+CI builds macOS twice (Apple Silicon and Intel) with `--bundles app` and wraps
+the resulting `.app` into an installer package with `pkgbuild`. A `.dmg` would
+be the usual shape, but the builds carry no Apple Developer ID signature, and
+on Apple Silicon the linker ad-hoc-signs every binary — Gatekeeper reports such
+an app as «damaged» the moment a browser puts the quarantine flag on it, with
+no «Open Anyway» to be had. An unsigned package only gets the ordinary
+«unidentified developer» warning, which the user can override, and the files it
+installs carry no quarantine flag, so the app then opens like any other. The
+package is marked non-relocatable: it always installs into `/Applications`.
+
 ### Android
 
 You need: JDK 17+, the Android SDK and NDK, Go 1.24+, and the Rust targets

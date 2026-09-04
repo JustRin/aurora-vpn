@@ -39,6 +39,17 @@ O projeto enviou uma solicitação à [SignPath Foundation](https://signpath.org
 
 </details>
 
+<details>
+<summary><b>O macOS diz “A Apple não pôde verificar…” ou “danificado”</b></summary>
+
+<br>
+
+As versões não são assinadas com um Apple Developer ID. Baixe o `.pkg`: quando o macOS o recusar na primeira vez, clique em **OK**, abra **Ajustes do Sistema → Privacidade e Segurança**, role até *Segurança* e clique em **Abrir Mesmo Assim** (no macOS 13/14, clicar com o botão direito no `.pkg` → **Abrir** faz o mesmo). O aplicativo instalado abre sem nenhum aviso.
+
+“Está danificado e não pode ser aberto” é o aplicativo tirado de um `.dmg` das versões antigas: o navegador o marca como quarentena e o Gatekeeper não deixa contornar a recusa. Instale o `.pkg` ou remova a marca manualmente: `xattr -cr "/Applications/Aurora VPN.app"`
+
+</details>
+
 ## Recursos
 
 | | |
