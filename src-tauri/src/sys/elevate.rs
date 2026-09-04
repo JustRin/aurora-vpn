@@ -20,13 +20,14 @@ pub fn is_elevated() -> bool {
 
 #[cfg(not(any(windows, target_os = "android")))]
 pub fn is_elevated() -> bool {
-    // On Unix the TUN device needs root (or CAP_NET_ADMIN, which we cannot
-    // detect portably without extra dependencies).
-    std::env::var("EUID")
-        .ok()
-        .and_then(|v| v.parse::<u32>().ok())
-        .map(|uid| uid == 0)
-        .unwrap_or_else(|| std::path::Path::new("/proc/1/root").read_link().is_ok())
+    // On Unix the TUN device needs root (or CAP_NET_ADMIN on Linux, which we
+    // cannot detect portably without extra dependencies). The effective uid is
+    // what the kernel consults and what `sudo` changes, so it is the one thing
+    // to ask. Not `$EUID`: that is a bash-internal variable a child process
+    // never sees. Not `/proc/1/root`: macOS has no /proc, so that probe
+    // reported «no rights» even under sudo.
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    unsafe { libc::geteuid() == 0 }
 }
 
 /// Start an executable through the shell, so a `requireAdministrator` manifest
@@ -100,12 +101,24 @@ pub fn relaunch_elevated() -> Result<()> {
     Ok(())
 }
 
+/// No UAC to go through here: root on Linux and macOS means `sudo` from a
+/// terminal. The message spells out the exact command, because the binary is
+/// not what the user sees — on macOS it is buried inside the `.app` bundle,
+/// and an AppImage runs from a temporary mount rather than the file that was
+/// downloaded (`$APPIMAGE` names that file).
 #[cfg(not(windows))]
 pub fn relaunch_elevated() -> Result<()> {
-    Err(crate::error::AppError::msg(
+    let exe = std::env::var_os("APPIMAGE")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_exe().ok());
+    let command = match exe {
+        Some(path) => format!("sudo \"{}\"", path.display()),
+        None => "sudo <путь к приложению>".to_string(),
+    };
+    Err(crate::error::AppError::msg(format!(
         "автоматическое повышение прав поддерживается только на Windows — \
-         запустите приложение через sudo",
-    ))
+         запустите приложение из терминала: {command}"
+    )))
 }
 
 /// Let the single-instance «show yourself» message through UIPI.
@@ -136,5 +149,24 @@ pub fn yield_foreground() {
     use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
     unsafe {
         let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
+}
+
+#[cfg(all(test, unix, not(target_os = "android")))]
+mod tests {
+    /// `id -u` reports the effective uid through a route that shares nothing
+    /// with the libc binding, so the two agreeing is a real check — and one
+    /// that holds whether or not the tests happen to run as root.
+    #[test]
+    fn is_elevated_agrees_with_id() {
+        let out = std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .expect("`id -u` exists on every Unix");
+        let uid: u32 = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .expect("`id -u` prints a number");
+        assert_eq!(super::is_elevated(), uid == 0);
     }
 }
