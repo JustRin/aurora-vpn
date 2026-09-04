@@ -20,7 +20,8 @@ import { Empty, Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { onBackup } from "../lib/balancers";
 import { bytes, duration, speed } from "../lib/format";
-import { type MsgKey, useT } from "../lib/i18n";
+import { type MsgKey, osKey, useT } from "../lib/i18n";
+import { IS_UNIX_DESKTOP } from "../lib/platform";
 import {
   ELEVATION_REQUIRED,
   type ClashMode,
@@ -166,13 +167,14 @@ export function Dashboard() {
       {!status.elevated && status.tunnelMode === "tun" && (
         <div className="notice">
           <ShieldAlert size={15} color="var(--warn)" style={{ flexShrink: 0 }} />
-          <span className="grow">{t("dash.tunNeedsAdmin")}</span>
+          <span className="grow">{t(osKey("dash.tunNeedsAdmin"))}</span>
+          {/* Windows relaunches through UAC; Unix can only show the sudo line. */}
           <button
             type="button"
             className="btn sm"
             onClick={() => setAskElevate(true)}
           >
-            {t("dash.restart")}
+            {IS_UNIX_DESKTOP ? t("dash.showCommand") : t("dash.restart")}
           </button>
         </div>
       )}

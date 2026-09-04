@@ -135,7 +135,10 @@ pub fn resource_usage() -> Vec<ResourceGroup> {
     while let Some((pid, inherited)) = queue.pop() {
         let Some(process) = sys.process(pid) else { continue };
         let name = process.name().to_string_lossy().to_lowercase();
-        let group = if name.contains("webview") {
+        // WebView2 helpers on Windows, WebKitWebProcess / WebKitNetworkProcess
+        // on Linux. macOS spawns WebKit's helpers through launchd, so they are
+        // nobody's children here and the interface has no row of its own.
+        let group = if name.contains("webview") || name.contains("webkit") {
             "ui"
         } else if name.starts_with("sing-box") {
             "core"

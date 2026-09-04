@@ -562,6 +562,29 @@ textarea {
   color: #fff;
 }
 
+/* Who draws the frame decides the shell (create_main_window in lib.rs).
+   Windows: frameless, the strip above is the title bar. macOS: native frame
+   with a transparent title bar — the system's traffic lights sit at the
+   top-left, so the sidebar column runs up to the very top and a spacer keeps
+   them company, the way the platform's own sidebar apps are laid out; the
+   strip proper spans the content column only. Linux: the window manager draws
+   the whole frame, title included, so there is no strip at all. */
+html[data-platform="macos"] .app {
+  grid-template-columns: var(--sidebar-w) 1fr;
+}
+html[data-platform="macos"] .titlebar-side {
+  background: var(--bg-elevated);
+  backdrop-filter: blur(18px) saturate(140%);
+  border-inline-end: 1px solid var(--border);
+}
+html[data-platform="macos"] .body,
+html[data-platform="macos"] .splash {
+  grid-column: 1 / -1;
+}
+html[data-platform="linux"] .app {
+  grid-template-rows: 1fr;
+}
+
 .body {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
@@ -1670,6 +1693,24 @@ textarea {
   margin-top: 3px;
   user-select: text;
   line-height: 1.45;
+}
+
+/* A command the user is asked to type — selectable, and wrapping rather than
+   scrolling, because an AppImage path can run long. */
+.cmd {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--sunken);
+  color: var(--text);
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
 }
 
 /* ============================================================ theme picker */

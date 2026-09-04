@@ -5,8 +5,14 @@ import { ElevateModal } from "../components/ElevateModal";
 import { Field, Segmented, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { bytes } from "../lib/format";
-import { LANGS, LANG_NAMES, useT, type MsgKey } from "../lib/i18n";
-import { IS_ANDROID } from "../lib/platform";
+import { LANGS, LANG_NAMES, osKey, useT, type MsgKey } from "../lib/i18n";
+import {
+  IS_ANDROID,
+  IS_UNIX_DESKTOP,
+  IS_WINDOWS,
+  OS_NAME,
+  WEBVIEW_ENGINE,
+} from "../lib/platform";
 import { THEMES } from "../lib/themes";
 import {
   ELEVATION_REQUIRED,
@@ -52,6 +58,7 @@ export function Settings() {
   const elevated = useStore((s) => s.status.elevated);
   const autostart = useStore((s) => s.autostart);
   const setAutostart = useStore((s) => s.setAutostart);
+  const rootCommand = useStore((s) => s.rootCommand);
   const toast = useStore((s) => s.toast);
   const appVersion = useStore((s) => s.appVersion);
   const coreVersion = useStore((s) => s.coreVersion);
@@ -138,8 +145,8 @@ export function Settings() {
                     <div className="toggle-label">{t("set.tunnelMode")}</div>
                     <div className="toggle-desc">
                       {settings.tunnelMode === "tun"
-                        ? t("set.tunnelModeTunDesc")
-                        : t("set.tunnelModeProxyDesc")}
+                        ? t(osKey("set.tunnelModeTunDesc"))
+                        : t(osKey("set.tunnelModeProxyDesc"))}
                     </div>
                   </div>
                   <Segmented<TunnelMode>
@@ -154,7 +161,13 @@ export function Settings() {
 
                 {settings.tunnelMode === "tun" && !elevated && (
                   <div className="alert" style={{ marginTop: 12 }}>
-                    <div className="alert-text">{t("set.tunNeedsAdmin")}</div>
+                    <div className="alert-text">
+                      {t(osKey("set.tunNeedsAdmin"))}
+                      {/* No UAC on Unix: the way up is a terminal line. */}
+                      {IS_UNIX_DESKTOP && rootCommand && (
+                        <code className="mono cmd">{rootCommand}</code>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -440,13 +453,16 @@ export function Settings() {
             {!IS_ANDROID && (
               <>
                 <ToggleRow
-                  label={t("set.autostart")}
+                  label={t("set.autostart", { os: OS_NAME })}
                   desc={t("set.autostartDesc")}
                   checked={autostart !== "off"}
                   onChange={(on) => void changeAutostart(on ? "normal" : "off")}
                 />
 
-                {autostart !== "off" && (
+                {/* Only Windows can start a program elevated at logon (a
+                    scheduled task); a Unix login session has no such trick,
+                    so the switch would have nothing to do there. */}
+                {IS_WINDOWS && autostart !== "off" && (
                   <ToggleRow
                     label={t("set.autostartElevated")}
                     desc={
@@ -463,7 +479,9 @@ export function Settings() {
 
                 {autostart === "normal" && (
                   <div className="alert" style={{ marginTop: 12 }}>
-                    <div className="alert-text">{t("set.autostartNormalWarn")}</div>
+                    <div className="alert-text">
+                      {t(osKey("set.autostartNormalWarn"))}
+                    </div>
                   </div>
                 )}
               </>
@@ -477,12 +495,12 @@ export function Settings() {
             {!IS_ANDROID && (
               <>
                 <ToggleRow
-                  label={t("set.startMinimized")}
+                  label={t(osKey("set.startMinimized"))}
                   checked={settings.startMinimized}
                   onChange={(startMinimized) => void save({ startMinimized })}
                 />
                 <ToggleRow
-                  label={t("set.closeToTray")}
+                  label={t(osKey("set.closeToTray"))}
                   desc={t("set.closeToTrayDesc")}
                   checked={settings.closeToTray}
                   onChange={(closeToTray) => void save({ closeToTray })}
@@ -496,13 +514,13 @@ export function Settings() {
               <div className="section-title">{t("set.resourcesSection")}</div>
               <div className="card">
                 <div className="toggle-desc" style={{ marginBottom: 4 }}>
-                  {t("set.resourcesDesc")}
+                  {t(osKey("set.resourcesDesc"))}
                 </div>
                 {usage.map((group) => (
                   <div className="toggle-row" key={group.id}>
                     <div className="grow">
                       <div className="toggle-label">
-                        {t(RESOURCE_LABELS[group.id])}
+                        {t(RESOURCE_LABELS[group.id], { engine: WEBVIEW_ENGINE })}
                       </div>
                       {group.processes > 1 && (
                         <div className="toggle-desc">

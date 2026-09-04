@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { api, errText, onUpdateProgress } from "../lib/api";
-import { useT, type MsgKey } from "../lib/i18n";
+import { osKey, useT, type MsgKey } from "../lib/i18n";
 import { useSlidingPill } from "../lib/pill";
 import { IS_ANDROID } from "../lib/platform";
 import type { UpdateInfo, UpdateProgress } from "../lib/types";
@@ -210,7 +210,7 @@ export function Sidebar({
         {!IS_ANDROID && (
           <div className="core-line">
             <span className={`dot ${elevated ? "good" : "ok"}`} />
-            <span>{elevated ? t("side.admin") : t("side.user")}</span>
+            <span>{elevated ? t(osKey("side.admin")) : t("side.user")}</span>
           </div>
         )}
       </div>

@@ -101,20 +101,32 @@ pub fn relaunch_elevated() -> Result<()> {
     Ok(())
 }
 
-/// No UAC to go through here: root on Linux and macOS means `sudo` from a
-/// terminal. The message spells out the exact command, because the binary is
-/// not what the user sees — on macOS it is buried inside the `.app` bundle,
-/// and an AppImage runs from a temporary mount rather than the file that was
-/// downloaded (`$APPIMAGE` names that file).
-#[cfg(not(windows))]
-pub fn relaunch_elevated() -> Result<()> {
+/// The terminal command that starts this app as root — the only way up on
+/// Linux and macOS, where there is no UAC to go through. Spelled out in full,
+/// because the binary is not what the user sees: on macOS it is buried inside
+/// the `.app` bundle, and an AppImage runs from a temporary mount rather than
+/// the file that was downloaded (`$APPIMAGE` names that file). The UI shows
+/// it wherever Windows would offer a relaunch.
+#[cfg(all(unix, not(target_os = "android")))]
+pub fn root_command() -> Option<String> {
     let exe = std::env::var_os("APPIMAGE")
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::current_exe().ok());
-    let command = match exe {
+    Some(match exe {
         Some(path) => format!("sudo \"{}\"", path.display()),
         None => "sudo <путь к приложению>".to_string(),
-    };
+    })
+}
+
+/// Windows elevates through UAC and Android never needs to; nothing to type.
+#[cfg(any(windows, target_os = "android"))]
+pub fn root_command() -> Option<String> {
+    None
+}
+
+#[cfg(not(windows))]
+pub fn relaunch_elevated() -> Result<()> {
+    let command = root_command().unwrap_or_default();
     Err(crate::error::AppError::msg(format!(
         "автоматическое повышение прав поддерживается только на Windows — \
          запустите приложение из терминала: {command}"

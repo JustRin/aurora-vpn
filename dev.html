@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The interface in a plain browser tab, backed by src/dev/mock.ts
+         instead of the Rust side: `npm run dev`, then /dev.html?platform=macos
+         (or linux, android, windows). Not part of the build — only index.html
+         is bundled. -->
+    <title>Aurora VPN — mock</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/dev/mock.ts"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

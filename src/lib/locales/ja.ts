@@ -24,6 +24,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "side.noCore": "コアが見つかりません",
   "side.admin": "管理者権限",
   "side.user": "通常の権限",
+  "side.admin.unix": "root 権限",
   "side.appVersion": "インストール済みのアプリのバージョン",
 
   // ------------------------------------------------------------------ toasts
@@ -59,11 +60,16 @@ export const ja: Record<keyof typeof ru, string> = {
   "set.tunnelMode": "モード",
   "set.tunnelModeTunDesc":
     "TUN — Wintun 仮想アダプターがシステム全体の通信を受け取ります。管理者権限が必要ですが、アプリ単位のルールが使えます。",
+  "set.tunnelModeTunDesc.unix":
+    "TUN — 仮想ネットワークインターフェースがシステム全体の通信を受け取ります。root 権限（sudo での起動）が必要ですが、アプリ単位のルールが使えます。",
   "set.tunnelModeProxyDesc":
     "システムプロキシ — 管理者権限は不要ですが、システムプロキシ設定に従うアプリしか対象になりません。",
+  "set.tunnelModeProxyDesc.unix":
+    "システムプロキシ — 現在は Windows のみ対応です。macOS と Linux では TUN を使ってください。",
   "set.systemProxy": "システムプロキシ",
   "set.tunNeedsAdmin":
     "アプリは管理者権限なしで動作しています。TUN モードで接続すると再起動を求められます。",
+  "set.tunNeedsAdmin.unix": "アプリは root 権限なしで動作しているため、TUN モードは使えません。ターミナルから起動してください：",
 
   "set.tunSection": "TUN の設定",
   "set.tunStack": "ネットワークスタック",
@@ -139,7 +145,7 @@ export const ja: Record<keyof typeof ru, string> = {
     "「システムに合わせる」は OS の設定に追従し、ライト／ダークのスケジュールも含めて自動で切り替わります。",
 
   "set.startupSection": "起動",
-  "set.autostart": "Windows と一緒に起動",
+  "set.autostart": "{os} と一緒に起動",
   "set.autostartDesc": "サインイン時にアプリが起動します。",
   "set.autostartElevated": "管理者権限で起動する",
   "set.autostartElevatedDesc":
@@ -148,15 +154,23 @@ export const ja: Record<keyof typeof ru, string> = {
     "タスクを登録するため、一度だけ管理者権限での再起動が必要です。",
   "set.autostartNormalWarn":
     "通常の自動起動では TUN を張れません。サインイン後にアプリが権限を求めます。上のスイッチを入れれば回避できます。",
+  "set.autostartNormalWarn.unix":
+    "自動起動ではアプリが root 権限なしで立ち上がるため、サインイン後に TUN モードは自動では張られません。sudo での再起動が必要になります。",
   "set.autoConnect": "起動時に接続する",
   "set.startMinimized": "最小化してトレイで起動する",
+  "set.startMinimized.mac": "最小化してメニューバーで起動する",
   "set.closeToTray": "ウィンドウを閉じたらトレイへ最小化する",
+  "set.closeToTray.mac": "ウィンドウを閉じたらメニューバーへ最小化する",
   "set.closeToTrayDesc": "オフのとき、閉じるボタンは完全に終了し接続も切れます。",
   "set.resourcesSection": "リソース使用量",
   "set.resourcesDesc":
     "インターフェース（WebView2）とコアは別々のプロセスとして動くため、タスク マネージャーではアプリが複数行に分かれて表示されます。ここに出るのはプロセス一式の合計で、タスク マネージャーのメモリ列と一致します。",
+  "set.resourcesDesc.mac":
+    "コアは別プロセスとして動くため、アクティビティモニタではアプリが複数行に分かれて表示されます。ここに出るのはプロセス一式の合計です。",
+  "set.resourcesDesc.linux":
+    "インターフェース（WebKitGTK）とコアは別々のプロセスとして動くため、システムモニターではアプリが複数行に分かれて表示されます。ここに出るのはプロセス一式の合計です。",
   "set.resApp": "アプリケーション",
-  "set.resUi": "インターフェース（WebView2）",
+  "set.resUi": "インターフェース（{engine}）",
   "set.resCore": "sing-box コア",
   "set.resXray": "Xray コア",
   "set.resTotal": "合計",
@@ -195,7 +209,9 @@ export const ja: Record<keyof typeof ru, string> = {
     "それらのページを無視して、すべての通信が VPN を通ります。",
   "dash.tunNeedsAdmin":
     "TUN モードには管理者権限が必要です。ない場合はシステムプロキシのみ利用できます。",
+  "dash.tunNeedsAdmin.unix": "TUN モードには root 権限が必要です。sudo でアプリを起動してください。",
   "dash.restart": "再起動",
+  "dash.showCommand": "コマンドを表示",
   "dash.connect": "接続",
   "dash.disconnect": "切断",
   "dash.connectFailed": "接続できませんでした",
@@ -362,7 +378,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "split.addCount": "追加（{count}）",
   "split.searchPlaceholder": "名前かパスで検索",
   "split.refresh": "更新",
-  "split.showSystemProcs": "Windows のシステムプロセスを表示",
+  "split.showSystemProcs": "{os} のシステムプロセスを表示",
   "split.loading": "読み込み中…",
   "split.nothingFound": "見つかりませんでした",
   "split.instancesCount": "{count} プロセス",
@@ -421,11 +437,18 @@ export const ja: Record<keyof typeof ru, string> = {
 
   // ------------------------------------------------------------ elevate modal
   "elev.title": "管理者権限が必要です",
+  "elev.title.unix": "root 権限が必要です",
   "elev.relaunchFailed": "再起動できませんでした",
   "elev.cancel": "キャンセル",
   "elev.restart": "再起動",
+  "elev.copy": "コマンドをコピー",
+  "elev.copied": "コマンドをコピーしました",
+  "elev.copyFailed": "コピーできませんでした。コマンドを選択して手動でコピーしてください。",
+  "elev.close": "閉じる",
   "elev.tunnelWhy":
     "TUN モードは Wintun 仮想アダプターを通じてシステムのすべての通信を横取りします。その作成には管理者権限が必要で、Windows が UAC のプロンプトを表示します。",
+  "elev.tunnelWhy.unix":
+    "TUN モードは仮想ネットワークインターフェースを通じてシステムのすべての通信を横取りしますが、その作成は root にしかできません。{os} では実行中の昇格ができないため、ターミナルからアプリを起動してください：",
   "elev.tunnelAlt":
     "昇格したくない場合は、設定でシステムプロキシモードに切り替えてください。UAC は不要ですが、システムプロキシ設定に従うアプリしか対象になりません。",
   "elev.autostartWhy":

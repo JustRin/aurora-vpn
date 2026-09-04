@@ -1,14 +1,17 @@
-//! Launch-at-login, in two flavours.
+//! Launch-at-login.
 //!
-//! The obvious mechanism — a value under `HKCU\...\Run` — cannot start a program
-//! elevated: Windows deliberately refuses to raise privileges without a UAC
-//! prompt, and there is nobody to click it at logon. The only supported way to
-//! get an elevated program started automatically is a Scheduled Task whose
-//! principal declares `HighestAvailable`.
+//! Windows has it in two flavours. The obvious mechanism — a value under
+//! `HKCU\...\Run` — cannot start a program elevated: Windows deliberately
+//! refuses to raise privileges without a UAC prompt, and there is nobody to
+//! click it at logon. The only supported way to get an elevated program
+//! started automatically is a Scheduled Task whose principal declares
+//! `HighestAvailable`. So: normal autostart uses the Run key, elevated
+//! autostart uses a task, and the two are mutually exclusive — leaving both in
+//! place would launch the app twice.
 //!
-//! So: normal autostart uses the Run key, elevated autostart uses a task, and
-//! the two are mutually exclusive — leaving both in place would launch the app
-//! twice.
+//! macOS (a launchd agent) and Linux (an XDG autostart entry) only have the
+//! normal flavour: a login session cannot hand root to a program on its own,
+//! and a root daemon has no desktop to draw on.
 
 use serde::{Deserialize, Serialize};
 
@@ -257,7 +260,204 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+/// A launchd agent in `~/Library/LaunchAgents`, loaded at every login of this
+/// user. No prompt: macOS 13+ only posts a «background items added»
+/// notification and lists the entry under Login Items. The AppleScript route
+/// (a login item made through System Events) would first need the Automation
+/// consent dialog, which reads as an intrusion for a VPN client.
+#[cfg(target_os = "macos")]
+mod imp {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::error::AppError;
+
+    /// The bundle identifier, so Login Items shows the app's own name and icon
+    /// next to the entry instead of a bare label.
+    const LABEL: &str = "com.aurora.vpn";
+
+    fn plist_path() -> Result<PathBuf> {
+        let home = std::env::var_os("HOME")
+            .ok_or_else(|| AppError::msg("переменная окружения HOME не задана"))?;
+        Ok(PathBuf::from(home)
+            .join("Library")
+            .join("LaunchAgents")
+            .join(format!("{LABEL}.plist")))
+    }
+
+    /// `LimitLoadToSessionType: Aqua` keeps the agent out of SSH and login
+    /// screen sessions, where a windowed app cannot run. `RunAtLoad` alone,
+    /// no `KeepAlive`: quitting from the tray must stay quit.
+    fn plist(exe: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+"#,
+            xml_escape(exe)
+        )
+    }
+
+    pub fn task_exists() -> bool {
+        false
+    }
+
+    pub fn run_key_exists() -> bool {
+        plist_path().map(|path| path.is_file()).unwrap_or(false)
+    }
+
+    pub fn apply(mode: AutostartMode) -> Result<()> {
+        let path = plist_path()?;
+        match mode {
+            AutostartMode::Off => {
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+            }
+            AutostartMode::Normal => {
+                // The executable inside the bundle: launchd cannot exec the
+                // `.app` directory itself.
+                let exe = std::env::current_exe()?;
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&path, plist(&exe.to_string_lossy()))?;
+            }
+            AutostartMode::Elevated => {
+                return Err(AppError::msg(
+                    "автозапуск с правами root на macOS не поддерживается",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An XDG autostart entry in `$XDG_CONFIG_HOME/autostart`, honoured by GNOME,
+/// KDE, XFCE and the rest of the freedesktop world.
+#[cfg(target_os = "linux")]
+mod imp {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::error::AppError;
+
+    const FILE_NAME: &str = "aurora-vpn.desktop";
+
+    fn entry_path() -> Result<PathBuf> {
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .ok_or_else(|| AppError::msg("не заданы ни XDG_CONFIG_HOME, ни HOME"))?;
+        Ok(config.join("autostart").join(FILE_NAME))
+    }
+
+    /// The file the user actually has. Inside an AppImage `current_exe` points
+    /// into the temporary mount, which is gone by the next login; `$APPIMAGE`
+    /// names the image itself.
+    fn exe_path() -> Result<PathBuf> {
+        match std::env::var_os("APPIMAGE") {
+            Some(image) => Ok(PathBuf::from(image)),
+            None => Ok(std::env::current_exe()?),
+        }
+    }
+
+    /// `Exec=` quoting per the desktop-entry spec: the argument goes in double
+    /// quotes, and the four characters that stay special inside them get a
+    /// backslash — doubled, because the value also passes through the file's
+    /// own backslash unescaping before the quoting rule applies.
+    fn exec_arg(path: &str) -> String {
+        let mut out = String::from("\"");
+        for ch in path.chars() {
+            match ch {
+                '"' | '`' | '$' => {
+                    out.push_str("\\\\");
+                    out.push(ch);
+                }
+                '\\' => out.push_str("\\\\\\\\"),
+                _ => out.push(ch),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    /// The icon is installed under the binary's name by the deb/rpm bundles;
+    /// an AppImage has none on the system, and the entry works without it.
+    fn desktop_entry(exe: &str, icon: &str) -> String {
+        format!(
+            "[Desktop Entry]\n\
+             Type=Application\n\
+             Name=Aurora VPN\n\
+             Comment=VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers\n\
+             Exec={}\n\
+             Icon={}\n\
+             Terminal=false\n\
+             StartupNotify=false\n\
+             X-GNOME-Autostart-enabled=true\n",
+            exec_arg(exe),
+            icon
+        )
+    }
+
+    pub fn task_exists() -> bool {
+        false
+    }
+
+    pub fn run_key_exists() -> bool {
+        entry_path().map(|path| path.is_file()).unwrap_or(false)
+    }
+
+    pub fn apply(mode: AutostartMode) -> Result<()> {
+        let path = entry_path()?;
+        match mode {
+            AutostartMode::Off => {
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+            }
+            AutostartMode::Normal => {
+                let exe = exe_path()?;
+                let icon = std::env::current_exe()
+                    .ok()
+                    .and_then(|bin| bin.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "aurora-vpn".to_string());
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&path, desktop_entry(&exe.to_string_lossy(), &icon))?;
+            }
+            AutostartMode::Elevated => {
+                return Err(AppError::msg(
+                    "автозапуск с правами root на Linux не поддерживается",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Android starts nothing at boot on the app's behalf; the settings page
+/// never offers the switch there.
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod imp {
     use super::*;
 
@@ -271,9 +471,24 @@ mod imp {
 
     pub fn apply(_mode: AutostartMode) -> Result<()> {
         Err(crate::error::AppError::msg(
-            "автозапуск пока реализован только для Windows",
+            "автозапуск на этой платформе не поддерживается",
         ))
     }
+}
+
+/// The three characters that would break a plist string.
+#[cfg(target_os = "macos")]
+fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Delegate this launch to the elevated autostart task. Windows-only: the

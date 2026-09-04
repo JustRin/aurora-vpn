@@ -69,6 +69,8 @@ interface AppStore {
   coreVersion: string;
   appVersion: string;
   autostart: AutostartMode;
+  /** `sudo …` for the rights dialogs on Linux and macOS; empty elsewhere. */
+  rootCommand: string;
 
   logs: LogLine[];
   history: TrafficSample[];
@@ -133,6 +135,7 @@ export const useStore = create<AppStore>((set, get) => ({
   coreVersion: "",
   appVersion: "",
   autostart: "off",
+  rootCommand: "",
 
   logs: [],
   history: [],
@@ -163,6 +166,7 @@ export const useStore = create<AppStore>((set, get) => ({
         latency: snapshot.latency,
         coreVersion: snapshot.coreVersion,
         autostart: snapshot.autostart,
+        rootCommand: snapshot.rootCommand ?? "",
         logs,
       });
       // Paint before the window is revealed, so the first frame is already in
@@ -352,6 +356,7 @@ export const useStore = create<AppStore>((set, get) => ({
         latency: snapshot.latency,
         coreVersion: snapshot.coreVersion,
         autostart: snapshot.autostart,
+        rootCommand: snapshot.rootCommand ?? "",
       });
     } catch (e) {
       get().toast("error", tNow("toast.reloadFailed"), errText(e));

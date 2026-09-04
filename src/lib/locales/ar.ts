@@ -24,6 +24,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "side.noCore": "لم يُعثر على النواة",
   "side.admin": "صلاحيات المسؤول",
   "side.user": "صلاحيات عادية",
+  "side.admin.unix": "صلاحيات root",
   "side.appVersion": "إصدار التطبيق المثبَّت",
 
   // ------------------------------------------------------------------ toasts
@@ -59,11 +60,17 @@ export const ar: Record<keyof typeof ru, string> = {
   "set.tunnelMode": "الوضع",
   "set.tunnelModeTunDesc":
     "‏TUN — محوّل Wintun الافتراضي يلتقط حركة النظام كلها. يحتاج صلاحيات المسؤول، لكن قواعد التطبيقات تعمل معه.",
+  "set.tunnelModeTunDesc.unix":
+    "‏TUN — واجهة شبكة افتراضية تلتقط حركة النظام كلها. يحتاج صلاحيات root (التشغيل عبر sudo)، لكن قواعد التطبيقات تعمل معه.",
   "set.tunnelModeProxyDesc":
     "وكيل النظام — لا يحتاج صلاحيات المسؤول، لكنه لا يغطي إلا التطبيقات التي تحترم إعدادات وكيل النظام.",
+  "set.tunnelModeProxyDesc.unix":
+    "وكيل النظام — لم يُنفَّذ حتى الآن إلا على Windows؛ على macOS وLinux استخدم TUN.",
   "set.systemProxy": "وكيل النظام",
   "set.tunNeedsAdmin":
     "التطبيق يعمل دون صلاحيات المسؤول — وسيعرض إعادة التشغيل عند الاتصال بوضع TUN.",
+  "set.tunNeedsAdmin.unix":
+    "التطبيق يعمل دون صلاحيات root، لذا وضع TUN غير متاح. شغّله من الطرفية:",
 
   "set.tunSection": "خيارات TUN",
   "set.tunStack": "حزمة الشبكة",
@@ -137,7 +144,7 @@ export const ar: Record<keyof typeof ru, string> = {
     "«اتّباع النظام» يتتبّع إعداد نظام التشغيل ويبدّل من تلقاء نفسه، بما في ذلك جدول الفاتح والداكن.",
 
   "set.startupSection": "بدء التشغيل",
-  "set.autostart": "التشغيل مع Windows",
+  "set.autostart": "التشغيل مع {os}",
   "set.autostartDesc": "يبدأ التطبيق عند تسجيل الدخول.",
   "set.autostartElevated": "التشغيل بصلاحيات المسؤول",
   "set.autostartElevatedDesc":
@@ -146,16 +153,24 @@ export const ar: Record<keyof typeof ru, string> = {
     "يتطلّب إعادة تشغيل واحدة بصلاحيات المسؤول لتسجيل المهمة المجدولة.",
   "set.autostartNormalWarn":
     "البدء التلقائي العادي لا يستطيع رفع نفق TUN: سيطلب التطبيق الصلاحيات بعد تسجيل الدخول. فعّل المفتاح أعلاه لتفادي ذلك.",
+  "set.autostartNormalWarn.unix":
+    "البدء التلقائي يشغّل التطبيق دون صلاحيات root، لذا لن يرتفع نفق TUN من تلقاء نفسه بعد تسجيل الدخول — ستلزم إعادة التشغيل عبر sudo.",
   "set.autoConnect": "الاتصال عند التشغيل",
   "set.startMinimized": "البدء مصغَّرًا في شريط النظام",
+  "set.startMinimized.mac": "البدء مصغَّرًا في شريط القوائم",
   "set.closeToTray": "إغلاق النافذة يصغّرها إلى شريط النظام",
+  "set.closeToTray.mac": "إغلاق النافذة يصغّرها إلى شريط القوائم",
   "set.closeToTrayDesc":
     "عند الإيقاف، يُنهي زر الإغلاق التطبيق تمامًا ويقطع الاتصال.",
   "set.resourcesSection": "استهلاك الموارد",
   "set.resourcesDesc":
     "تعمل الواجهة (WebView2) والنواة كعمليات منفصلة، لذا يوزّع «مدير المهام» التطبيق على عدة أسطر. هذا مجموع عائلة العمليات كاملة، والأرقام تطابق عمود الذاكرة في «مدير المهام».",
+  "set.resourcesDesc.mac":
+    "تعمل النواة كعملية منفصلة، لذا يعرض «مراقب النشاط» التطبيق على عدة أسطر. هذا مجموع عائلة العمليات كاملة.",
+  "set.resourcesDesc.linux":
+    "تعمل الواجهة (WebKitGTK) والنواة كعمليات منفصلة، لذا يوزّع مراقب النظام التطبيق على عدة أسطر. هذا مجموع عائلة العمليات كاملة.",
   "set.resApp": "التطبيق",
-  "set.resUi": "الواجهة (WebView2)",
+  "set.resUi": "الواجهة ({engine})",
   "set.resCore": "نواة sing-box",
   "set.resXray": "نواة Xray",
   "set.resTotal": "المجموع",
@@ -193,7 +208,9 @@ export const ar: Record<keyof typeof ru, string> = {
   "dash.modeGlobalHelp": "كل اتصال يمرّ عبر VPN، متجاهلًا تلك الصفحتين.",
   "dash.tunNeedsAdmin":
     "وضع TUN يحتاج صلاحيات المسؤول — وإلا فلن يتاح سوى وكيل النظام.",
+  "dash.tunNeedsAdmin.unix": "وضع TUN يحتاج صلاحيات root — شغّل التطبيق عبر sudo.",
   "dash.restart": "إعادة التشغيل",
+  "dash.showCommand": "إظهار الأمر",
   "dash.connect": "اتصال",
   "dash.disconnect": "قطع الاتصال",
   "dash.connectFailed": "تعذّر الاتصال",
@@ -360,7 +377,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "split.addCount": "إضافة ({count})",
   "split.searchPlaceholder": "بحث بالاسم أو المسار",
   "split.refresh": "تحديث",
-  "split.showSystemProcs": "إظهار عمليات نظام Windows",
+  "split.showSystemProcs": "إظهار عمليات نظام {os}",
   "split.loading": "جارٍ التحميل…",
   "split.nothingFound": "لم يُعثر على شيء",
   "split.instancesCount": "{count} عملية",
@@ -419,11 +436,18 @@ export const ar: Record<keyof typeof ru, string> = {
 
   // ------------------------------------------------------------ elevate modal
   "elev.title": "مطلوب صلاحيات المسؤول",
+  "elev.title.unix": "مطلوب صلاحيات root",
   "elev.relaunchFailed": "فشلت إعادة التشغيل",
   "elev.cancel": "إلغاء",
   "elev.restart": "إعادة التشغيل",
+  "elev.copy": "نسخ الأمر",
+  "elev.copied": "نُسخ الأمر",
+  "elev.copyFailed": "تعذّر النسخ — حدّد الأمر وانسخه يدويًا.",
+  "elev.close": "إغلاق",
   "elev.tunnelWhy":
     "وضع TUN يعترض حركة النظام كلها عبر محوّل Wintun الافتراضي. وإنشاؤه يتطلّب صلاحيات المسؤول — وسيعرض Windows نافذة UAC.",
+  "elev.tunnelWhy.unix":
+    "وضع TUN يعترض حركة النظام كلها عبر واجهة شبكة افتراضية، ولا يستطيع إنشاءها سوى root. لا يسمح {os} برفع الصلاحيات أثناء التشغيل — شغّل التطبيق من الطرفية:",
   "elev.tunnelAlt":
     "إن لم ترغب في رفع الصلاحيات، بدّل إلى وضع وكيل النظام من الإعدادات: يعمل دون UAC لكنه لا يغطي إلا التطبيقات التي تحترم إعدادات وكيل النظام.",
   "elev.autostartWhy":

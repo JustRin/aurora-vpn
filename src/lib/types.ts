@@ -229,6 +229,9 @@ export interface Snapshot {
   activeId: string;
   coreVersion: string;
   autostart: AutostartMode;
+  /** The terminal command that starts the app as root, where the app cannot
+   * elevate itself (Linux, macOS); `null` on Windows and Android. */
+  rootCommand: string | null;
 }
 
 export interface ImportReport {

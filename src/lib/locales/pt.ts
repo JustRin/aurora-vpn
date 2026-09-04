@@ -24,6 +24,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "side.noCore": "núcleo não encontrado",
   "side.admin": "direitos de administrador",
   "side.user": "direitos comuns",
+  "side.admin.unix": "direitos de root",
   "side.appVersion": "versão instalada do aplicativo",
 
   // ------------------------------------------------------------------ toasts
@@ -59,11 +60,17 @@ export const pt: Record<keyof typeof ru, string> = {
   "set.tunnelMode": "Modo",
   "set.tunnelModeTunDesc":
     "TUN — um adaptador virtual Wintun captura o tráfego de todo o sistema. Exige direitos de administrador, mas as regras por aplicativo funcionam.",
+  "set.tunnelModeTunDesc.unix":
+    "TUN — uma interface de rede virtual captura o tráfego de todo o sistema. Exige root (abrir via sudo), mas as regras por aplicativo funcionam.",
   "set.tunnelModeProxyDesc":
     "Proxy do sistema — sem direitos de administrador, mas cobre apenas os aplicativos que respeitam as configurações de proxy do sistema.",
+  "set.tunnelModeProxyDesc.unix":
+    "Proxy do sistema — por enquanto só existe no Windows; no macOS e no Linux use o TUN.",
   "set.systemProxy": "Proxy do sistema",
   "set.tunNeedsAdmin":
     "O aplicativo está rodando sem direitos de administrador — conectar em modo TUN vai oferecer um reinício.",
+  "set.tunNeedsAdmin.unix":
+    "O aplicativo está rodando sem root, então o modo TUN não está disponível. Abra-o pelo terminal:",
 
   "set.tunSection": "Opções do TUN",
   "set.tunStack": "Pilha de rede",
@@ -139,7 +146,7 @@ export const pt: Record<keyof typeof ru, string> = {
     "“Seguir o sistema” acompanha a configuração do SO e troca sozinho, inclusive no horário de claro/escuro.",
 
   "set.startupSection": "Inicialização",
-  "set.autostart": "Iniciar com o Windows",
+  "set.autostart": "Iniciar com o {os}",
   "set.autostartDesc": "O aplicativo abre quando você faz logon.",
   "set.autostartElevated": "Iniciar com direitos de administrador",
   "set.autostartElevatedDesc":
@@ -148,16 +155,24 @@ export const pt: Record<keyof typeof ru, string> = {
     "Exige um único reinício com direitos de administrador para registrar a tarefa agendada.",
   "set.autostartNormalWarn":
     "O início automático comum não consegue subir o TUN: depois do logon o aplicativo vai pedir direitos. Ligue a chave acima para evitar isso.",
+  "set.autostartNormalWarn.unix":
+    "O início automático abre o aplicativo sem root, então o modo TUN não vai subir sozinho depois do logon — será preciso reiniciar via sudo.",
   "set.autoConnect": "Conectar ao abrir",
   "set.startMinimized": "Iniciar minimizado na bandeja",
+  "set.startMinimized.mac": "Iniciar minimizado na barra de menus",
   "set.closeToTray": "Fechar a janela minimiza para a bandeja",
+  "set.closeToTray.mac": "Fechar a janela minimiza para a barra de menus",
   "set.closeToTrayDesc":
     "Desligado — o botão de fechar encerra tudo e derruba a conexão.",
   "set.resourcesSection": "Uso de recursos",
   "set.resourcesDesc":
     "A interface (WebView2) e o núcleo rodam como processos separados, então o Gerenciador de Tarefas espalha o aplicativo por várias linhas. Este é o conjunto de processos somado; os números batem com a coluna de memória do Gerenciador de Tarefas.",
+  "set.resourcesDesc.mac":
+    "O núcleo roda como um processo separado, então o Monitor de Atividade mostra o aplicativo em várias linhas. Este é o conjunto de processos somado.",
+  "set.resourcesDesc.linux":
+    "A interface (WebKitGTK) e o núcleo rodam como processos separados, então o monitor do sistema espalha o aplicativo por várias linhas. Este é o conjunto de processos somado.",
   "set.resApp": "Aplicativo",
-  "set.resUi": "Interface (WebView2)",
+  "set.resUi": "Interface ({engine})",
   "set.resCore": "núcleo sing-box",
   "set.resXray": "núcleo Xray",
   "set.resTotal": "Total",
@@ -196,7 +211,9 @@ export const pt: Record<keyof typeof ru, string> = {
     "Todas as conexões passam pela VPN, ignorando essas páginas.",
   "dash.tunNeedsAdmin":
     "O modo TUN exige direitos de administrador — sem eles, só o proxy do sistema fica disponível.",
+  "dash.tunNeedsAdmin.unix": "O modo TUN exige root — abra o aplicativo via sudo.",
   "dash.restart": "Reiniciar",
+  "dash.showCommand": "Mostrar comando",
   "dash.connect": "Conectar",
   "dash.disconnect": "Desconectar",
   "dash.connectFailed": "Falha ao conectar",
@@ -364,7 +381,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "split.addCount": "Adicionar ({count})",
   "split.searchPlaceholder": "Buscar por nome ou caminho",
   "split.refresh": "Atualizar",
-  "split.showSystemProcs": "Mostrar processos de sistema do Windows",
+  "split.showSystemProcs": "Mostrar processos de sistema do {os}",
   "split.loading": "Carregando…",
   "split.nothingFound": "Nada encontrado",
   "split.instancesCount": "{count} processos",
@@ -424,11 +441,19 @@ export const pt: Record<keyof typeof ru, string> = {
 
   // ------------------------------------------------------------ elevate modal
   "elev.title": "São necessários direitos de administrador",
+  "elev.title.unix": "São necessários direitos de root",
   "elev.relaunchFailed": "Falha ao reiniciar",
   "elev.cancel": "Cancelar",
   "elev.restart": "Reiniciar",
+  "elev.copy": "Copiar comando",
+  "elev.copied": "Comando copiado",
+  "elev.copyFailed":
+    "Não foi possível copiar — selecione o comando e copie manualmente.",
+  "elev.close": "Fechar",
   "elev.tunnelWhy":
     "O modo TUN intercepta todo o tráfego do sistema pelo adaptador virtual Wintun. Criá-lo exige direitos de administrador — o Windows vai mostrar um prompt do UAC.",
+  "elev.tunnelWhy.unix":
+    "O modo TUN intercepta todo o tráfego do sistema por uma interface de rede virtual, e só o root pode criá-la. O {os} não permite elevar direitos em execução — abra o aplicativo pelo terminal:",
   "elev.tunnelAlt":
     "Se não quiser elevar, troque para o modo de proxy do sistema nas configurações: ele funciona sem UAC, mas cobre apenas os aplicativos que respeitam as configurações de proxy do sistema.",
   "elev.autostartWhy":

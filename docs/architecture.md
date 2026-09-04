@@ -408,6 +408,15 @@ npm run app          # development run
 npm run app:build    # AppImage / deb / rpm / dmg
 ```
 
+The interface alone runs in a plain browser tab against a canned backend:
+`npm run dev`, then `http://localhost:1420/dev.html?platform=macos` (or
+`linux`, `windows`, `android`). The page loads `src/dev/mock.ts` before the
+app, and the `platform` parameter previews another OS's window chrome and
+wording — the frame differs per OS (frameless with in-page buttons on
+Windows, native traffic lights inside the sidebar on macOS, the window
+manager's own frame on Linux), and so do the strings that mention UAC, the
+tray or Task Manager.
+
 CI builds macOS twice (Apple Silicon and Intel) with `--bundles app` and wraps
 the resulting `.app` into an installer package with `pkgbuild`. A `.dmg` would
 be the usual shape, but the builds carry no Apple Developer ID signature, and

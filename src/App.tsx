@@ -2,6 +2,7 @@ import { useEffect, type ComponentType } from "react";
 
 import { api } from "./lib/api";
 import { isRtl, useLang, useT } from "./lib/i18n";
+import { IS_WINDOWS } from "./lib/platform";
 
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
@@ -44,6 +45,7 @@ export default function App() {
   // Bare PrtScn only: Alt+PrtScn and Win+PrtScn are handled by the OS itself
   // and still work over an elevated window.
   useEffect(() => {
+    if (!IS_WINDOWS) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "PrintScreen" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         void api.openScreenSnip();

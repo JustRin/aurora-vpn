@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Empty, Modal, Segmented, Switch } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { useT, type MsgKey } from "../lib/i18n";
+import { OS_NAME } from "../lib/platform";
 import type { AppRule, RunningApp, SplitMode } from "../lib/types";
 import { useStore } from "../store";
 
@@ -289,7 +290,7 @@ function ProcessPicker({
       <div className="row" style={{ gap: 8 }}>
         <Switch checked={includeSystem} onChange={setIncludeSystem} />
         <span style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-          {t("split.showSystemProcs")}
+          {t("split.showSystemProcs", { os: OS_NAME })}
         </span>
       </div>
 

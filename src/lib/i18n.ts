@@ -16,6 +16,7 @@ import { ko } from "./locales/ko";
 import { pt } from "./locales/pt";
 import { ru } from "./locales/ru";
 import { zh } from "./locales/zh";
+import { PLATFORM, type Platform } from "./platform";
 
 /** Every shipped language, in the order the settings picker shows them. */
 export const LANGS = ["ru", "en", "zh", "ja", "ko", "ar", "pt"] as const;
@@ -92,6 +93,29 @@ function format(
     }
   }
   return text;
+}
+
+/**
+ * Wording that depends on the OS. The bare key carries the Windows text (the
+ * original audience); `key.mac`, `key.linux`, `key.unix` and `key.android`
+ * next to it override it where the mechanism differs — root instead of UAC,
+ * the menu bar instead of the tray. The most specific variant the reference
+ * dictionary defines wins, so a language cannot miss one: every dictionary is
+ * type-checked against the Russian key set.
+ */
+const OS_VARIANTS: Record<Platform, readonly string[]> = {
+  windows: [],
+  macos: ["mac", "unix"],
+  linux: ["linux", "unix"],
+  android: ["android"],
+};
+
+export function osKey(key: MsgKey): MsgKey {
+  for (const suffix of OS_VARIANTS[PLATFORM]) {
+    const candidate = `${key}.${suffix}`;
+    if (candidate in ru) return candidate as MsgKey;
+  }
+  return key;
 }
 
 /** Current resolved language, for the rare places that branch on it. */

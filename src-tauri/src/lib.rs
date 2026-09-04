@@ -91,16 +91,33 @@ fn show_main_window(app: &AppHandle) {
 /// Created hidden: the frontend reveals it via `app_ready` once painted, and
 /// the timer below is the safety net for a frontend that fails to boot, so a
 /// broken build cannot leave an invisible, unkillable app behind.
+///
+/// The frame is the OS's business wherever the OS does it well. Windows gets a
+/// frameless window with the page drawing the title bar and its buttons, as
+/// Windows 11 apps do. macOS keeps the native frame — rounded corners and the
+/// traffic lights come from the system and cannot be faked in a page — with a
+/// transparent title bar so the interface runs under it and places the
+/// controls inside its sidebar (`TitleBar.tsx` mirrors this). Linux leaves
+/// decorations to the window manager: every desktop draws its own, and a
+/// frameless window there is square, shadowless and out of place.
 #[cfg(desktop)]
 fn create_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
-    let window = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+    let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
         .title("Aurora VPN")
         .inner_size(1120.0, 760.0)
         .min_inner_size(960.0, 640.0)
         .center()
-        .decorations(false)
-        .visible(false)
-        .build()?;
+        .visible(false);
+
+    #[cfg(windows)]
+    let builder = builder.decorations(false);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let window = builder.build()?;
 
     // Paint it in the saved theme while it is still hidden, so it never opens
     // on the previous theme's colour.

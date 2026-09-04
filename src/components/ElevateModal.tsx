@@ -1,12 +1,15 @@
 import { Modal } from "./ui";
 import { api, errText } from "../lib/api";
-import { useT } from "../lib/i18n";
+import { osKey, useT } from "../lib/i18n";
+import { IS_UNIX_DESKTOP, OS_NAME } from "../lib/platform";
 import { useStore } from "../store";
 
 /**
- * Offers to relaunch through UAC. Shown from two places: connecting in TUN mode
- * without rights, and registering elevated autostart (which writes a scheduled
- * task and therefore needs them once).
+ * What to do about missing rights. On Windows it offers to relaunch through
+ * UAC, from two places: connecting in TUN mode without rights, and registering
+ * elevated autostart (a scheduled task, which needs them once). On Linux and
+ * macOS nothing can raise a running process, so the dialog shows the `sudo`
+ * command to start the app with instead.
  */
 export function ElevateModal({
   open,
@@ -19,6 +22,7 @@ export function ElevateModal({
 }) {
   const t = useT();
   const toast = useStore((s) => s.toast);
+  const rootCommand = useStore((s) => s.rootCommand);
 
   async function relaunch() {
     try {
@@ -27,6 +31,45 @@ export function ElevateModal({
       toast("error", t("elev.relaunchFailed"), errText(e));
       onClose();
     }
+  }
+
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(rootCommand);
+      toast("success", t("elev.copied"));
+    } catch {
+      // The command stays selectable in the dialog, so the fallback is manual.
+      toast("error", t("elev.copyFailed"));
+    }
+  }
+
+  if (IS_UNIX_DESKTOP) {
+    return (
+      <Modal
+        open={open}
+        title={t(osKey("elev.title"))}
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              {t("elev.close")}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void copyCommand()}
+            >
+              {t("elev.copy")}
+            </button>
+          </>
+        }
+      >
+        <p style={{ margin: 0, color: "var(--text-dim)", fontSize: 13 }}>
+          {t(osKey("elev.tunnelWhy"), { os: OS_NAME })}
+        </p>
+        <code className="mono cmd">{rootCommand}</code>
+      </Modal>
+    );
   }
 
   return (

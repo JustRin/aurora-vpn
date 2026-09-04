@@ -2,15 +2,30 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
 
 import { useT } from "../lib/i18n";
-import { IS_ANDROID } from "../lib/platform";
+import { IS_LINUX, IS_MAC, IS_WINDOWS } from "../lib/platform";
 import { useStore } from "../store";
 
 const appWindow = getCurrentWindow();
 
+/**
+ * The strip along the top of the window. What it holds depends on who draws
+ * the frame (see `create_main_window` in lib.rs):
+ *
+ * - Windows: the window is frameless, so this is the title bar — drag area,
+ *   status badge and the minimize / maximize / close buttons.
+ * - macOS: the frame is native with a transparent title bar. The system's
+ *   traffic lights sit at the top-left, inside a spacer that carries the
+ *   sidebar up to the top edge; the strip proper spans the content column.
+ * - Linux: the window manager draws the whole frame, title included; nothing
+ *   is rendered here.
+ * - Android: a plain header without window buttons.
+ */
 export function TitleBar() {
   const t = useT();
   const state = useStore((s) => s.status.state);
   const tunnelMode = useStore((s) => s.status.tunnelMode);
+
+  if (IS_LINUX) return null;
 
   const label =
     state === "connected"
@@ -22,36 +37,39 @@ export function TitleBar() {
         : t("bar.disconnected");
 
   return (
-    <div className="titlebar">
-      <div className="titlebar-drag" data-tauri-drag-region>
-        <div className="titlebar-title" data-tauri-drag-region>
-          Aurora VPN
+    <>
+      {IS_MAC && <div className="titlebar-side" data-tauri-drag-region />}
+      <div className="titlebar">
+        <div className="titlebar-drag" data-tauri-drag-region>
+          <div className="titlebar-title" data-tauri-drag-region>
+            Aurora VPN
+          </div>
+          <div className="titlebar-badge" data-tauri-drag-region>
+            {label}
+          </div>
         </div>
-        <div className="titlebar-badge" data-tauri-drag-region>
-          {label}
-        </div>
+        {IS_WINDOWS && (
+          <div className="win-buttons">
+            <button className="win-button" onClick={() => void appWindow.minimize()}>
+              <Minus size={15} />
+            </button>
+            <button
+              className="win-button"
+              onClick={() => void appWindow.toggleMaximize()}
+            >
+              <Square size={12} />
+            </button>
+            <button
+              className="win-button close"
+              // Closing routes through the Rust side, which decides between hiding
+              // to tray and a real shutdown.
+              onClick={() => void appWindow.close()}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
       </div>
-      {!IS_ANDROID && (
-        <div className="win-buttons">
-          <button className="win-button" onClick={() => void appWindow.minimize()}>
-            <Minus size={15} />
-          </button>
-          <button
-            className="win-button"
-            onClick={() => void appWindow.toggleMaximize()}
-          >
-            <Square size={12} />
-          </button>
-          <button
-            className="win-button close"
-            // Closing routes through the Rust side, which decides between hiding
-            // to tray and a real shutdown.
-            onClick={() => void appWindow.close()}
-          >
-            <X size={15} />
-          </button>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

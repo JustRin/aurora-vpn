@@ -53,6 +53,9 @@ pub struct Snapshot {
     /// Read back from the OS, not from settings — the user may have removed the
     /// registry value or the scheduled task behind our back.
     autostart: AutostartMode,
+    /// How to start the app as root where the app cannot do it itself (Linux,
+    /// macOS); `None` where elevation is automatic or meaningless.
+    root_command: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1065,6 +1068,7 @@ pub async fn get_snapshot(app: AppHandle) -> Result<Snapshot> {
         active_id: state.resolve_active_id(),
         core_version,
         autostart: autostart::current(),
+        root_command: elevate::root_command(),
     };
     Ok(snapshot)
 }

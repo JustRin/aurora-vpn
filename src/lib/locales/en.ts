@@ -24,6 +24,7 @@ export const en: Record<keyof typeof ru, string> = {
   "side.noCore": "core not found",
   "side.admin": "administrator rights",
   "side.user": "regular rights",
+  "side.admin.unix": "root rights",
   "side.appVersion": "installed app version",
 
   // ------------------------------------------------------------------ toasts
@@ -59,11 +60,17 @@ export const en: Record<keyof typeof ru, string> = {
   "set.tunnelMode": "Mode",
   "set.tunnelModeTunDesc":
     "TUN — a Wintun virtual adapter captures traffic system-wide. Needs administrator rights, but per-app rules work.",
+  "set.tunnelModeTunDesc.unix":
+    "TUN — a virtual network interface captures traffic system-wide. Needs root (launch via sudo), but per-app rules work.",
   "set.tunnelModeProxyDesc":
     "System proxy — no administrator rights, but only covers apps that honour the system proxy settings.",
+  "set.tunnelModeProxyDesc.unix":
+    "System proxy — implemented on Windows only so far; on macOS and Linux use TUN.",
   "set.systemProxy": "System proxy",
   "set.tunNeedsAdmin":
     "The app is running without administrator rights — connecting in TUN mode will offer a restart.",
+  "set.tunNeedsAdmin.unix":
+    "The app is running without root, so TUN mode is unavailable. Launch it from a terminal:",
 
   "set.tunSection": "TUN options",
   "set.tunStack": "Network stack",
@@ -139,7 +146,7 @@ export const en: Record<keyof typeof ru, string> = {
     "“Follow system” tracks the OS setting and switches by itself, including on its light/dark schedule.",
 
   "set.startupSection": "Startup",
-  "set.autostart": "Start with Windows",
+  "set.autostart": "Start with {os}",
   "set.autostartDesc": "The app starts when you sign in.",
   "set.autostartElevated": "Start with administrator rights",
   "set.autostartElevatedDesc":
@@ -148,16 +155,24 @@ export const en: Record<keyof typeof ru, string> = {
     "Needs a one-time restart with administrator rights to register the scheduled task.",
   "set.autostartNormalWarn":
     "Plain autostart cannot bring TUN up: after sign-in the app will ask for rights. Enable the toggle above to avoid that.",
+  "set.autostartNormalWarn.unix":
+    "Autostart launches the app without root, so TUN mode will not come up on its own after sign-in — a restart via sudo will be needed.",
   "set.autoConnect": "Connect on launch",
   "set.startMinimized": "Start minimized to tray",
+  "set.startMinimized.mac": "Start minimized to the menu bar",
   "set.closeToTray": "Closing the window minimizes to tray",
+  "set.closeToTray.mac": "Closing the window minimizes to the menu bar",
   "set.closeToTrayDesc":
     "Off — the close button quits completely and drops the connection.",
   "set.resourcesSection": "Resource usage",
   "set.resourcesDesc":
     "The interface (WebView2) and the core run as separate processes, so Task Manager scatters the app across several rows. This is the whole process family combined; the figures match Task Manager's memory column.",
+  "set.resourcesDesc.mac":
+    "The core runs as a separate process, so Activity Monitor shows the app on several rows. This is the whole process family combined.",
+  "set.resourcesDesc.linux":
+    "The interface (WebKitGTK) and the core run as separate processes, so the system monitor scatters the app across several rows. This is the whole process family combined.",
   "set.resApp": "Application",
-  "set.resUi": "Interface (WebView2)",
+  "set.resUi": "Interface ({engine})",
   "set.resCore": "sing-box core",
   "set.resXray": "Xray core",
   "set.resTotal": "Total",
@@ -195,7 +210,9 @@ export const en: Record<keyof typeof ru, string> = {
   "dash.modeGlobalHelp": "Every connection goes through the VPN, ignoring those pages.",
   "dash.tunNeedsAdmin":
     "TUN mode requires administrator rights — otherwise only the system proxy is available.",
+  "dash.tunNeedsAdmin.unix": "TUN mode requires root — launch the app via sudo.",
   "dash.restart": "Restart",
+  "dash.showCommand": "Show command",
   "dash.connect": "Connect",
   "dash.disconnect": "Disconnect",
   "dash.connectFailed": "Failed to connect",
@@ -362,7 +379,7 @@ export const en: Record<keyof typeof ru, string> = {
   "split.addCount": "Add ({count})",
   "split.searchPlaceholder": "Search by name or path",
   "split.refresh": "Refresh",
-  "split.showSystemProcs": "Show Windows system processes",
+  "split.showSystemProcs": "Show {os} system processes",
   "split.loading": "Loading…",
   "split.nothingFound": "Nothing found",
   "split.instancesCount": "{count} processes",
@@ -422,11 +439,18 @@ export const en: Record<keyof typeof ru, string> = {
 
   // ------------------------------------------------------------ elevate modal
   "elev.title": "Administrator rights required",
+  "elev.title.unix": "Root rights required",
   "elev.relaunchFailed": "Restart failed",
   "elev.cancel": "Cancel",
   "elev.restart": "Restart",
+  "elev.copy": "Copy command",
+  "elev.copied": "Command copied",
+  "elev.copyFailed": "Could not copy — select the command and copy it by hand.",
+  "elev.close": "Close",
   "elev.tunnelWhy":
     "TUN mode intercepts all system traffic through the Wintun virtual adapter. Creating it requires administrator rights — Windows will show a UAC prompt.",
+  "elev.tunnelWhy.unix":
+    "TUN mode intercepts all system traffic through a virtual network interface, and only root can create one. {os} does not allow raising rights on the fly — launch the app from a terminal:",
   "elev.tunnelAlt":
     "If you don't want to elevate, switch to system proxy mode in settings: it works without UAC but only covers apps that respect the system proxy settings.",
   "elev.autostartWhy":

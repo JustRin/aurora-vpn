@@ -24,6 +24,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "side.noCore": "코어를 찾을 수 없음",
   "side.admin": "관리자 권한",
   "side.user": "일반 권한",
+  "side.admin.unix": "root 권한",
   "side.appVersion": "설치된 앱 버전",
 
   // ------------------------------------------------------------------ toasts
@@ -58,11 +59,16 @@ export const ko: Record<keyof typeof ru, string> = {
   "set.tunnelMode": "모드",
   "set.tunnelModeTunDesc":
     "TUN — Wintun 가상 어댑터가 시스템 전체의 트래픽을 받습니다. 관리자 권한이 필요하지만 앱별 규칙을 쓸 수 있습니다.",
+  "set.tunnelModeTunDesc.unix":
+    "TUN — 가상 네트워크 인터페이스가 시스템 전체의 트래픽을 받습니다. root 권한(sudo로 실행)이 필요하지만 앱별 규칙을 쓸 수 있습니다.",
   "set.tunnelModeProxyDesc":
     "시스템 프록시 — 관리자 권한은 필요 없지만, 시스템 프록시 설정을 따르는 앱만 대상이 됩니다.",
+  "set.tunnelModeProxyDesc.unix":
+    "시스템 프록시 — 아직 Windows에서만 구현되어 있습니다. macOS와 Linux에서는 TUN을 사용하세요.",
   "set.systemProxy": "시스템 프록시",
   "set.tunNeedsAdmin":
     "앱이 관리자 권한 없이 실행 중입니다 — TUN 모드로 연결하면 재시작을 제안합니다.",
+  "set.tunNeedsAdmin.unix": "앱이 root 권한 없이 실행 중이라 TUN 모드를 쓸 수 없습니다. 터미널에서 실행하세요:",
 
   "set.tunSection": "TUN 옵션",
   "set.tunStack": "네트워크 스택",
@@ -134,7 +140,7 @@ export const ko: Record<keyof typeof ru, string> = {
     "「시스템 설정 따르기」는 OS 설정을 따라가며, 밝게/어둡게 일정에 맞춰 스스로 전환합니다.",
 
   "set.startupSection": "시작",
-  "set.autostart": "Windows와 함께 시작",
+  "set.autostart": "{os}와 함께 시작",
   "set.autostartDesc": "로그인할 때 앱이 실행됩니다.",
   "set.autostartElevated": "관리자 권한으로 시작",
   "set.autostartElevatedDesc":
@@ -143,15 +149,23 @@ export const ko: Record<keyof typeof ru, string> = {
     "작업을 등록하려면 관리자 권한으로 한 번만 다시 시작해야 합니다.",
   "set.autostartNormalWarn":
     "일반 자동 시작으로는 TUN을 올릴 수 없어, 로그인 후 앱이 권한을 요청합니다. 위 스위치를 켜면 이를 피할 수 있습니다.",
+  "set.autostartNormalWarn.unix":
+    "자동 시작은 앱을 root 권한 없이 실행하므로, 로그인 후 TUN 모드가 저절로 올라오지 않습니다. sudo로 다시 시작해야 합니다.",
   "set.autoConnect": "실행할 때 연결",
   "set.startMinimized": "트레이에 최소화된 상태로 시작",
+  "set.startMinimized.mac": "메뉴 막대에 최소화된 상태로 시작",
   "set.closeToTray": "창을 닫으면 트레이로 최소화",
+  "set.closeToTray.mac": "창을 닫으면 메뉴 막대로 최소화",
   "set.closeToTrayDesc": "끄면 닫기 버튼이 앱을 완전히 종료하고 연결도 끊습니다.",
   "set.resourcesSection": "자원 사용량",
   "set.resourcesDesc":
     "인터페이스(WebView2)와 코어는 별도 프로세스로 돌아가기 때문에, 작업 관리자에서는 앱이 여러 줄로 흩어져 보입니다. 여기 나오는 값은 프로세스 전체의 합이며, 작업 관리자의 메모리 열과 일치합니다.",
+  "set.resourcesDesc.mac":
+    "코어는 별도 프로세스로 돌아가기 때문에, 활성 상태 보기에서는 앱이 여러 줄로 보입니다. 여기 나오는 값은 프로세스 전체의 합입니다.",
+  "set.resourcesDesc.linux":
+    "인터페이스(WebKitGTK)와 코어는 별도 프로세스로 돌아가기 때문에, 시스템 모니터에서는 앱이 여러 줄로 흩어져 보입니다. 여기 나오는 값은 프로세스 전체의 합입니다.",
   "set.resApp": "애플리케이션",
-  "set.resUi": "인터페이스(WebView2)",
+  "set.resUi": "인터페이스({engine})",
   "set.resCore": "sing-box 코어",
   "set.resXray": "Xray 코어",
   "set.resTotal": "합계",
@@ -189,7 +203,9 @@ export const ko: Record<keyof typeof ru, string> = {
   "dash.modeGlobalHelp": "해당 페이지를 무시하고 모든 연결이 VPN을 지납니다.",
   "dash.tunNeedsAdmin":
     "TUN 모드에는 관리자 권한이 필요합니다 — 없으면 시스템 프록시만 쓸 수 있습니다.",
+  "dash.tunNeedsAdmin.unix": "TUN 모드에는 root 권한이 필요합니다 — sudo로 앱을 실행하세요.",
   "dash.restart": "다시 시작",
+  "dash.showCommand": "명령 보기",
   "dash.connect": "연결",
   "dash.disconnect": "연결 끊기",
   "dash.connectFailed": "연결하지 못했습니다",
@@ -354,7 +370,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "split.addCount": "추가({count})",
   "split.searchPlaceholder": "이름이나 경로로 검색",
   "split.refresh": "새로 고침",
-  "split.showSystemProcs": "Windows 시스템 프로세스 표시",
+  "split.showSystemProcs": "{os} 시스템 프로세스 표시",
   "split.loading": "불러오는 중…",
   "split.nothingFound": "찾은 것이 없습니다",
   "split.instancesCount": "프로세스 {count}개",
@@ -411,11 +427,18 @@ export const ko: Record<keyof typeof ru, string> = {
 
   // ------------------------------------------------------------ elevate modal
   "elev.title": "관리자 권한이 필요합니다",
+  "elev.title.unix": "root 권한이 필요합니다",
   "elev.relaunchFailed": "다시 시작하지 못했습니다",
   "elev.cancel": "취소",
   "elev.restart": "다시 시작",
+  "elev.copy": "명령 복사",
+  "elev.copied": "명령을 복사했습니다",
+  "elev.copyFailed": "복사하지 못했습니다 — 명령을 선택해 직접 복사하세요.",
+  "elev.close": "닫기",
   "elev.tunnelWhy":
     "TUN 모드는 Wintun 가상 어댑터로 시스템의 모든 트래픽을 가로챕니다. 이를 만들려면 관리자 권한이 필요하며, Windows가 UAC 창을 띄웁니다.",
+  "elev.tunnelWhy.unix":
+    "TUN 모드는 가상 네트워크 인터페이스로 시스템의 모든 트래픽을 가로채는데, 이를 만들 수 있는 건 root뿐입니다. {os}에서는 실행 중에 권한을 올릴 수 없으니 터미널에서 앱을 실행하세요:",
   "elev.tunnelAlt":
     "권한을 올리고 싶지 않다면 설정에서 시스템 프록시 모드로 바꾸세요. UAC 없이 동작하지만, 시스템 프록시 설정을 따르는 앱만 대상이 됩니다.",
   "elev.autostartWhy":
