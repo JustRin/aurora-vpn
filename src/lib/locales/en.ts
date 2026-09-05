@@ -25,6 +25,7 @@ export const en: Record<keyof typeof ru, string> = {
   "side.admin": "administrator rights",
   "side.user": "regular rights",
   "side.admin.unix": "root rights",
+  "side.admin.mac": "core runs as root",
   "side.appVersion": "installed app version",
 
   // ------------------------------------------------------------------ toasts
@@ -62,6 +63,8 @@ export const en: Record<keyof typeof ru, string> = {
     "TUN — a Wintun virtual adapter captures traffic system-wide. Needs administrator rights, but per-app rules work.",
   "set.tunnelModeTunDesc.unix":
     "TUN — a virtual network interface captures traffic system-wide. Needs root (launch via sudo), but per-app rules work.",
+  "set.tunnelModeTunDesc.mac":
+    "TUN — a virtual network interface captures traffic system-wide. The core needs root — granted once with the administrator password — but per-app rules work.",
   "set.tunnelModeProxyDesc":
     "System proxy — no administrator rights, but only covers apps that honour the system proxy settings.",
   "set.tunnelModeProxyDesc.unix":
@@ -71,6 +74,8 @@ export const en: Record<keyof typeof ru, string> = {
     "The app is running without administrator rights — connecting in TUN mode will offer a restart.",
   "set.tunNeedsAdmin.unix":
     "The app is running without root, so TUN mode is unavailable. Launch it from a terminal:",
+  "set.tunNeedsAdmin.mac":
+    "The core has not been granted root yet, so TUN mode is unavailable. macOS will ask for the administrator password once; alternatively, launch the app from a terminal:",
 
   "set.tunSection": "TUN options",
   "set.tunStack": "Network stack",
@@ -157,6 +162,8 @@ export const en: Record<keyof typeof ru, string> = {
     "Plain autostart cannot bring TUN up: after sign-in the app will ask for rights. Enable the toggle above to avoid that.",
   "set.autostartNormalWarn.unix":
     "Autostart launches the app without root, so TUN mode will not come up on its own after sign-in — a restart via sudo will be needed.",
+  "set.autostartNormalWarn.mac":
+    "Until the core is granted root, TUN mode will not come up on its own after sign-in.",
   "set.autoConnect": "Connect on launch",
   "set.startMinimized": "Start minimized to tray",
   "set.startMinimized.mac": "Start minimized to the menu bar",
@@ -211,6 +218,8 @@ export const en: Record<keyof typeof ru, string> = {
   "dash.tunNeedsAdmin":
     "TUN mode requires administrator rights — otherwise only the system proxy is available.",
   "dash.tunNeedsAdmin.unix": "TUN mode requires root — launch the app via sudo.",
+  "dash.tunNeedsAdmin.mac":
+    "TUN mode requires root — grant it to the core, macOS asks for the password once.",
   "dash.restart": "Restart",
   "dash.showCommand": "Show command",
   "dash.connect": "Connect",
@@ -447,10 +456,16 @@ export const en: Record<keyof typeof ru, string> = {
   "elev.copied": "Command copied",
   "elev.copyFailed": "Could not copy — select the command and copy it by hand.",
   "elev.close": "Close",
+  "elev.altTerminal": "Alternatively, launch the app from a terminal:",
+  "elev.grant": "Grant rights",
+  "elev.granted": "The core has been granted root",
+  "elev.grantFailed": "Could not grant rights",
   "elev.tunnelWhy":
     "TUN mode intercepts all system traffic through the Wintun virtual adapter. Creating it requires administrator rights — Windows will show a UAC prompt.",
   "elev.tunnelWhy.unix":
     "TUN mode intercepts all system traffic through a virtual network interface, and only root can create one. {os} does not allow raising rights on the fly — launch the app from a terminal:",
+  "elev.tunnelWhy.mac":
+    "TUN mode creates a virtual network interface, and only root can do that. macOS will ask for the administrator password once: the sing-box core gets the right to start as root while the app itself stays an ordinary process. After an update or a reinstall the prompt comes back.",
   "elev.tunnelAlt":
     "If you don't want to elevate, switch to system proxy mode in settings: it works without UAC but only covers apps that respect the system proxy settings.",
   "elev.autostartWhy":

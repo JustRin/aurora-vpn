@@ -25,6 +25,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "side.admin": "صلاحيات المسؤول",
   "side.user": "صلاحيات عادية",
   "side.admin.unix": "صلاحيات root",
+  "side.admin.mac": "النواة تعمل بصلاحيات root",
   "side.appVersion": "إصدار التطبيق المثبَّت",
 
   // ------------------------------------------------------------------ toasts
@@ -62,6 +63,8 @@ export const ar: Record<keyof typeof ru, string> = {
     "‏TUN — محوّل Wintun الافتراضي يلتقط حركة النظام كلها. يحتاج صلاحيات المسؤول، لكن قواعد التطبيقات تعمل معه.",
   "set.tunnelModeTunDesc.unix":
     "‏TUN — واجهة شبكة افتراضية تلتقط حركة النظام كلها. يحتاج صلاحيات root (التشغيل عبر sudo)، لكن قواعد التطبيقات تعمل معه.",
+  "set.tunnelModeTunDesc.mac":
+    "‏TUN — واجهة شبكة افتراضية تلتقط حركة النظام كلها. تحتاج النواة صلاحيات root (تُمنح مرة واحدة بكلمة مرور المسؤول)، لكن قواعد التطبيقات تعمل معه.",
   "set.tunnelModeProxyDesc":
     "وكيل النظام — لا يحتاج صلاحيات المسؤول، لكنه لا يغطي إلا التطبيقات التي تحترم إعدادات وكيل النظام.",
   "set.tunnelModeProxyDesc.unix":
@@ -71,6 +74,8 @@ export const ar: Record<keyof typeof ru, string> = {
     "التطبيق يعمل دون صلاحيات المسؤول — وسيعرض إعادة التشغيل عند الاتصال بوضع TUN.",
   "set.tunNeedsAdmin.unix":
     "التطبيق يعمل دون صلاحيات root، لذا وضع TUN غير متاح. شغّله من الطرفية:",
+  "set.tunNeedsAdmin.mac":
+    "لم تُمنح النواة صلاحيات root بعد، لذا وضع TUN غير متاح. سيطلب macOS كلمة مرور المسؤول مرة واحدة؛ أو شغّل التطبيق من الطرفية:",
 
   "set.tunSection": "خيارات TUN",
   "set.tunStack": "حزمة الشبكة",
@@ -155,6 +160,8 @@ export const ar: Record<keyof typeof ru, string> = {
     "البدء التلقائي العادي لا يستطيع رفع نفق TUN: سيطلب التطبيق الصلاحيات بعد تسجيل الدخول. فعّل المفتاح أعلاه لتفادي ذلك.",
   "set.autostartNormalWarn.unix":
     "البدء التلقائي يشغّل التطبيق دون صلاحيات root، لذا لن يرتفع نفق TUN من تلقاء نفسه بعد تسجيل الدخول — ستلزم إعادة التشغيل عبر sudo.",
+  "set.autostartNormalWarn.mac":
+    "إلى أن تُمنح النواة صلاحيات root، لن يرتفع نفق TUN من تلقاء نفسه بعد تسجيل الدخول.",
   "set.autoConnect": "الاتصال عند التشغيل",
   "set.startMinimized": "البدء مصغَّرًا في شريط النظام",
   "set.startMinimized.mac": "البدء مصغَّرًا في شريط القوائم",
@@ -209,6 +216,8 @@ export const ar: Record<keyof typeof ru, string> = {
   "dash.tunNeedsAdmin":
     "وضع TUN يحتاج صلاحيات المسؤول — وإلا فلن يتاح سوى وكيل النظام.",
   "dash.tunNeedsAdmin.unix": "وضع TUN يحتاج صلاحيات root — شغّل التطبيق عبر sudo.",
+  "dash.tunNeedsAdmin.mac":
+    "وضع TUN يحتاج صلاحيات root — امنحها للنواة، وسيطلب macOS كلمة المرور مرة واحدة.",
   "dash.restart": "إعادة التشغيل",
   "dash.showCommand": "إظهار الأمر",
   "dash.connect": "اتصال",
@@ -444,10 +453,16 @@ export const ar: Record<keyof typeof ru, string> = {
   "elev.copied": "نُسخ الأمر",
   "elev.copyFailed": "تعذّر النسخ — حدّد الأمر وانسخه يدويًا.",
   "elev.close": "إغلاق",
+  "elev.altTerminal": "أو شغّل التطبيق من الطرفية:",
+  "elev.grant": "منح الصلاحيات",
+  "elev.granted": "مُنحت النواة صلاحيات root",
+  "elev.grantFailed": "تعذّر منح الصلاحيات",
   "elev.tunnelWhy":
     "وضع TUN يعترض حركة النظام كلها عبر محوّل Wintun الافتراضي. وإنشاؤه يتطلّب صلاحيات المسؤول — وسيعرض Windows نافذة UAC.",
   "elev.tunnelWhy.unix":
     "وضع TUN يعترض حركة النظام كلها عبر واجهة شبكة افتراضية، ولا يستطيع إنشاءها سوى root. لا يسمح {os} برفع الصلاحيات أثناء التشغيل — شغّل التطبيق من الطرفية:",
+  "elev.tunnelWhy.mac":
+    "وضع TUN ينشئ واجهة شبكة افتراضية، ولا يستطيع ذلك سوى root. سيطلب macOS كلمة مرور المسؤول مرة واحدة: تحصل نواة sing-box على حق التشغيل بصلاحيات root، ويبقى التطبيق نفسه عملية عادية. بعد التحديث أو إعادة التثبيت يتكرر الطلب.",
   "elev.tunnelAlt":
     "إن لم ترغب في رفع الصلاحيات، بدّل إلى وضع وكيل النظام من الإعدادات: يعمل دون UAC لكنه لا يغطي إلا التطبيقات التي تحترم إعدادات وكيل النظام.",
   "elev.autostartWhy":

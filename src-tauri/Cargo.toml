@@ -69,6 +69,21 @@ tauri-plugin-single-instance = "2.4"
 [target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 libc = "0.2"
 
+# The one-time «grant root to the core» and the in-app update both need a
+# privileged shell. NSAppleScript's `do shell script … with administrator
+# privileges` is Apple's supported door for an app without a signed helper,
+# and run in-process it shows the system password dialog in the app's own
+# name rather than as «osascript». Same versions as the tauri stack.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+  "NSAppleScript",
+  "NSAppleEventDescriptor",
+  "NSDictionary",
+  "NSString",
+  "NSValue",
+] }
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
 # Same versions as the wry/tauri stack, so the COM types are shared — used to

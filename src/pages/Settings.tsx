@@ -8,6 +8,7 @@ import { bytes } from "../lib/format";
 import { LANGS, LANG_NAMES, osKey, useT, type MsgKey } from "../lib/i18n";
 import {
   IS_ANDROID,
+  IS_MAC,
   IS_UNIX_DESKTOP,
   IS_WINDOWS,
   OS_NAME,
@@ -103,6 +104,17 @@ export function Settings() {
     }
   }
 
+  // macOS: the core gets root behind one system password dialog; the status
+  // event that follows takes the warning down.
+  async function grantRoot() {
+    try {
+      await api.grantCoreRoot();
+      toast("success", t("elev.granted"));
+    } catch (e) {
+      toast("error", t("elev.grantFailed"), errText(e));
+    }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -163,11 +175,22 @@ export function Settings() {
                   <div className="alert" style={{ marginTop: 12 }}>
                     <div className="alert-text">
                       {t(osKey("set.tunNeedsAdmin"))}
-                      {/* No UAC on Unix: the way up is a terminal line. */}
+                      {/* No UAC on Unix: the way up is a terminal line — or,
+                          on macOS, root for the core behind the system's
+                          password dialog. */}
                       {IS_UNIX_DESKTOP && rootCommand && (
                         <code className="mono cmd">{rootCommand}</code>
                       )}
                     </div>
+                    {IS_MAC && (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => void grantRoot()}
+                      >
+                        {t("elev.grant")}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -477,7 +500,9 @@ export function Settings() {
                   />
                 )}
 
-                {autostart === "normal" && (
+                {/* On Windows plain autostart always starts unelevated; on
+                    Unix the caveat only holds while TUN has no rights yet. */}
+                {autostart === "normal" && (IS_WINDOWS || !elevated) && (
                   <div className="alert" style={{ marginTop: 12 }}>
                     <div className="alert-text">
                       {t(osKey("set.autostartNormalWarn"))}

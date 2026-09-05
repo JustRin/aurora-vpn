@@ -81,6 +81,9 @@ export const api = {
 
   isElevated: () => invoke<boolean>("is_elevated"),
   relaunchElevated: () => invoke<void>("relaunch_elevated"),
+  /** macOS: one system password dialog, after which the core binary starts as
+   * root on its own and TUN works without the app itself being elevated. */
+  grantCoreRoot: () => invoke<void>("grant_core_root"),
   openConfigDir: () => invoke<void>("open_config_dir"),
   /** Windows: the elevated window hides PrtScn from the Snipping Tool (UIPI),
    * so the frontend relays the key press and the overlay is opened by hand. */

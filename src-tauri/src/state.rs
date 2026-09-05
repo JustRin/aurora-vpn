@@ -77,6 +77,8 @@ pub struct Status {
     /// Связь через текущий сервер — то, что интерфейс показывает поверх
     /// «туннель поднят»: поднятый туннель ещё не подключение.
     pub link: Link,
+    /// TUN can be brought up with the rights at hand: the app runs elevated,
+    /// or on macOS the core binary carries root of its own.
     pub elevated: bool,
     pub system_proxy: bool,
 }
@@ -229,10 +231,15 @@ impl AppState {
             crate::sys::sysproxy::restore_after_crash(settings.mixed_port);
         }
 
+        #[cfg(not(target_os = "android"))]
+        let elevated = elevate::tun_allowed(&core_exe);
+        #[cfg(target_os = "android")]
+        let elevated = elevate::is_elevated();
+
         let status = Status {
             tunnel_mode: settings.tunnel_mode,
             active_id: ui.active_id.clone(),
-            elevated: elevate::is_elevated(),
+            elevated,
             // Means "this app turned the system proxy on", not "a proxy is set".
             // Seeding it from the OS would make the first teardown clobber a
             // proxy the user configured themselves.

@@ -577,6 +577,14 @@ html[data-platform="macos"] .titlebar-side {
   backdrop-filter: blur(18px) saturate(140%);
   border-inline-end: 1px solid var(--border);
 }
+/* macOS centres a window's title over its content; symmetric padding so the
+   centre of the drag area is the centre of the strip. */
+html[data-platform="macos"] .titlebar {
+  padding-inline-end: 14px;
+}
+html[data-platform="macos"] .titlebar-drag {
+  justify-content: center;
+}
 html[data-platform="macos"] .body,
 html[data-platform="macos"] .splash {
   grid-column: 1 / -1;

@@ -25,6 +25,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "side.admin": "管理员权限",
   "side.user": "普通权限",
   "side.admin.unix": "root 权限",
+  "side.admin.mac": "内核以 root 运行",
   "side.appVersion": "已安装的应用版本",
 
   // ------------------------------------------------------------------ toasts
@@ -61,6 +62,8 @@ export const zh: Record<keyof typeof ru, string> = {
     "TUN —— Wintun 虚拟网卡接管整个系统的流量。需要管理员权限，但可以按应用设置规则。",
   "set.tunnelModeTunDesc.unix":
     "TUN —— 虚拟网络接口接管整个系统的流量。需要 root 权限（通过 sudo 启动），但可以按应用设置规则。",
+  "set.tunnelModeTunDesc.mac":
+    "TUN —— 虚拟网络接口接管整个系统的流量。内核需要 root 权限（凭管理员密码授予一次），但可以按应用设置规则。",
   "set.tunnelModeProxyDesc":
     "系统代理 —— 无需管理员权限，但只覆盖遵循系统代理设置的应用。",
   "set.tunnelModeProxyDesc.unix": "系统代理 —— 目前仅在 Windows 上实现；在 macOS 和 Linux 上请使用 TUN。",
@@ -68,6 +71,8 @@ export const zh: Record<keyof typeof ru, string> = {
   "set.tunNeedsAdmin":
     "应用正以普通权限运行 —— 在 TUN 模式下连接时会提示重启。",
   "set.tunNeedsAdmin.unix": "应用未以 root 权限运行，因此无法使用 TUN 模式。请在终端中运行：",
+  "set.tunNeedsAdmin.mac":
+    "尚未向内核授予 root 权限，因此无法使用 TUN 模式。macOS 会请求一次管理员密码；也可以在终端中启动应用：",
 
   "set.tunSection": "TUN 选项",
   "set.tunStack": "网络栈",
@@ -149,6 +154,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "set.autostartNormalWarn":
     "普通自启无法建立 TUN：登录后应用会请求权限。启用上面的开关即可避免。",
   "set.autostartNormalWarn.unix": "自启会以普通权限启动应用，所以登录后 TUN 模式不会自动建立 —— 需要通过 sudo 重新启动。",
+  "set.autostartNormalWarn.mac": "在向内核授予 root 权限之前，登录后 TUN 模式不会自动建立。",
   "set.autoConnect": "启动时自动连接",
   "set.startMinimized": "启动时最小化到托盘",
   "set.startMinimized.mac": "启动时最小化到菜单栏",
@@ -199,6 +205,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "dash.modeGlobalHelp": "所有连接都走 VPN，忽略上述页面的设置。",
   "dash.tunNeedsAdmin": "TUN 模式需要管理员权限 —— 否则只能使用系统代理。",
   "dash.tunNeedsAdmin.unix": "TUN 模式需要 root 权限 —— 请通过 sudo 启动应用。",
+  "dash.tunNeedsAdmin.mac": "TUN 模式需要 root 权限 —— 请授予内核，macOS 只会询问一次密码。",
   "dash.restart": "重启",
   "dash.showCommand": "显示命令",
   "dash.connect": "连接",
@@ -428,10 +435,16 @@ export const zh: Record<keyof typeof ru, string> = {
   "elev.copied": "命令已复制",
   "elev.copyFailed": "复制失败 —— 请选中命令后手动复制。",
   "elev.close": "关闭",
+  "elev.altTerminal": "也可以在终端中启动应用：",
+  "elev.grant": "授予权限",
+  "elev.granted": "已向内核授予 root 权限",
+  "elev.grantFailed": "授予权限失败",
   "elev.tunnelWhy":
     "TUN 模式通过 Wintun 虚拟网卡接管系统的全部流量。创建它需要管理员权限 —— Windows 会弹出 UAC 提示。",
   "elev.tunnelWhy.unix":
     "TUN 模式通过虚拟网络接口接管系统的全部流量，而只有 root 才能创建它。{os} 不允许运行中提权 —— 请在终端中启动应用：",
+  "elev.tunnelWhy.mac":
+    "TUN 模式需要创建虚拟网络接口，而只有 root 才能做到。macOS 会请求一次管理员密码：sing-box 内核将获得以 root 启动的权限，应用本身仍以普通权限运行。更新或重新安装后需要再次授权。",
   "elev.tunnelAlt":
     "如果不想提权，可以到设置中切换到系统代理模式：它无需 UAC，但只覆盖遵循系统代理设置的应用。",
   "elev.autostartWhy":

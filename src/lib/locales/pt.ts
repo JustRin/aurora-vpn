@@ -25,6 +25,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "side.admin": "direitos de administrador",
   "side.user": "direitos comuns",
   "side.admin.unix": "direitos de root",
+  "side.admin.mac": "núcleo roda como root",
   "side.appVersion": "versão instalada do aplicativo",
 
   // ------------------------------------------------------------------ toasts
@@ -62,6 +63,8 @@ export const pt: Record<keyof typeof ru, string> = {
     "TUN — um adaptador virtual Wintun captura o tráfego de todo o sistema. Exige direitos de administrador, mas as regras por aplicativo funcionam.",
   "set.tunnelModeTunDesc.unix":
     "TUN — uma interface de rede virtual captura o tráfego de todo o sistema. Exige root (abrir via sudo), mas as regras por aplicativo funcionam.",
+  "set.tunnelModeTunDesc.mac":
+    "TUN — uma interface de rede virtual captura o tráfego de todo o sistema. O núcleo precisa de root (concedido uma vez com a senha de administrador), mas as regras por aplicativo funcionam.",
   "set.tunnelModeProxyDesc":
     "Proxy do sistema — sem direitos de administrador, mas cobre apenas os aplicativos que respeitam as configurações de proxy do sistema.",
   "set.tunnelModeProxyDesc.unix":
@@ -71,6 +74,8 @@ export const pt: Record<keyof typeof ru, string> = {
     "O aplicativo está rodando sem direitos de administrador — conectar em modo TUN vai oferecer um reinício.",
   "set.tunNeedsAdmin.unix":
     "O aplicativo está rodando sem root, então o modo TUN não está disponível. Abra-o pelo terminal:",
+  "set.tunNeedsAdmin.mac":
+    "O núcleo ainda não recebeu root, então o modo TUN não está disponível. O macOS vai pedir a senha de administrador uma vez; outra opção é abrir o aplicativo pelo terminal:",
 
   "set.tunSection": "Opções do TUN",
   "set.tunStack": "Pilha de rede",
@@ -157,6 +162,8 @@ export const pt: Record<keyof typeof ru, string> = {
     "O início automático comum não consegue subir o TUN: depois do logon o aplicativo vai pedir direitos. Ligue a chave acima para evitar isso.",
   "set.autostartNormalWarn.unix":
     "O início automático abre o aplicativo sem root, então o modo TUN não vai subir sozinho depois do logon — será preciso reiniciar via sudo.",
+  "set.autostartNormalWarn.mac":
+    "Enquanto o núcleo não receber root, o modo TUN não vai subir sozinho depois do logon.",
   "set.autoConnect": "Conectar ao abrir",
   "set.startMinimized": "Iniciar minimizado na bandeja",
   "set.startMinimized.mac": "Iniciar minimizado na barra de menus",
@@ -212,6 +219,8 @@ export const pt: Record<keyof typeof ru, string> = {
   "dash.tunNeedsAdmin":
     "O modo TUN exige direitos de administrador — sem eles, só o proxy do sistema fica disponível.",
   "dash.tunNeedsAdmin.unix": "O modo TUN exige root — abra o aplicativo via sudo.",
+  "dash.tunNeedsAdmin.mac":
+    "O modo TUN exige root — conceda ao núcleo, o macOS pede a senha uma vez.",
   "dash.restart": "Reiniciar",
   "dash.showCommand": "Mostrar comando",
   "dash.connect": "Conectar",
@@ -450,10 +459,16 @@ export const pt: Record<keyof typeof ru, string> = {
   "elev.copyFailed":
     "Não foi possível copiar — selecione o comando e copie manualmente.",
   "elev.close": "Fechar",
+  "elev.altTerminal": "Outra opção é abrir o aplicativo pelo terminal:",
+  "elev.grant": "Conceder direitos",
+  "elev.granted": "O núcleo recebeu root",
+  "elev.grantFailed": "Não foi possível conceder os direitos",
   "elev.tunnelWhy":
     "O modo TUN intercepta todo o tráfego do sistema pelo adaptador virtual Wintun. Criá-lo exige direitos de administrador — o Windows vai mostrar um prompt do UAC.",
   "elev.tunnelWhy.unix":
     "O modo TUN intercepta todo o tráfego do sistema por uma interface de rede virtual, e só o root pode criá-la. O {os} não permite elevar direitos em execução — abra o aplicativo pelo terminal:",
+  "elev.tunnelWhy.mac":
+    "O modo TUN cria uma interface de rede virtual, e só o root pode fazer isso. O macOS vai pedir a senha de administrador uma vez: o núcleo sing-box ganha o direito de iniciar como root, enquanto o aplicativo em si continua um processo comum. Depois de uma atualização ou reinstalação o pedido volta.",
   "elev.tunnelAlt":
     "Se não quiser elevar, troque para o modo de proxy do sistema nas configurações: ele funciona sem UAC, mas cobre apenas os aplicativos que respeitam as configurações de proxy do sistema.",
   "elev.autostartWhy":

@@ -533,6 +533,7 @@ pub fn run() {
             commands::app_ready,
             commands::get_autostart,
             commands::set_autostart,
+            commands::grant_core_root,
             commands::set_window_theme,
             commands::test_latency,
             commands::list_running_apps,

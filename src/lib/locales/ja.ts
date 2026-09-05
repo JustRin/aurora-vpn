@@ -25,6 +25,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "side.admin": "管理者権限",
   "side.user": "通常の権限",
   "side.admin.unix": "root 権限",
+  "side.admin.mac": "コアは root で動作",
   "side.appVersion": "インストール済みのアプリのバージョン",
 
   // ------------------------------------------------------------------ toasts
@@ -62,6 +63,8 @@ export const ja: Record<keyof typeof ru, string> = {
     "TUN — Wintun 仮想アダプターがシステム全体の通信を受け取ります。管理者権限が必要ですが、アプリ単位のルールが使えます。",
   "set.tunnelModeTunDesc.unix":
     "TUN — 仮想ネットワークインターフェースがシステム全体の通信を受け取ります。root 権限（sudo での起動）が必要ですが、アプリ単位のルールが使えます。",
+  "set.tunnelModeTunDesc.mac":
+    "TUN — 仮想ネットワークインターフェースがシステム全体の通信を受け取ります。コアには root 権限（管理者パスワードで一度だけ付与）が必要ですが、アプリ単位のルールが使えます。",
   "set.tunnelModeProxyDesc":
     "システムプロキシ — 管理者権限は不要ですが、システムプロキシ設定に従うアプリしか対象になりません。",
   "set.tunnelModeProxyDesc.unix":
@@ -70,6 +73,8 @@ export const ja: Record<keyof typeof ru, string> = {
   "set.tunNeedsAdmin":
     "アプリは管理者権限なしで動作しています。TUN モードで接続すると再起動を求められます。",
   "set.tunNeedsAdmin.unix": "アプリは root 権限なしで動作しているため、TUN モードは使えません。ターミナルから起動してください：",
+  "set.tunNeedsAdmin.mac":
+    "コアにまだ root 権限が付与されていないため、TUN モードは使えません。macOS が管理者パスワードを一度だけ求めます。ターミナルから起動する方法もあります：",
 
   "set.tunSection": "TUN の設定",
   "set.tunStack": "ネットワークスタック",
@@ -156,6 +161,7 @@ export const ja: Record<keyof typeof ru, string> = {
     "通常の自動起動では TUN を張れません。サインイン後にアプリが権限を求めます。上のスイッチを入れれば回避できます。",
   "set.autostartNormalWarn.unix":
     "自動起動ではアプリが root 権限なしで立ち上がるため、サインイン後に TUN モードは自動では張られません。sudo での再起動が必要になります。",
+  "set.autostartNormalWarn.mac": "コアに root 権限を付与するまで、サインイン後に TUN モードは自動では張られません。",
   "set.autoConnect": "起動時に接続する",
   "set.startMinimized": "最小化してトレイで起動する",
   "set.startMinimized.mac": "最小化してメニューバーで起動する",
@@ -210,6 +216,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "dash.tunNeedsAdmin":
     "TUN モードには管理者権限が必要です。ない場合はシステムプロキシのみ利用できます。",
   "dash.tunNeedsAdmin.unix": "TUN モードには root 権限が必要です。sudo でアプリを起動してください。",
+  "dash.tunNeedsAdmin.mac": "TUN モードには root 権限が必要です。コアに付与してください。macOS がパスワードを一度だけ求めます。",
   "dash.restart": "再起動",
   "dash.showCommand": "コマンドを表示",
   "dash.connect": "接続",
@@ -445,10 +452,16 @@ export const ja: Record<keyof typeof ru, string> = {
   "elev.copied": "コマンドをコピーしました",
   "elev.copyFailed": "コピーできませんでした。コマンドを選択して手動でコピーしてください。",
   "elev.close": "閉じる",
+  "elev.altTerminal": "ターミナルから起動する方法もあります：",
+  "elev.grant": "権限を付与",
+  "elev.granted": "コアに root 権限を付与しました",
+  "elev.grantFailed": "権限を付与できませんでした",
   "elev.tunnelWhy":
     "TUN モードは Wintun 仮想アダプターを通じてシステムのすべての通信を横取りします。その作成には管理者権限が必要で、Windows が UAC のプロンプトを表示します。",
   "elev.tunnelWhy.unix":
     "TUN モードは仮想ネットワークインターフェースを通じてシステムのすべての通信を横取りしますが、その作成は root にしかできません。{os} では実行中の昇格ができないため、ターミナルからアプリを起動してください：",
+  "elev.tunnelWhy.mac":
+    "TUN モードは仮想ネットワークインターフェースを作成しますが、それができるのは root だけです。macOS が管理者パスワードを一度だけ求めます。sing-box コアが root として起動する権限を得て、アプリ本体は通常の権限のままです。アップデートや再インストールの後は、再び確認されます。",
   "elev.tunnelAlt":
     "昇格したくない場合は、設定でシステムプロキシモードに切り替えてください。UAC は不要ですが、システムプロキシ設定に従うアプリしか対象になりません。",
   "elev.autostartWhy":

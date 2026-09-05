@@ -8,6 +8,7 @@
  * Commands return canned data; writes update it in memory so toggles and
  * pickers behave, and events are wired to the mock's own bus.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 import type { LogLine, ResourceGroup, ServerNode, Snapshot } from "../lib/types";
@@ -156,6 +157,15 @@ mockIPC(
         snapshot.activeId = String(a.id);
         snapshot.status.activeId = snapshot.activeId;
         return false;
+      case "grant_core_root":
+        // The real command answers through the status event; so does the mock
+        // (the emit goes back into mockIPC's own event bus).
+        snapshot.status.elevated = true;
+        void invoke("plugin:event|emit", {
+          event: "app://status",
+          payload: snapshot.status,
+        });
+        return undefined;
       case "check_update":
         return null;
       case "list_running_apps":
@@ -163,8 +173,28 @@ mockIPC(
       case "test_latency":
         return snapshot.latency;
       case "connect":
+        // Rights first, as on the desktop: the dashboard's grant flow retries
+        // this and expects it to go through the second time.
+        if (!snapshot.status.elevated) throw "ELEVATION_REQUIRED";
+        snapshot.status.state = "connected";
+        snapshot.status.sinceMs = Date.now();
+        snapshot.status.routedId = snapshot.activeId;
+        snapshot.status.link = "up";
+        void invoke("plugin:event|emit", {
+          event: "app://status",
+          payload: { ...snapshot.status },
+        });
+        return undefined;
       case "disconnect":
-        throw "ELEVATION_REQUIRED";
+        snapshot.status.state = "disconnected";
+        snapshot.status.sinceMs = null;
+        snapshot.status.routedId = "";
+        snapshot.status.link = "connecting";
+        void invoke("plugin:event|emit", {
+          event: "app://status",
+          payload: { ...snapshot.status },
+        });
+        return undefined;
       default:
         return undefined;
     }

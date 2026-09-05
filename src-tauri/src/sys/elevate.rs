@@ -101,6 +101,114 @@ pub fn relaunch_elevated() -> Result<()> {
     Ok(())
 }
 
+/// Whether a TUN interface can be created with the rights at hand: the app
+/// itself is elevated, or — macOS — the core binary carries root of its own
+/// (see `grant_core_root`). This is what the UI's «elevated» flag means.
+pub fn tun_allowed(_core: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if core_has_root(_core) {
+        return true;
+    }
+    is_elevated()
+}
+
+/// Whether the core binary starts as root on its own: owned by root, with the
+/// set-user-ID bit. That is how TUN gets its rights on macOS — the app stays
+/// an ordinary process, only the core is elevated.
+#[cfg(target_os = "macos")]
+pub fn core_has_root(core: &std::path::Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(core)
+        .map(|meta| meta.uid() == 0 && meta.mode() & 0o4000 != 0)
+        .unwrap_or(false)
+}
+
+/// Make the core start as root: `chown root:admin` plus mode 4750. Group
+/// `admin` and nothing for others, so the setuid binary can only be run by
+/// accounts that could `sudo` anyway. The bit is lost whenever the file is
+/// replaced — an update or a reinstall — which is why `install_update`
+/// re-applies it in the same privileged step.
+///
+/// Why this and not a relaunch as root: a root app would keep its settings in
+/// root's home, and the login-item autostart could never start it that way.
+/// A setuid core works for every launch, autostart included, and the app can
+/// still signal it (the real uid stays the user's).
+#[cfg(target_os = "macos")]
+pub fn grant_core_root(core: &std::path::Path) -> Result<()> {
+    let path = shell_quote(&core.to_string_lossy());
+    run_as_root(&format!("chown root:admin {path} && chmod 4750 {path}"))?;
+    if !core_has_root(core) {
+        return Err(crate::error::AppError::msg(
+            "права на ядро не применились — проверьте, что приложение лежит в /Applications",
+        ));
+    }
+    Ok(())
+}
+
+/// Run a shell script as root behind the system's own password dialog.
+///
+/// `do shell script … with administrator privileges` is Apple's supported
+/// door for an app without a signed privileged helper (SMJobBless wants a
+/// Developer ID this project does not have). Executed in-process through
+/// NSAppleScript rather than an `osascript` child, so the dialog reads
+/// «Aurora VPN wants to make changes» instead of naming osascript. Blocks
+/// until the dialog is answered — call it from a blocking thread. Returns the
+/// script's stdout; a non-zero exit surfaces as an error carrying stderr.
+#[cfg(target_os = "macos")]
+pub fn run_as_root(script: &str) -> Result<String> {
+    use objc2::rc::{autoreleasepool, Retained};
+    use objc2::runtime::AnyObject;
+    use objc2::AnyThread;
+    use objc2_foundation::{
+        NSAppleScript, NSAppleScriptErrorMessage, NSAppleScriptErrorNumber, NSDictionary,
+        NSNumber, NSString,
+    };
+
+    use crate::error::AppError;
+
+    // Inside an AppleScript string literal only the backslash and the double
+    // quote are special.
+    let literal = script.replace('\\', "\\\\").replace('"', "\\\"");
+    let source = format!("do shell script \"{literal}\" with administrator privileges");
+
+    autoreleasepool(|_| {
+        let script = NSAppleScript::initWithSource(
+            NSAppleScript::alloc(),
+            &NSString::from_str(&source),
+        )
+        .ok_or_else(|| AppError::msg("не удалось подготовить сценарий повышения прав"))?;
+        let mut error: Option<Retained<NSDictionary<NSString, AnyObject>>> = None;
+        // SAFETY: the out-parameter has the type the method declares.
+        let result = unsafe { script.executeAndReturnError(Some(&mut error)) };
+        if let Some(error) = error {
+            // SAFETY: reading Foundation's exported string constants.
+            let (number_key, message_key) =
+                unsafe { (NSAppleScriptErrorNumber, NSAppleScriptErrorMessage) };
+            let number = error
+                .objectForKey(number_key)
+                .and_then(|n| n.downcast_ref::<NSNumber>().map(|n| n.integerValue()))
+                .unwrap_or(0);
+            // -128: the user dismissed the password dialog.
+            if number == -128 {
+                return Err(AppError::msg("запрос пароля отменён"));
+            }
+            let message = error
+                .objectForKey(message_key)
+                .and_then(|m| m.downcast_ref::<NSString>().map(|m| m.to_string()))
+                .unwrap_or_else(|| format!("ошибка {number}"));
+            return Err(AppError::msg(message));
+        }
+        Ok(result.stringValue().map(|s| s.to_string()).unwrap_or_default())
+    })
+}
+
+/// Single quotes for `sh`: the one character that needs escaping inside them
+/// is the quote itself.
+#[cfg(target_os = "macos")]
+pub fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 /// The terminal command that starts this app as root — the only way up on
 /// Linux and macOS, where there is no UAC to go through. Spelled out in full,
 /// because the binary is not what the user sees: on macOS it is buried inside

@@ -218,6 +218,23 @@ The source of truth is the system itself, not the settings file: state is read
 from the registry and the scheduler on every launch, so disabling autostart with
 third-party tools is reflected correctly in the UI.
 
+### macOS and Linux
+
+No Wintun and no UAC here: sing-box opens a `utun` device (a `tun` on Linux),
+which needs root. On macOS the app asks for it once. «Grant rights» runs
+`chown root:admin` + `chmod 4750` on the bundled `sing-box` behind the system
+password dialog — NSAppleScript's `do shell script … with administrator
+privileges`, executed in-process so the dialog carries the app's name. The
+setuid bit makes the core start as root while the app stays an ordinary
+process: its settings stay in the user's home, the login-item autostart keeps
+working, and the app can still signal the core because the real uid remains the
+user's. Group `admin` and no rights for others keep the binary away from
+accounts that could not `sudo` anyway. The bit lives with the file: a reinstall
+drops it, and the in-app update (`installer -pkg` behind the same dialog, then a
+relaunch of `/Applications/Aurora VPN.app`) re-applies it in the same privileged
+step. Linux has no equivalent yet — the app shows the `sudo` command to start it
+with.
+
 ---
 
 ## Subscription status

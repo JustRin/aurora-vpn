@@ -15,7 +15,7 @@ import {
 import { api, errText, onUpdateProgress } from "../lib/api";
 import { osKey, useT, type MsgKey } from "../lib/i18n";
 import { useSlidingPill } from "../lib/pill";
-import { IS_ANDROID } from "../lib/platform";
+import { IS_ANDROID, IS_MAC, IS_WINDOWS } from "../lib/platform";
 import type { UpdateInfo, UpdateProgress } from "../lib/types";
 import { useStore, type PageId } from "../store";
 
@@ -78,10 +78,13 @@ function UpdateBadge() {
 
   if (!update) return null;
 
-  // Mirrors the backend branch: only this combination downloads in-app and
-  // exits into a silent installer; every other platform opens the browser
-  // and the app keeps running.
-  const exitsIntoInstaller = !IS_ANDROID && update.url.endsWith("-setup.exe");
+  // Mirrors the backend branch: these two download in-app and exit into an
+  // installer (silent NSIS on Windows, `installer -pkg` behind the system
+  // password dialog on macOS); every other platform opens the browser and the
+  // app keeps running.
+  const exitsIntoInstaller =
+    (IS_WINDOWS && update.url.endsWith("-setup.exe")) ||
+    (IS_MAC && update.url.endsWith(".pkg"));
 
   const install = () => {
     setBusy(true);

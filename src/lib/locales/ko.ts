@@ -25,6 +25,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "side.admin": "관리자 권한",
   "side.user": "일반 권한",
   "side.admin.unix": "root 권한",
+  "side.admin.mac": "코어가 root로 실행됨",
   "side.appVersion": "설치된 앱 버전",
 
   // ------------------------------------------------------------------ toasts
@@ -61,6 +62,8 @@ export const ko: Record<keyof typeof ru, string> = {
     "TUN — Wintun 가상 어댑터가 시스템 전체의 트래픽을 받습니다. 관리자 권한이 필요하지만 앱별 규칙을 쓸 수 있습니다.",
   "set.tunnelModeTunDesc.unix":
     "TUN — 가상 네트워크 인터페이스가 시스템 전체의 트래픽을 받습니다. root 권한(sudo로 실행)이 필요하지만 앱별 규칙을 쓸 수 있습니다.",
+  "set.tunnelModeTunDesc.mac":
+    "TUN — 가상 네트워크 인터페이스가 시스템 전체의 트래픽을 받습니다. 코어에 root 권한(관리자 암호로 한 번 부여)이 필요하지만 앱별 규칙을 쓸 수 있습니다.",
   "set.tunnelModeProxyDesc":
     "시스템 프록시 — 관리자 권한은 필요 없지만, 시스템 프록시 설정을 따르는 앱만 대상이 됩니다.",
   "set.tunnelModeProxyDesc.unix":
@@ -69,6 +72,8 @@ export const ko: Record<keyof typeof ru, string> = {
   "set.tunNeedsAdmin":
     "앱이 관리자 권한 없이 실행 중입니다 — TUN 모드로 연결하면 재시작을 제안합니다.",
   "set.tunNeedsAdmin.unix": "앱이 root 권한 없이 실행 중이라 TUN 모드를 쓸 수 없습니다. 터미널에서 실행하세요:",
+  "set.tunNeedsAdmin.mac":
+    "코어에 아직 root 권한이 부여되지 않아 TUN 모드를 쓸 수 없습니다. macOS가 관리자 암호를 한 번 묻습니다. 터미널에서 실행하는 방법도 있습니다:",
 
   "set.tunSection": "TUN 옵션",
   "set.tunStack": "네트워크 스택",
@@ -151,6 +156,7 @@ export const ko: Record<keyof typeof ru, string> = {
     "일반 자동 시작으로는 TUN을 올릴 수 없어, 로그인 후 앱이 권한을 요청합니다. 위 스위치를 켜면 이를 피할 수 있습니다.",
   "set.autostartNormalWarn.unix":
     "자동 시작은 앱을 root 권한 없이 실행하므로, 로그인 후 TUN 모드가 저절로 올라오지 않습니다. sudo로 다시 시작해야 합니다.",
+  "set.autostartNormalWarn.mac": "코어에 root 권한을 부여하기 전에는 로그인 후 TUN 모드가 저절로 올라오지 않습니다.",
   "set.autoConnect": "실행할 때 연결",
   "set.startMinimized": "트레이에 최소화된 상태로 시작",
   "set.startMinimized.mac": "메뉴 막대에 최소화된 상태로 시작",
@@ -204,6 +210,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "dash.tunNeedsAdmin":
     "TUN 모드에는 관리자 권한이 필요합니다 — 없으면 시스템 프록시만 쓸 수 있습니다.",
   "dash.tunNeedsAdmin.unix": "TUN 모드에는 root 권한이 필요합니다 — sudo로 앱을 실행하세요.",
+  "dash.tunNeedsAdmin.mac": "TUN 모드에는 root 권한이 필요합니다 — 코어에 부여하세요. macOS가 암호를 한 번 묻습니다.",
   "dash.restart": "다시 시작",
   "dash.showCommand": "명령 보기",
   "dash.connect": "연결",
@@ -435,10 +442,16 @@ export const ko: Record<keyof typeof ru, string> = {
   "elev.copied": "명령을 복사했습니다",
   "elev.copyFailed": "복사하지 못했습니다 — 명령을 선택해 직접 복사하세요.",
   "elev.close": "닫기",
+  "elev.altTerminal": "터미널에서 실행하는 방법도 있습니다:",
+  "elev.grant": "권한 부여",
+  "elev.granted": "코어에 root 권한을 부여했습니다",
+  "elev.grantFailed": "권한을 부여하지 못했습니다",
   "elev.tunnelWhy":
     "TUN 모드는 Wintun 가상 어댑터로 시스템의 모든 트래픽을 가로챕니다. 이를 만들려면 관리자 권한이 필요하며, Windows가 UAC 창을 띄웁니다.",
   "elev.tunnelWhy.unix":
     "TUN 모드는 가상 네트워크 인터페이스로 시스템의 모든 트래픽을 가로채는데, 이를 만들 수 있는 건 root뿐입니다. {os}에서는 실행 중에 권한을 올릴 수 없으니 터미널에서 앱을 실행하세요:",
+  "elev.tunnelWhy.mac":
+    "TUN 모드는 가상 네트워크 인터페이스를 만드는데, 이는 root만 할 수 있습니다. macOS가 관리자 암호를 한 번 묻습니다. sing-box 코어가 root로 시작할 권한을 얻고, 앱 자체는 일반 권한으로 남습니다. 업데이트나 재설치 후에는 다시 묻습니다.",
   "elev.tunnelAlt":
     "권한을 올리고 싶지 않다면 설정에서 시스템 프록시 모드로 바꾸세요. UAC 없이 동작하지만, 시스템 프록시 설정을 따르는 앱만 대상이 됩니다.",
   "elev.autostartWhy":

@@ -102,6 +102,21 @@ fn set_status(app: &AppHandle, mutate: impl FnOnce(&mut Status)) {
     emit_status(app);
 }
 
+/// Whether TUN mode can start right now — the app is elevated, or the core
+/// binary is (macOS). Re-read on every snapshot rather than cached: the
+/// binary's rights change under the app's feet on grant, update and reinstall.
+fn tun_allowed(state: &AppState) -> bool {
+    #[cfg(not(target_os = "android"))]
+    {
+        elevate::tun_allowed(state.core.lock().exe())
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        elevate::is_elevated()
+    }
+}
+
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -1051,8 +1066,9 @@ pub async fn get_snapshot(app: AppHandle) -> Result<Snapshot> {
     };
 
     {
+        let elevated = tun_allowed(&state);
         let mut status = state.status.write();
-        status.elevated = elevate::is_elevated();
+        status.elevated = elevated;
         status.tunnel_mode = state.settings.read().tunnel_mode;
         status.active_id = state.resolve_active_id();
     }
@@ -1114,7 +1130,7 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         ));
     }
     #[cfg(not(target_os = "android"))]
-    if tunnel_mode == TunnelMode::Tun && !elevate::is_elevated() {
+    if tunnel_mode == TunnelMode::Tun && !tun_allowed(&app.state::<AppState>()) {
         return Err(AppError::msg(
             "ELEVATION_REQUIRED",
         ));
@@ -2419,11 +2435,75 @@ async fn download_resumable(
     )))
 }
 
-/// Windows: download the installer (streaming progress to the UI), release the
-/// tunnel and the system proxy, then hand control to a silent NSIS install
-/// (`/S /UPDATE /R`) that restarts the app when the files are replaced.
-/// Elsewhere the package (or the release page) opens in the browser — .pkg and
-/// .AppImage installs are inherently manual.
+/// Where the installer package puts the app: non-relocatable by design (see
+/// release.yml), so this is where the fresh build lives after an update,
+/// whichever copy happens to be running now.
+#[cfg(target_os = "macos")]
+const INSTALLED_APP: &str = "/Applications/Aurora VPN.app";
+
+/// The core binary of the freshly installed bundle, which needs its root bit
+/// back (`elevate::grant_core_root`) once the installer has replaced it.
+#[cfg(target_os = "macos")]
+fn installed_core_path(core: &std::path::Path) -> std::path::PathBuf {
+    let name = core
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| "sing-box".into());
+    std::path::Path::new(INSTALLED_APP)
+        .join("Contents")
+        .join("MacOS")
+        .join(name)
+}
+
+/// `installer -pkg` as root behind the system password dialog — the one step
+/// of a macOS update that needs rights — and, in the same breath, the setuid
+/// bit back on the new core when the old one carried it, so TUN survives the
+/// update without a second prompt. The command-line installer does not run
+/// the downloaded package through Gatekeeper, which is what used to make the
+/// unsigned .pkg a two-step affair in the Installer app.
+#[cfg(target_os = "macos")]
+fn install_pkg(pkg: &std::path::Path, regrant: Option<std::path::PathBuf>) -> Result<()> {
+    let mut script = format!(
+        "/usr/sbin/installer -pkg {} -target /",
+        elevate::shell_quote(&pkg.to_string_lossy())
+    );
+    if let Some(core) = regrant {
+        let core = elevate::shell_quote(&core.to_string_lossy());
+        script.push_str(&format!(" && chown root:admin {core} && chmod 4750 {core}"));
+    }
+    elevate::run_as_root(&script).map(|_| ())
+}
+
+/// Start the installed bundle once this process is gone — earlier, and the
+/// single-instance guard would hand the launch straight back to us. A shell
+/// in its own process group, so our exit does not take it along.
+#[cfg(target_os = "macos")]
+fn relaunch_after_exit() {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+
+    let script = format!(
+        "while kill -0 {} 2>/dev/null; do sleep 0.2; done; /usr/bin/open {}",
+        std::process::id(),
+        elevate::shell_quote(INSTALLED_APP)
+    );
+    let _ = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
+}
+
+/// Download the installer (streaming progress to the UI), release the tunnel
+/// and the system proxy, then hand control to the platform's installer and
+/// come back as the new build. Windows: a silent NSIS install (`/S /UPDATE
+/// /R`) that restarts the app when the files are replaced. macOS: `installer
+/// -pkg` behind the system password dialog, then a relaunch of the installed
+/// bundle. Elsewhere the package (or the release page) opens in the browser —
+/// an .AppImage install is inherently manual.
 #[tauri::command]
 pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
     // The URL round-trips through the WebView; accept only GitHub's own
@@ -2434,7 +2514,9 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
         return Err(AppError::msg("недопустимый адрес обновления"));
     }
 
-    if !(cfg!(windows) && url.ends_with("-setup.exe")) {
+    let in_app = (cfg!(windows) && url.ends_with("-setup.exe"))
+        || (cfg!(target_os = "macos") && url.ends_with(".pkg"));
+    if !in_app {
         // Through the app handle, not the standalone helper: the helper shells
         // out to xdg-open & co., which do not exist on Android (os error 2) —
         // the plugin routes this through an Intent instead.
@@ -2467,7 +2549,12 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
         },
     );
 
-    let path = std::env::temp_dir().join("aurora-vpn-update-setup.exe");
+    let file_name = if cfg!(windows) {
+        "aurora-vpn-update-setup.exe"
+    } else {
+        "aurora-vpn-update.pkg"
+    };
+    let path = std::env::temp_dir().join(file_name);
     std::fs::write(&path, &bytes)?;
 
     #[cfg(windows)]
@@ -2511,17 +2598,49 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
             app.exit(0);
         });
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
-        std::process::Command::new(&path)
-            .spawn()
-            .map_err(|e| AppError::msg(format!("не удалось запустить установщик: {e}")))?;
-        // Give the installer a beat to appear, then leave through
-        // RunEvent::Exit, which stops both engines and restores the proxy.
+        // Same order as Windows: the session comes down first, so the adapter
+        // and the engines are released before the bundle under them changes.
+        let (was_connected, core, had_root) = {
+            let state = app.state::<AppState>();
+            let connected = state.status.read().state == ConnState::Connected;
+            let core = state.core.lock().exe().to_path_buf();
+            let had_root = elevate::core_has_root(&core);
+            (connected, core, had_root)
+        };
+        shutdown(&app, "");
+
+        // The password dialog blocks until answered, hence the dedicated thread.
+        let pkg = path.clone();
+        let installed = tauri::async_runtime::spawn_blocking(move || {
+            install_pkg(&pkg, had_root.then(|| installed_core_path(&core)))
+        })
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось запустить установку: {e}")))?;
+        let _ = std::fs::remove_file(&path);
+        if let Err(e) = installed {
+            // The password dialog was dismissed or the installer refused: put
+            // the session back the way it was.
+            if was_connected {
+                let _ = connect(app.clone()).await;
+            }
+            return Err(e);
+        }
+
+        relaunch_after_exit();
+        // Let the Ok cross the IPC bridge, then leave through RunEvent::Exit,
+        // which is idempotent after the teardown above.
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
             app.exit(0);
         });
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        // Unreachable: `in_app` is false everywhere else. Kept so the download
+        // above compiles the same on every platform.
+        let _ = std::fs::remove_file(&path);
     }
     Ok(())
 }
@@ -2605,6 +2724,35 @@ fn parse_hex_color(text: &str) -> Option<tauri::window::Color> {
 #[tauri::command]
 pub async fn is_elevated() -> Result<bool> {
     Ok(elevate::is_elevated())
+}
+
+/// macOS: one system password dialog, after which the core binary starts as
+/// root on its own and TUN works — now, after autostart, on every launch until
+/// the binary is replaced. The new rights go out through the status event so
+/// the banners disappear at once.
+#[tauri::command]
+pub async fn grant_core_root(app: AppHandle) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let core = {
+            let state = app.state::<AppState>();
+            let path = state.core.lock().exe().to_path_buf();
+            path
+        };
+        // The password dialog blocks until answered; keep it off the runtime.
+        tauri::async_runtime::spawn_blocking(move || elevate::grant_core_root(&core))
+            .await
+            .map_err(|e| AppError::msg(format!("не удалось выдать права ядру: {e}")))??;
+        set_status(&app, |s| s.elevated = true);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err(AppError::msg(
+            "выдача прав ядру поддерживается только на macOS",
+        ))
+    }
 }
 
 #[tauri::command]
