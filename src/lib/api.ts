@@ -44,6 +44,8 @@ export const api = {
   setClashMode: (mode: ClashMode) => invoke<void>("set_clash_mode", { mode }),
 
   addLinks: (text: string) => invoke<ImportReport>("add_links", { text }),
+  /** Shrinks the window into the always-on-top scanning bar, or restores it. */
+  setScreenScan: (on: boolean) => invoke<void>("set_screen_scan", { on }),
   deleteServer: (id: string) => invoke<void>("delete_server", { id }),
   updateServer: (node: ServerNode) => invoke<void>("update_server", { node }),
 

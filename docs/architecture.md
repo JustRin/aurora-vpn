@@ -372,13 +372,15 @@ src/                     React interface (Linux, macOS, Android)
 src-tauri/src/           Tauri build
   model.rs               server model → sing-box outbound
   link.rs                link and subscription parsing
+  qr.rs                  QR detection, shared verbatim with the Slint build
   settings.rs            settings, split tunneling rules
   core/config.rs         sing-box configuration assembly  ← the main logic
   core/balancer.rs       server selection strategies: failover, fastest, rotation
   core/process.rs        core launch, log capture, shutdown (desktop)
   core/android.rs        bridge to VpnService/libbox (Android)
   core/clash.rs          Clash API client (stats, latency, switching)
-  sys/                   elevation, system proxy, autostart, process list
+  sys/                   elevation, system proxy, autostart, process list,
+                         screen capture for the QR scanner
   commands.rs            commands exposed to the UI
 
 scripts/fetch-core.mjs   downloads the sing-box and Xray binaries for the platform

@@ -1,4 +1,6 @@
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import {
+  ClipboardPaste,
   Copy,
   Gauge,
   Pencil,
@@ -9,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { QrSources } from "../components/QrScanner";
 import { SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
@@ -377,6 +380,38 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   const toast = useStore((s) => s.toast);
   const reload = useStore((s) => s.reload);
 
+  /**
+   * A code that has been read joins whatever is already in the box, one per
+   * line. It is not imported straight away on purpose: the user sees what the
+   * scanner made of the picture, and can scan a second code before importing
+   * both at once.
+   */
+  function addScanned(found: string[]) {
+    setText((current) => {
+      const present = current.split("\n").map((line) => line.trim());
+      const fresh = found
+        .map((one) => one.trim())
+        .filter((one) => one && !present.includes(one));
+      if (fresh.length === 0) return current;
+      const head = current.trimEnd();
+      return head ? `${head}\n${fresh.join("\n")}` : fresh.join("\n");
+    });
+  }
+
+  /** Straight from the clipboard, without having to find the box first. */
+  async function paste() {
+    try {
+      const clipboard = await readText();
+      if (!clipboard?.trim()) {
+        toast("info", t("srv.clipboardEmpty"));
+        return;
+      }
+      addScanned(clipboard.split("\n"));
+    } catch (e) {
+      toast("error", t("srv.pasteFailed"), errText(e));
+    }
+  }
+
   async function submit() {
     setBusy(true);
     try {
@@ -424,6 +459,16 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
           onChange={(e) => setText(e.target.value)}
         />
       </Field>
+      <div className="qr-sources">
+        <button type="button" className="btn sm" onClick={() => void paste()}>
+          <ClipboardPaste size={14} />
+          {t("srv.pasteBtn")}
+        </button>
+        {/* What goes into the box as it is, and what has to be read off a
+            picture first, are two different gestures on one row. */}
+        <span className="qr-sources-sep" aria-hidden="true" />
+        <QrSources onFound={addScanned} />
+      </div>
     </Modal>
   );
 }

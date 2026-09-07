@@ -1,8 +1,8 @@
 // Страница «Серверы» и её модальные окна — порт Servers.tsx.
 
-import { Theme, Icons, SectionTitle, MonoText } from "../theme.slint";
+import { Theme, Icons, SectionTitle, MonoText, Divider, NavIcon } from "../theme.slint";
 import {
-    Btn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
+    Btn, IconBtn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
     ModalShell, ModalFoot
 } from "../widgets.slint";
 import { NodeGroupSection, BalancerRow } from "../cards.slint";
@@ -165,6 +165,7 @@ export component ImportModal inherits ModalShell {
     close => { Ui.modal = 0; }
     VerticalLayout {
         padding: 18px;
+        spacing: 13px;
         Field {
             label: Str.srv-links-label;
             hint: Str.srv-links-hint;
@@ -172,6 +173,73 @@ export component ImportModal inherits ModalShell {
                 min-height: 190px;
                 text <=> Ui.import-text;
                 placeholder: Str.srv-link-placeholder;
+            }
+        }
+        Divider { }
+        // Три источника QR-кода. Прочитанное дописывается в поле выше, поэтому
+        // ряд стоит под ним, а не отдельным окном.
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn {
+                label: Str.srv-paste-btn;
+                icon: Icons.clipboard-paste;
+                small: true;
+                clicked => { Data.paste-links(); }
+            }
+            // Тонкая черта: слева то, что кладут в поле как есть, справа — то,
+            // что сначала надо прочитать с картинки.
+            Rectangle {
+                width: 1px;
+                background: Theme.border;
+                horizontal-stretch: 0;
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 6px;
+                    padding-right: 2px;
+                    VerticalLayout {
+                        alignment: center;
+                        NavIcon {
+                            width: 14px;
+                            height: 14px;
+                            commands: Icons.scan-line;
+                            tint: Theme.text-muted;
+                            stroke-width: 1.5px;
+                        }
+                    }
+                    Text {
+                        text: Str.qr-scan;
+                        vertical-alignment: center;
+                        // Единственное здесь, что можно ужать: если языку не
+                        // хватит ширины, отступит подпись, а не кнопки.
+                        overflow: elide;
+                        font-size: 12px * Theme.text-scale;
+                        color: Theme.text-muted;
+                    }
+                }
+            }
+            Btn {
+                label: Str.qr-screen;
+                icon: Icons.monitor;
+                small: true;
+                enabled: !Ui.qr-busy;
+                clicked => { Data.scan-screen(); }
+            }
+            Btn {
+                label: Str.qr-file;
+                icon: Icons.picture;
+                small: true;
+                enabled: !Ui.qr-busy;
+                clicked => { Data.scan-file(); }
+            }
+            Btn {
+                label: Str.qr-camera;
+                icon: Icons.camera;
+                small: true;
+                enabled: !Ui.qr-busy;
+                clicked => { Data.open-camera(); }
             }
         }
     }
@@ -185,6 +253,206 @@ export component ImportModal inherits ModalShell {
             kind: "primary";
             enabled: Ui.import-text != "";
             clicked => { Data.import-links(Ui.import-text); }
+        }
+    }
+}
+
+// Полоска режима «считать с экрана»: окно ужимается до неё и встаёт поверх
+// остальных окон. Снимок делается по кнопке, а не сразу, потому что сперва
+// нужно открыть то, где код показан, — сайт, переписку, картинку.
+export component ScanBar inherits Rectangle {
+    background: Theme.elevated-solid;
+    border-width: 1px;
+    border-color: Theme.border-strong;
+    border-radius: 12px;
+
+    // Тянуть можно за что угодно: полоска легко встаёт поверх самого кода, и
+    // увести её должно быть можно не целясь.
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                Data.scan-move();
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding: 9px;
+        padding-left: 11px;
+        padding-right: 7px;
+        spacing: 3px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            Btn {
+                label: Str.qr-overlay-scan;
+                icon: Icons.scan-line;
+                kind: "primary";
+                small: true;
+                enabled: !Ui.qr-busy;
+                clicked => { Data.scan-now(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout {
+                alignment: center;
+                IconBtn {
+                    icon: Icons.close;
+                    ghost: true;
+                    compact: true;
+                    clicked => { Data.scan-exit(); }
+                }
+            }
+        }
+        Text {
+            text: Ui.scan-empty ? Str.qr-nothing : Str.qr-overlay-hint;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 11px * Theme.text-scale;
+            color: Ui.scan-empty ? Theme.warn : Theme.text-muted;
+        }
+    }
+}
+
+// Предпросмотр камеры — CameraScanner из QrScanner.tsx. Своя оболочка, а не
+// ModalShell: в шапке живут ещё две кнопки, а развёрнутое окно занимает всё, что
+// есть, — так код читается с большего расстояния.
+export component CameraModal inherits Rectangle {
+    background: Theme.backdrop;
+    // Что показать поверх кадра: отказ, ожидание или ничего.
+    property <string> message: Ui.camera-error != ""
+        ? Ui.camera-error
+        : (Ui.camera-live ? "" : Str.qr-starting);
+
+    TouchArea {
+        clicked => { Data.close-camera(); }
+    }
+    VerticalLayout {
+        alignment: center;
+        padding: Ui.camera-expanded ? 0px : 24px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: Ui.camera-expanded ? root.width : min(560px, root.width - 48px);
+                // Высота задана, а не собрана из содержимого: у предпросмотра
+                // её задавал бы кадр, и окно прыгало бы на каждую смену камеры.
+                height: Ui.camera-expanded ? root.height : min(520px, root.height - 48px);
+                background: Theme.elevated-solid;
+                border-radius: Ui.camera-expanded ? 0px : 20px;
+                border-width: Ui.camera-expanded ? 0px : 1px;
+                border-color: Theme.border-strong;
+                clip: true;
+                // Свой перехват: клик по окну не должен доходить до подложки.
+                TouchArea { }
+
+                VerticalLayout {
+                    HorizontalLayout {
+                        padding: 16px;
+                        padding-left: 18px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        vertical-stretch: 0;
+                        Text {
+                            text: Str.qr-title;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            font-size: 15px * Theme.text-scale;
+                            font-weight: 650;
+                            color: Theme.text;
+                        }
+                        // Вторая камера появляется в списке только тогда, когда
+                        // она в системе есть, — переключать нечего иначе.
+                        if Ui.cameras.length > 1: VerticalLayout {
+                            alignment: center;
+                            IconBtn {
+                                icon: Icons.switch-camera;
+                                ghost: true;
+                                clicked => { Data.next-camera(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconBtn {
+                                icon: Ui.camera-expanded ? Icons.minimize : Icons.maximize;
+                                ghost: true;
+                                clicked => { Ui.camera-expanded = !Ui.camera-expanded; }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconBtn {
+                                icon: Icons.close;
+                                ghost: true;
+                                clicked => { Data.close-camera(); }
+                            }
+                        }
+                    }
+                    Divider { }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        min-height: 300px;
+                        // Чёрный, а не цвет темы: это нутро объектива, а не
+                        // поверхность интерфейса, и оно одинаково в любой палитре.
+                        background: #000000;
+                        clip: true;
+                        Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: Ui.camera-frame;
+                            // contain, а не cover: наводят по тому, что видно,
+                            // и обрезать кадр под форму окна значит обрезать
+                            // как раз то, что человек держит у края.
+                            image-fit: ImageFit.contain;
+                        }
+                        // Прицел. Единственная подсказка, куда наводить: код
+                        // должен уместиться внутрь, иначе его модули не переживут
+                        // уменьшение кадра.
+                        Rectangle {
+                            visible: Ui.camera-live && Ui.camera-error == "";
+                            width: min(parent.width, parent.height) * 0.64;
+                            height: self.width;
+                            // Внутри прямоугольника ничего не центрируется само.
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            border-width: 2px;
+                            border-color: Theme.accent-hi;
+                            border-radius: 16px;
+                        }
+                        if root.message != "": Rectangle {
+                            width: min(parent.width * 0.82, txt.preferred-width + 28px);
+                            height: txt.preferred-height + 18px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            background: #00000094;
+                            border-radius: 8px;
+                            txt := Text {
+                                width: parent.width - 28px;
+                                x: 14px;
+                                y: 9px;
+                                text: root.message;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                                font-size: 13px * Theme.text-scale;
+                                color: #ffffff;
+                            }
+                        }
+                    }
+
+                    // Строка подсказки держит своё место всегда: без неё окно
+                    // дёргалось бы на каждую смену камеры.
+                    Rectangle {
+                        height: 41px;
+                        vertical-stretch: 0;
+                        Text {
+                            text: Ui.camera-error == "" ? Str.qr-hint : "";
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            font-size: 12px * Theme.text-scale;
+                            color: Theme.text-muted;
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated Info.plist of the macOS bundle — Tauri picks this
+  file up because it sits next to tauri.conf.json.
+
+  macOS refuses camera access outright without a usage description, and the
+  refusal is a crash rather than a denial, so the QR scanner would take the app
+  down with it the first time someone opened the preview. The text below is
+  what the system dialog shows, verbatim and in English: a usage description
+  can only be localised through .lproj bundles, which a Tauri app has no place
+  to put.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Aurora VPN uses the camera only to read a QR code with server settings. Nothing is recorded or sent anywhere.</string>
+  </dict>
+</plist>

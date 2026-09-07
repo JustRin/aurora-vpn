@@ -174,6 +174,21 @@ export global Data {
     callback new-server();
     callback save-draft();
     callback import-links(string);
+    // Вставка из буфера прямо в поле: попасть по нему и нажать Ctrl+V — два
+    // движения там, где хватает одного.
+    callback paste-links();
+    // Три источника QR-кода. Прочитанное дописывается в поле импорта, а не
+    // импортируется сразу: видно, что вышло из картинки, и можно снять второй
+    // код прежде, чем нажать «Импортировать».
+    callback scan-screen();
+    // Пока идёт режим полоски: снять сейчас, увести полоску мышью, выйти.
+    callback scan-now();
+    callback scan-move();
+    callback scan-exit();
+    callback scan-file();
+    callback open-camera();
+    callback close-camera();
+    callback next-camera();
     callback test-latency();
     callback refresh-subs();
     callback refresh-sub(string);
@@ -272,8 +287,28 @@ export global Ui {
     in-out property <int> page: 0;
     // 0 нет, 1 импорт ссылок, 2 редактор сервера, 3 запущенные приложения,
     // 4 предпросмотр конфига, 5 запрос прав администратора, 6 ядро от
-    // прошлого сеанса.
+    // прошлого сеанса, 7 предпросмотр камеры.
     in-out property <int> modal: 0;
+    // Режим «считать с экрана»: окно ужато до полоски и стоит поверх всех
+    // остальных, чтобы код можно было сперва открыть, а потом снять.
+    in-out property <bool> scan-mode;
+    // Прошлый снимок ничего не нашёл — полоска говорит об этом у себя, а не
+    // тостом: тост в окне размером с полоску показывать негде.
+    in-out property <bool> scan-empty;
+    // Идёт снимок экрана или чтение картинки: кнопки на это время гаснут,
+    // потому что обе дороги ведут в один и тот же разбор.
+    in-out property <bool> qr-busy;
+    // Предпросмотр камеры. Кадр приходит из потока съёмки готовой картинкой:
+    // разбирать его в разметке нечем и незачем.
+    in-out property <image> camera-frame;
+    in-out property <[string]> cameras;
+    in-out property <int> camera-index: 0;
+    // Пусто, пока всё в порядке; иначе — что именно не вышло.
+    in-out property <string> camera-error;
+    in-out property <bool> camera-live;
+    // Во весь размер окна: код тогда видно крупнее, а рамку прицела — дальше
+    // от краёв кадра.
+    in-out property <bool> camera-expanded;
     in-out property <string> elevate-reason: "tunnel";
     in-out property <string> config-text;
     in-out property <string> import-text;

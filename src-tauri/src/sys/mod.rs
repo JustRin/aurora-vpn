@@ -4,4 +4,7 @@
 pub mod autostart;
 pub mod elevate;
 pub mod procs;
+/// Reading the desktop is a desktop-only idea; a phone scans with its camera.
+#[cfg(desktop)]
+pub mod screen;
 pub mod sysproxy;

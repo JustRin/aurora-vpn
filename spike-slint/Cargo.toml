@@ -37,6 +37,17 @@ url = "2"
 percent-encoding = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 reqwest = { version = "0.13", features = ["json"] }
+# Чтение QR: rqrr находит и разбирает код, image разбирает выбранную картинку.
+# У rqrr есть свой мост к image, но он тянет собственный диапазон версий, а
+# нужный ему план яркости — две строки в qr.rs; берём только детектор.
+rqrr = { version = "0.11", default-features = false }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "bmp",
+  "gif",
+  "webp",
+] }
 # База стран DB-IP: формат MaxMind, отдаётся упакованной.
 maxminddb = "0.26"
 flate2 = "1"
@@ -59,6 +70,11 @@ windows = { version = "0.62", features = [
   "Win32_System_Com",
   "Win32_System_ProcessStatus",
   "Win32_System_Threading",
+  # Снимок рабочего стола для чтения QR: BitBlt в секцию DIB (sys/screen.rs).
+  "Win32_Graphics_Gdi",
+  # Веб-камера, она же второй источник QR: перечисление устройств и поток
+  # кадров через читателя Media Foundation (sys/camera.rs).
+  "Win32_Media_MediaFoundation",
   # Задание, в котором живут ядра: с закрытием приложения система уносит их
   # следом, как бы приложение ни ушло (core/process.rs).
   "Win32_System_JobObjects",

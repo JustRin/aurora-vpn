@@ -6,6 +6,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Reading a QR code with the camera. The WebView asks for it through
+         `onPermissionRequest`, which turns the page's getUserMedia into this
+         runtime permission; without the entry here the request is refused
+         before the user ever sees a prompt. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!-- Per-app split tunnelling: the picker must see every installed app,
          which is an allowed use of this permission for VPN clients. -->
     <uses-permission
@@ -14,6 +20,12 @@
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- A camera is a convenience, not a requirement: declaring CAMERA would
+         otherwise make Google Play hide the app from every device without one,
+         set-top boxes included. Scanning from a file works everywhere. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:icon="@mipmap/ic_launcher"

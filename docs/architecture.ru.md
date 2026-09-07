@@ -370,13 +370,15 @@ src/                     React-интерфейс (Linux, macOS, Android)
 src-tauri/src/           Tauri-сборка
   model.rs               модель сервера → outbound sing-box
   link.rs                разбор ссылок и подписок
+  qr.rs                  чтение QR, копия один в один в сборке на Slint
   settings.rs            настройки, правила раздельного туннеля
   core/config.rs         сборка конфигурации sing-box  ← основная логика
   core/balancer.rs       стратегии выбора сервера: резерв, самый быстрый, по кругу
   core/process.rs        запуск ядра, захват логов, остановка (десктоп)
   core/android.rs        мост к VpnService/libbox (Android)
   core/clash.rs          клиент Clash API (статистика, задержка, переключение)
-  sys/                   права, системный прокси, автозапуск, список процессов
+  sys/                   права, системный прокси, автозапуск, список процессов,
+                         снимок экрана для чтения QR
   commands.rs            команды, доступные интерфейсу
 
 scripts/fetch-core.mjs   скачивание бинарников sing-box и Xray под платформу

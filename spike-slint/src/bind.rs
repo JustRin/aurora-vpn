@@ -16,10 +16,12 @@ use crate::api::{self, Snapshot};
 use crate::app::{self, AppHandle};
 use crate::error::Result;
 use crate::model::{Network, Protocol, Security, ServerNode};
+use crate::qr;
 use crate::settings::{AppRule, Balancer, Settings, SplitConfig, SplitMode, TunStack, TunnelMode};
+use crate::shell;
 use crate::state::AppState;
 use crate::sys::autostart::AutostartMode;
-use crate::sys::{autostart, clipboard, dialog, procs};
+use crate::sys::{autostart, camera, clipboard, dialog, procs, screen};
 use crate::view;
 use crate::{AppWindow, Conf, Data, Draft, Ui};
 
@@ -63,6 +65,17 @@ thread_local! {
     /// не тревожа систему. Здесь, а не в Local, потому что заполняет его
     /// рабочий поток — а Rc через границу потока не проходит.
     static PROCS: RefCell<Vec<procs::RunningApp>> = const { RefCell::new(Vec::new()) };
+
+    /// Живая съёмка камеры. Одна на приложение — окно предпросмотра одно, — и
+    /// уничтожение записи гасит камеру: лампочка рядом с объективом тоже.
+    static CAMERA: RefCell<Option<camera::Session>> = const { RefCell::new(None) };
+    /// Камеры, найденные при открытии окна: разметке достаются их названия, а
+    /// открывать устройство надо по символической ссылке.
+    static CAMERAS: RefCell<Vec<camera::Device>> = const { RefCell::new(Vec::new()) };
+
+    /// Размер и место окна до ухода в полоску: вернуть надо ровно те же.
+    static SCAN_RETURN: RefCell<Option<(slint::PhysicalSize, slint::PhysicalPosition)>> =
+        const { RefCell::new(None) };
 }
 
 /// Отличаются ли настройки хоть чем-нибудь: сравнение по сериализованному виду,
@@ -559,6 +572,191 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
                     }
                 }
             });
+        }
+    });
+
+    // -------------------------------------------------------------- qr
+    data.on_paste_links({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            match clipboard::text() {
+                Ok(text) if !text.trim().is_empty() => {
+                    // Без сообщения об успехе: вставленное видно в самом поле.
+                    append_import(&ui, text.lines());
+                }
+                Ok(_) => {
+                    let text = crate::tr(|l| l.clipboard_empty.clone());
+                    view::toast(&ui, "info", &text, "");
+                }
+                Err(e) => {
+                    let text = crate::tr(|l| l.paste_failed.clone());
+                    view::toast(&ui, "error", &text, &e.to_string());
+                }
+            }
+        }
+    });
+
+    data.on_scan_screen({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            enter_scan_mode(&ui);
+        }
+    });
+
+    data.on_scan_now({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let global = ui.global::<Ui>();
+            global.set_qr_busy(true);
+            global.set_scan_empty(false);
+            // Полоска сама попала бы в кадр — на время снимка её нет.
+            ui.window()
+                .with_winit_window(|window| window.set_visible(false));
+            let handle = handle.clone();
+            app::runtime().spawn_blocking(move || {
+                // Пауза, чтобы система успела перерисовать то, что было под нами.
+                std::thread::sleep(SCREENSHOT_DELAY);
+                let found = screen::capture()
+                    .map(|shot| qr::decode_luma(shot.width, shot.height, &shot.luma));
+                handle.with_ui(move |ui| {
+                    shell::show(ui);
+                    ui.global::<Ui>().set_qr_busy(false);
+                    match found {
+                        // Ничего не нашлось — режим остаётся: код, скорее всего,
+                        // ещё не открыли, и повторить надо одной кнопкой.
+                        Ok(codes) if codes.is_empty() => flash_nothing_found(ui),
+                        Ok(codes) => {
+                            leave_scan_mode(ui);
+                            absorb_codes(ui, codes);
+                        }
+                        Err(e) => {
+                            leave_scan_mode(ui);
+                            view::toast(ui, "error", &e.to_string(), "");
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    data.on_scan_move({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            ui.window().with_winit_window(|window| {
+                let _ = window.drag_window();
+            });
+        }
+    });
+
+    data.on_scan_exit({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            leave_scan_mode(&ui);
+        }
+    });
+
+    data.on_scan_file({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            ui.global::<Ui>().set_qr_busy(true);
+            let title = ui.global::<crate::Str>().get_qr_title().to_string();
+            let handle = handle.clone();
+            // Диалог блокирующий — уводим его с потока цикла.
+            app::runtime().spawn_blocking(move || {
+                let found = match dialog::pick_image(&title) {
+                    // Отказ от выбора — не событие: ни сообщения, ни ошибки.
+                    None => Ok(None),
+                    Some(path) => std::fs::read(&path)
+                        .map_err(crate::error::AppError::from)
+                        .and_then(|bytes| qr::decode_image_file(&bytes))
+                        .map(Some),
+                };
+                handle.with_ui(move |ui| {
+                    ui.global::<Ui>().set_qr_busy(false);
+                    match found {
+                        Ok(Some(codes)) => absorb_codes(ui, codes),
+                        Ok(None) => {}
+                        Err(e) => view::toast(ui, "error", &e.to_string(), ""),
+                    }
+                });
+            });
+        }
+    });
+
+    data.on_open_camera({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let global = ui.global::<Ui>();
+            global.set_camera_error(slint::SharedString::new());
+            global.set_camera_live(false);
+            global.set_camera_expanded(false);
+            global.set_camera_frame(slint::Image::default());
+            global.set_modal(7);
+
+            let handle = handle.clone();
+            // Перечисление устройств поднимает Media Foundation и опрашивает
+            // драйверы: на потоке цикла это заметная пауза, а окно уже открыто.
+            app::runtime().spawn_blocking(move || {
+                let listed = camera::list();
+                let reporter = handle.clone();
+                reporter.with_ui(move |ui| {
+                    let global = ui.global::<Ui>();
+                    // «Не удалось поднять Media Foundation» и «камеры нет» —
+                    // разные новости, и делать с ними надо разное.
+                    let devices = match listed {
+                        Ok(devices) => devices,
+                        Err(e) => {
+                            global.set_camera_error(e.to_string().into());
+                            return;
+                        }
+                    };
+                    let names: Vec<slint::SharedString> =
+                        devices.iter().map(|d| d.name.as_str().into()).collect();
+                    let empty = devices.is_empty();
+                    CAMERAS.with(|slot| *slot.borrow_mut() = devices);
+                    global.set_cameras(ModelRc::new(VecModel::from(names)));
+                    if empty {
+                        global.set_camera_error(ui.global::<crate::Str>().get_qr_no_camera());
+                        return;
+                    }
+                    start_camera(&handle, ui, 0);
+                });
+            });
+        }
+    });
+
+    data.on_close_camera({
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            close_camera(&ui);
+        }
+    });
+
+    data.on_next_camera({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let count = CAMERAS.with(|slot| slot.borrow().len());
+            if count < 2 {
+                return;
+            }
+            let current = ui.global::<Ui>().get_camera_index().max(0) as usize;
+            // Прежняя съёмка гасится до открытия следующей: устройство камеры
+            // почти всегда исключительное.
+            CAMERA.with(|slot| drop(slot.borrow_mut().take()));
+            start_camera(&handle, &ui, (current + 1) % count);
         }
     });
 
@@ -1316,4 +1514,230 @@ pub fn after_start(ui: &AppWindow, handle: &AppHandle) {
         );
         keep(timer);
     }
+}
+
+// ---------------------------------------------------------------------- qr
+
+/// Пауза между уходом окна и снимком: столько системе нужно, чтобы дорисовать
+/// то, что было под нами. Меньше — и на снимке останется наш собственный фон.
+const SCREENSHOT_DELAY: std::time::Duration = std::time::Duration::from_millis(180);
+
+/// Размер полоски режима «считать с экрана», в точках разметки.
+const SCAN_BAR: (f32, f32) = (270.0, 80.0);
+/// Отступ полоски от края рабочей области.
+const SCAN_BAR_MARGIN: f32 = 16.0;
+/// Сколько полоска держит «код не найден», прежде чем вернуть подсказку.
+const SCAN_EMPTY_LIFE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Уводит окно в полоску: она встаёт у правого края поверх остальных окон, а
+/// сам снимок ждёт кнопки — сперва надо открыть то, где код показан.
+fn enter_scan_mode(ui: &AppWindow) {
+    let window = ui.window();
+    // Геометрию нигде не сохраняют между запусками, поэтому вернуть её после
+    // выхода из режима может только тот, кто её и забрал.
+    SCAN_RETURN.with(|slot| *slot.borrow_mut() = Some((window.size(), window.position())));
+
+    let global = ui.global::<Ui>();
+    global.set_scan_empty(false);
+    global.set_scan_mode(true);
+
+    // Нижний предел снимается и напрямую: разметка его тоже опускает, но
+    // ограничения едут в оконную систему своим чередом, а изменить размер
+    // нужно уже сейчас.
+    set_min_size(ui, SCAN_BAR);
+    window.set_size(slint::LogicalSize::new(SCAN_BAR.0, SCAN_BAR.1));
+    place_scan_bar(ui);
+    set_topmost(ui, true);
+}
+
+/// Возвращает окно на место. Зовётся и из полоски, и снаружи — например, когда
+/// приложение уходит в трей прямо из режима.
+pub fn leave_scan_mode(ui: &AppWindow) {
+    let global = ui.global::<Ui>();
+    if !global.get_scan_mode() {
+        return;
+    }
+    set_topmost(ui, false);
+    global.set_scan_mode(false);
+    global.set_scan_empty(false);
+    set_min_size(ui, WINDOW_MIN);
+    if let Some((size, position)) = SCAN_RETURN.with(|slot| slot.borrow_mut().take()) {
+        ui.window().set_size(size);
+        ui.window().set_position(position);
+    }
+}
+
+/// Полоска у правого края рабочей области, по середине высоты: правый край —
+/// это то место, где меньше всего шансов накрыть собой код.
+fn place_scan_bar(ui: &AppWindow) {
+    let Some((left, top, right, bottom)) = screen::work_area() else {
+        return;
+    };
+    let scale = ui.window().scale_factor().max(1.0);
+    let width = (SCAN_BAR.0 * scale) as i32;
+    let height = (SCAN_BAR.1 * scale) as i32;
+    let margin = (SCAN_BAR_MARGIN * scale) as i32;
+    ui.window().set_position(slint::PhysicalPosition::new(
+        (right - width - margin).max(left),
+        (top + (bottom - top - height) / 2).max(top),
+    ));
+}
+
+/// Наименьший размер окна, в точках разметки: те же числа, что у AppWindow.
+const WINDOW_MIN: (f32, f32) = (960.0, 640.0);
+
+/// Нижний предел размера окна. Дублирует ограничение разметки: она объявляет
+/// его же, но окно ужимается здесь и сейчас, а не когда до него дойдёт очередь.
+fn set_min_size(ui: &AppWindow, size: (f32, f32)) {
+    use i_slint_backend_winit::winit::dpi::LogicalSize;
+
+    ui.window().with_winit_window(|window| {
+        window.set_min_inner_size(Some(LogicalSize::new(size.0 as f64, size.1 as f64)));
+    });
+}
+
+/// Поверх остальных окон — иначе браузер, в который пойдут за кодом, закроет
+/// собой саму кнопку.
+fn set_topmost(ui: &AppWindow, on: bool) {
+    use i_slint_backend_winit::winit::window::WindowLevel;
+
+    ui.window().with_winit_window(|window| {
+        window.set_window_level(if on {
+            WindowLevel::AlwaysOnTop
+        } else {
+            WindowLevel::Normal
+        });
+    });
+}
+
+/// Полоске негде показать тост, поэтому «не найдено» она говорит у себя же —
+/// и гасит это сама, чтобы надпись не осталась висеть над следующей попыткой.
+fn flash_nothing_found(ui: &AppWindow) {
+    ui.global::<Ui>().set_scan_empty(true);
+    let weak = ui.as_weak();
+    slint::Timer::single_shot(SCAN_EMPTY_LIFE, move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.global::<Ui>().set_scan_empty(false);
+        }
+    });
+}
+
+/// Как часто разбирать кадр предпросмотра. Камера отдаёт тридцать кадров в
+/// секунду, разбор каждого стоил бы ядра процессора целиком — и без всякой
+/// пользы: руку с телефоном над кодом так быстро не переставляют.
+const DECODE_EVERY: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// Открывает камеру под номером `index` и заводит цикл съёмки. Прежняя сессия,
+/// если была, гасится вместе со своей записью здесь.
+fn start_camera(handle: &AppHandle, ui: &AppWindow, index: usize) {
+    let device = CAMERAS.with(|slot| slot.borrow().get(index).map(|d| d.id.clone()));
+    let global = ui.global::<Ui>();
+    global.set_camera_index(index as i32);
+    global.set_camera_error(slint::SharedString::new());
+    global.set_camera_live(false);
+
+    let reporter = handle.clone();
+    let mut next_decode = std::time::Instant::now();
+    let session = camera::Session::start(device, move |event| match event {
+        camera::Event::Frame(frame) => {
+            let now = std::time::Instant::now();
+            let found = if now >= next_decode {
+                next_decode = now + DECODE_EVERY;
+                qr::decode_luma(
+                    frame.width as usize,
+                    frame.height as usize,
+                    &frame.luma,
+                )
+            } else {
+                Vec::new()
+            };
+            // Код найден — снимать больше нечего.
+            let keep = found.is_empty();
+            let (width, height, rgb) = (frame.width, frame.height, frame.rgb);
+            reporter.with_ui(move |ui| {
+                // Картинка собирается здесь, а не в потоке съёмки: `Image` живёт
+                // в потоке цикла и через границу потока не проходит.
+                let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
+                buffer.make_mut_bytes().copy_from_slice(&rgb);
+                let global = ui.global::<Ui>();
+                global.set_camera_frame(slint::Image::from_rgb8(buffer));
+                global.set_camera_live(true);
+                if !found.is_empty() {
+                    close_camera(ui);
+                    absorb_codes(ui, found);
+                }
+            });
+            keep
+        }
+        camera::Event::Failed(text) => {
+            reporter.with_ui(move |ui| {
+                let global = ui.global::<Ui>();
+                global.set_camera_live(false);
+                global.set_camera_error(text.as_str().into());
+            });
+            false
+        }
+    });
+    CAMERA.with(|slot| *slot.borrow_mut() = Some(session));
+}
+
+/// Гасит камеру снаружи — окно уходит в трей, а съёмка за спиной у человека
+/// не ведётся.
+pub fn stop_camera(ui: &AppWindow) {
+    close_camera(ui);
+}
+
+/// Гасит камеру и возвращает к окну импорта: прочитанное лежит в его поле.
+fn close_camera(ui: &AppWindow) {
+    CAMERA.with(|slot| drop(slot.borrow_mut().take()));
+    let global = ui.global::<Ui>();
+    global.set_camera_live(false);
+    global.set_camera_frame(slint::Image::default());
+    if global.get_modal() == 7 {
+        global.set_modal(1);
+    }
+}
+
+/// Прочитанные коды дописываются в поле импорта, а не импортируются сразу:
+/// видно, что вышло из картинки, и можно снять второй код прежде, чем нажать
+/// «Импортировать».
+fn absorb_codes(ui: &AppWindow, found: Vec<String>) {
+    if found.is_empty() {
+        let text = crate::tr(|l| l.qr_nothing.clone());
+        view::toast(ui, "info", &text, "");
+        return;
+    }
+
+    // Один и тот же код на экране дважды — обычное дело: страница и её же
+    // предпросмотр. В поле он должен попасть один раз.
+    append_import(ui, found.iter().map(String::as_str));
+    ui.global::<Ui>().set_modal(1);
+
+    let text = if found.len() == 1 {
+        crate::tr(|l| l.qr_found_one.clone())
+    } else {
+        crate::tr(|l| l.qr_found_many.clone()).replace("{n}", &found.len().to_string())
+    };
+    view::toast(ui, "success", &text, "");
+}
+
+/// Дописывает строки в поле импорта, не повторяя того, что там уже есть.
+///
+/// Дописывает, а не заменяет: поле может быть непустым — туда уже вставили
+/// ссылку руками или прочитали первый код, — и терять это молча нельзя.
+fn append_import<'a>(ui: &AppWindow, incoming: impl Iterator<Item = &'a str>) {
+    let global = ui.global::<Ui>();
+    let mut lines: Vec<String> = global
+        .get_import_text()
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    for line in incoming {
+        let line = line.trim().to_string();
+        if !line.is_empty() && !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    global.set_import_text(lines.join("\n").into());
 }

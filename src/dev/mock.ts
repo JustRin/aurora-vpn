@@ -166,6 +166,26 @@ mockIPC(
           payload: snapshot.status,
         });
         return undefined;
+      // The scanner's three sources. Nothing is really decoded in a browser
+      // tab — the detector lives in Rust — so the screen and the file answer
+      // with a canned link and the camera keeps looking, which is what makes
+      // every state of the dialog reachable here.
+      case "scan_qr_screen":
+      case "scan_qr_image":
+        return [
+          "vless://00000000-0000-4000-8000-000000000000@qr.example.com:443" +
+            "?type=tcp&security=reality&pbk=demo&sni=www.example.com#QR",
+        ];
+      case "scan_qr_frame":
+        return [];
+      // A browser tab has no window to shrink; the bar still draws over it.
+      case "set_screen_scan":
+        return undefined;
+      // The paste button. In a browser tab the plugin is not there, so the
+      // mock stands in for the clipboard itself.
+      case "plugin:clipboard-manager|read_text":
+        return "vless://00000000-0000-4000-8000-000000000000@paste.example.com:443" +
+          "?type=tcp&security=reality&pbk=demo&sni=www.example.com#Clipboard";
       case "check_update":
         return null;
       case "list_running_apps":

@@ -58,6 +58,7 @@ The builds are not signed with an Apple Developer ID. Download the `.pkg`: when 
 | **Security** | REALITY with uTLS fingerprints, TLS, VLESS Encryption (ML-KEM-768) |
 | **Transports** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
 | **Import** | `vless://` and friends, 3x-ui / Marzban subscriptions, background auto-refresh |
+| **QR codes** | read off the screen, out of a picture, or through the camera — webcam on a computer, either camera on a phone |
 | **Plan status** | days and traffic left, read straight from the panel |
 | **Tunnel modes** | TUN for the whole system, or a system proxy that needs no admin rights |
 | **Split tunneling** | per app — *only these through the VPN* or *everything but these* |

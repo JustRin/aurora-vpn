@@ -4,6 +4,7 @@ mod error;
 mod link;
 mod model;
 mod net;
+mod qr;
 mod settings;
 mod state;
 mod store;
@@ -148,6 +149,31 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
                 );
             }
         }
+    });
+
+    // The camera the QR scanner opens is off twice over on WebKitGTK: the media
+    // stream API is not built into the page unless the setting is on, and a
+    // permission request nobody has connected a handler to is refused outright.
+    // wry does neither, so both happen here — and only for media capture, so
+    // everything else keeps WebKit's own refusal.
+    #[cfg(target_os = "linux")]
+    let _ = window.with_webview(|webview| {
+        use webkit2gtk::glib::prelude::*;
+        use webkit2gtk::{
+            PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, WebViewExt,
+        };
+
+        let view = webview.inner();
+        if let Some(settings) = WebViewExt::settings(&view) {
+            settings.set_enable_media_stream(true);
+        }
+        view.connect_permission_request(|_, request| {
+            if request.is::<UserMediaPermissionRequest>() {
+                request.allow();
+                return true;
+            }
+            false
+        });
     });
 
     let handle = app.clone();
@@ -371,6 +397,7 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init());
 
     #[cfg(desktop)]
@@ -524,6 +551,10 @@ pub fn run() {
             commands::set_active_server,
             commands::set_clash_mode,
             commands::add_links,
+            commands::scan_qr_image,
+            commands::scan_qr_frame,
+            commands::scan_qr_screen,
+            commands::set_screen_scan,
             commands::delete_server,
             commands::update_server,
             commands::add_subscription,

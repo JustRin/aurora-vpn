@@ -19,6 +19,7 @@
     "core:window:allow-theme",
     "core:window:allow-set-background-color",
     "core:app:allow-version",
+    "clipboard-manager:allow-read-text",
     "dialog:default",
     "opener:default"
   ]

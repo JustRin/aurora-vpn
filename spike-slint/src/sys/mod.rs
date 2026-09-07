@@ -2,6 +2,7 @@
 //! the rest of the app never needs a `cfg` block.
 
 pub mod autostart;
+pub mod camera;
 pub mod clipboard;
 pub mod dialog;
 pub mod elevate;
@@ -10,4 +11,5 @@ pub mod icmp;
 pub mod notify;
 pub mod open;
 pub mod procs;
+pub mod screen;
 pub mod sysproxy;

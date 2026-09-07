@@ -6,7 +6,7 @@ import { Theme, Icons, Divider, NavItem, NavPill, CoreLine, WinButton, NavIcon }
 import { Toast } from "widgets.slint";
 import { Data, Conf, Ui, Draft } from "data.slint";
 import { DashboardPage } from "pages/dashboard.slint";
-import { ServersPage, ImportModal, NodeEditorModal } from "pages/servers.slint";
+import { ServersPage, ImportModal, NodeEditorModal, CameraModal, ScanBar } from "pages/servers.slint";
 import { SplitPage, ProcessPickerModal } from "pages/split.slint";
 import { RoutingPage, ConfigModal } from "pages/routing.slint";
 import { LogsPage } from "pages/logs.slint";
@@ -103,8 +103,10 @@ export component AppWindow inherits Window {
     title: "Aurora VPN";
     preferred-width: 1120px;
     preferred-height: 760px;
-    min-width: 960px;
-    min-height: 640px;
+    // В режиме полоски окно ужимается до неё: обычный нижний предел не пустил
+    // бы его дальше 960×640, а ограничения разметки едут в оконную систему.
+    min-width: Ui.scan-mode ? 200px : 960px;
+    min-height: Ui.scan-mode ? 56px : 640px;
     background: Theme.bg;
     // Семейство, как первое в стеке body (styles.css), — «Segoe UI Variable
     // Display». Slint 1.17 ищет шрифты через fontique поверх DirectWrite, а
@@ -434,6 +436,11 @@ export component AppWindow inherits Window {
     if Ui.modal == 4: ConfigModal { }
     if Ui.modal == 5: ElevateModal { }
     if Ui.modal == 6: OrphanModal { }
+    if Ui.modal == 7: CameraModal { }
+
+    // Полоска режима «считать с экрана». Рисуется поверх всего и непрозрачна:
+    // окно в этот момент ровно её размера, и остального под ней не видно.
+    if Ui.scan-mode: ScanBar { }
 
     // -------------------------------------------------------------- тосты
     Rectangle {

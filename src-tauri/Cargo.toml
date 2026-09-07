@@ -20,6 +20,11 @@ tauri-build = { version = "2.6", features = [] }
 tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2.7"
 tauri-plugin-opener = "2.5"
+# The «Paste» button next to the import box. Through a plugin rather than
+# `navigator.clipboard.readText()`: WebKit only lets a page read the clipboard
+# behind a confirmation of its own, and the Android WebView refuses outright —
+# so the button would work nowhere but in a desktop browser tab.
+tauri-plugin-clipboard-manager = "2.3"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -39,6 +44,20 @@ base64 = "0.23"
 url = "2"
 percent-encoding = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+# QR codes as an import source. `rqrr` finds and reads the code, `image` turns
+# whatever the user picked — a screenshot from the gallery, a photo, a saved
+# .png — into pixels. rqrr can bridge to `image` on its own, but that pins a
+# second copy of the version range; the greyscale plane it actually wants is
+# two lines in `qr.rs`, so only the detector is taken.
+rqrr = { version = "0.11", default-features = false }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "bmp",
+  "gif",
+  "webp",
+] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "0.13", features = ["json"] }
@@ -62,6 +81,15 @@ webpki-roots = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2.4"
+
+# Both halves of the QR scanner on Linux go through the toolkit the window is
+# already made of, so nothing new is linked in: GDK grabs the root window for
+# «scan from the screen», and the WebKit view has to be told to allow the
+# camera — wry connects nothing to `permission-request`, and WebKit's own
+# default for an unhandled request is to refuse it. Versions as wry pulls them.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+webkit2gtk = "2.0"
 
 # The effective uid is the one root check that holds on every Unix we ship to:
 # macOS has no /proc to probe, and `$EUID` is a bash-internal variable that a
@@ -92,6 +120,9 @@ webview2-com = "0.38"
 windows-core = "0.61"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
+  # «Scan the QR code from the screen»: BitBlt out of the desktop's own
+  # device context into a DIB section.
+  "Win32_Graphics_Gdi",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
   "Win32_Networking_WinInet",

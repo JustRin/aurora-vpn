@@ -23,6 +23,7 @@ use crate::core::xray;
 use crate::error::{AppError, Result};
 use crate::link;
 use crate::model::ServerNode;
+use crate::qr;
 use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
 use crate::state::{AppState, ConnState, Link, Status, Traffic};
 use crate::sys::autostart::{self, AutostartMode};
@@ -1701,6 +1702,203 @@ pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
     })
 }
 
+// ------------------------------------------------------------------- qr
+
+/// Room for a preview frame from any camera a phone or a laptop has, and no
+/// more: the command runs on every tick of the preview, and the length prefix
+/// it trusts comes from the page.
+const MAX_FRAME_PIXELS: usize = 16_000_000;
+
+/// The bytes of a picture arrive as a raw IPC body rather than as JSON —
+/// a megabyte of pixels written out as a list of numbers would cost more to
+/// parse than to decode.
+fn raw_body<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<&'a [u8]> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes),
+        _ => Err(AppError::msg("ожидались двоичные данные картинки")),
+    }
+}
+
+/// Read the QR codes out of a picture: what the file picker returned, or what
+/// the gallery handed over.
+///
+/// What comes back goes straight into `add_links`, so a code carrying a share
+/// link, a subscription URL or a base64 blob of either needs nothing special
+/// here — the paste box already understands all three.
+#[tauri::command]
+pub fn scan_qr_image(request: tauri::ipc::Request<'_>) -> Result<Vec<String>> {
+    qr::decode_image_file(raw_body(&request)?)
+}
+
+/// Split the wire format the preview sends: width and height as little-endian
+/// `u32`, then one luminance byte per pixel.
+///
+/// The only place the two sides of the app agree on a layout by hand, so it is
+/// separate from the command and pinned by tests. Raw luminance rather than a
+/// re-encoded PNG because this runs several times a second while the preview is
+/// open, and on a phone the encoding would cost more than the detection.
+fn split_frame(body: &[u8]) -> Result<(usize, usize, &[u8])> {
+    let Some(header) = body.get(..8) else {
+        return Err(AppError::msg("кадр пришёл пустым"));
+    };
+    let width = u32::from_le_bytes(header[..4].try_into().unwrap()) as usize;
+    let height = u32::from_le_bytes(header[4..].try_into().unwrap()) as usize;
+    if width == 0 || height == 0 || width.saturating_mul(height) > MAX_FRAME_PIXELS {
+        return Err(AppError::msg("кадр неправдоподобного размера"));
+    }
+    Ok((width, height, &body[8..]))
+}
+
+/// Read the QR codes out of one frame of the camera preview.
+#[tauri::command]
+pub fn scan_qr_frame(request: tauri::ipc::Request<'_>) -> Result<Vec<String>> {
+    let (width, height, luma) = split_frame(raw_body(&request)?)?;
+    Ok(qr::decode_luma(width, height, luma))
+}
+
+/// The bar the window shrinks into for «scan from the screen», in logical
+/// pixels, and how far it sits from the edge of the work area. Same numbers as
+/// the native Windows build uses.
+#[cfg(desktop)]
+const SCAN_BAR: (f64, f64) = (270.0, 80.0);
+#[cfg(desktop)]
+const SCAN_BAR_MARGIN: f64 = 16.0;
+/// What the main window looked like before it became the bar. Window geometry
+/// is not persisted anywhere, so the only copy of it is this one.
+#[cfg(desktop)]
+static SCAN_RETURN: parking_lot::Mutex<
+    Option<(tauri::PhysicalSize<u32>, tauri::PhysicalPosition<i32>)>,
+> = parking_lot::Mutex::new(None);
+
+/// Turn «scan from the screen» on or off.
+///
+/// On, the window becomes a small bar above every other window: the code has to
+/// be opened first — in a browser, in a chat — and only then is there anything
+/// to photograph. The page keeps rendering; it just has 270×80 to do it in, and
+/// draws the bar over everything else (`QrScanner.tsx`).
+#[tauri::command]
+pub fn set_screen_scan(app: AppHandle, on: bool) -> Result<()> {
+    #[cfg(desktop)]
+    {
+        let Some(window) = app.get_webview_window("main") else {
+            return Err(AppError::msg("окно не найдено"));
+        };
+        let wrap = |e: tauri::Error| AppError::msg(format!("окно: {e}"));
+
+        if on {
+            *SCAN_RETURN.lock() = Some((
+                window.outer_size().map_err(wrap)?,
+                window.outer_position().map_err(wrap)?,
+            ));
+            // The lower bound the window was built with would refuse the bar.
+            window
+                .set_min_size(None::<tauri::LogicalSize<f64>>)
+                .map_err(wrap)?;
+            window.set_resizable(false).map_err(wrap)?;
+            window.set_always_on_top(true).map_err(wrap)?;
+            // Windows has no frame to take off; the other two do, and a title
+            // bar taller than the bar itself would be all one could see.
+            #[cfg(not(windows))]
+            window.set_decorations(false).map_err(wrap)?;
+            window
+                .set_size(tauri::LogicalSize::new(SCAN_BAR.0, SCAN_BAR.1))
+                .map_err(wrap)?;
+            place_scan_bar(&window)?;
+        } else {
+            window.set_always_on_top(false).map_err(wrap)?;
+            #[cfg(not(windows))]
+            window.set_decorations(true).map_err(wrap)?;
+            window.set_resizable(true).map_err(wrap)?;
+            window
+                .set_min_size(Some(tauri::LogicalSize::new(960.0, 640.0)))
+                .map_err(wrap)?;
+            if let Some((size, position)) = SCAN_RETURN.lock().take() {
+                window.set_size(size).map_err(wrap)?;
+                window.set_position(position).map_err(wrap)?;
+            }
+        }
+        let _ = window.set_focus();
+        Ok(())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, on);
+        Err(AppError::msg("режим доступен только на компьютере"))
+    }
+}
+
+/// The bar goes to the right edge of the work area, halfway down: the far edge
+/// is where it is least likely to end up covering the code itself.
+#[cfg(desktop)]
+fn place_scan_bar(window: &tauri::WebviewWindow) -> Result<()> {
+    let monitor = window
+        .current_monitor()
+        .or_else(|_| window.primary_monitor())
+        .map_err(|e| AppError::msg(format!("экран: {e}")))?;
+    let Some(monitor) = monitor else { return Ok(()) };
+
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let width = (SCAN_BAR.0 * scale) as i32;
+    let height = (SCAN_BAR.1 * scale) as i32;
+    let margin = (SCAN_BAR_MARGIN * scale) as i32;
+    let x = (area.position.x + area.size.width as i32 - width - margin).max(area.position.x);
+    let y = (area.position.y + (area.size.height as i32 - height) / 2).max(area.position.y);
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| AppError::msg(format!("окно: {e}")))?;
+    Ok(())
+}
+
+/// Read the QR codes off the desktop itself — the usual case on a computer,
+/// where the code is being shown by a browser or a messenger rather than
+/// printed on paper.
+///
+/// The bar is taken out of the way first: small as it is, it is still on top of
+/// the very screen being photographed.
+#[tauri::command]
+pub async fn scan_qr_screen(app: AppHandle) -> Result<Vec<String>> {
+    #[cfg(desktop)]
+    {
+        let window = app.get_webview_window("main");
+        let hidden = match &window {
+            Some(w) => w.is_visible().unwrap_or(false) && w.hide().is_ok(),
+            None => false,
+        };
+        // Long enough for the compositor to finish painting what was under us.
+        tokio::time::sleep(Duration::from_millis(180)).await;
+        let shots = crate::sys::screen::capture(&app).await;
+        if hidden {
+            if let Some(w) = &window {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
+        let shots = shots?;
+
+        // Detection over a few megapixels is long enough to be felt on the
+        // runtime's thread, and there is nothing to await inside it.
+        tokio::task::spawn_blocking(move || {
+            let mut found: Vec<String> = Vec::new();
+            for shot in shots {
+                for text in qr::decode_luma(shot.width, shot.height, &shot.luma) {
+                    if !found.contains(&text) {
+                        found.push(text);
+                    }
+                }
+            }
+            found
+        })
+        .await
+        .map_err(|e| AppError::msg(format!("снимок экрана: {e}")))
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        Err(AppError::msg("снимок экрана доступен только на компьютере"))
+    }
+}
+
 #[tauri::command]
 pub async fn delete_server(app: AppHandle, id: String) -> Result<()> {
     {
@@ -2808,7 +3006,9 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{installer_suffix, parse_version, pick_installer_url, split_import_text};
+    use super::{
+        installer_suffix, parse_version, pick_installer_url, split_frame, split_import_text,
+    };
     use serde_json::json;
 
     #[test]
@@ -2834,6 +3034,33 @@ mod tests {
         assert_eq!(parse_version("v1.2.3-beta"), [1, 2, 3]);
         // Garbage must compare as 0.0.0 and never announce an update.
         assert_eq!(parse_version("latest"), [0, 0, 0]);
+    }
+
+    /// The layout `takeFrame` in `src/lib/qr.ts` writes. Both sides are hand
+    /// written, so the agreement is worth a test on this one.
+    #[test]
+    fn a_camera_frame_is_split_into_its_size_and_its_pixels() {
+        let mut body = Vec::from(3u32.to_le_bytes());
+        body.extend_from_slice(&2u32.to_le_bytes());
+        body.extend_from_slice(&[10, 20, 30, 40, 50, 60]);
+
+        let (width, height, luma) = split_frame(&body).expect("a well-formed frame");
+        assert_eq!((width, height), (3, 2));
+        assert_eq!(luma, &[10, 20, 30, 40, 50, 60]);
+    }
+
+    #[test]
+    fn a_frame_that_makes_no_sense_is_refused() {
+        // Shorter than the header itself.
+        assert!(split_frame(&[0, 0, 0]).is_err());
+        // Zero on either side.
+        let mut empty = Vec::from(0u32.to_le_bytes());
+        empty.extend_from_slice(&8u32.to_le_bytes());
+        assert!(split_frame(&empty).is_err());
+        // A size no camera produces, and no machine should try to allocate.
+        let mut huge = Vec::from(u32::MAX.to_le_bytes());
+        huge.extend_from_slice(&u32::MAX.to_le_bytes());
+        assert!(split_frame(&huge).is_err());
     }
 
     #[test]

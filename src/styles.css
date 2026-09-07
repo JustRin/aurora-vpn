@@ -2146,6 +2146,172 @@ html[data-platform="linux"] .app {
   border-top: 1px solid var(--border);
 }
 
+/* ============================================================ qr scanner
+   Three ways into the import box — the desktop, a picture, the camera — and
+   the live preview the last of them opens. */
+.qr-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+.qr-sources-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: 2px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--text-muted);
+}
+
+/* Splits the row: what is put into the box as it is on the near side, what has
+   to be read off a picture first on the far side. */
+.qr-sources-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 3px;
+  background: var(--border);
+}
+
+/* A phone is too narrow for one row. Turning the divider into the line break
+   itself keeps the two groups whole, instead of the wrap falling between the
+   QR label and its buttons. */
+@media (max-width: 460px) {
+  .qr-sources-sep {
+    flex-basis: 100%;
+    width: auto;
+    height: 0;
+    margin: 0;
+    background: none;
+  }
+}
+
+/* While the bar is up the window is 270x80, and everything the interface drew
+   before would only overflow it. Hidden, not unmounted: the import box behind
+   the bar is where the code being scanned is going to land. */
+html[data-scan="on"] .app,
+html[data-scan="on"] .ambient {
+  display: none;
+}
+
+/* The bar the window becomes while scanning from the screen. It is the window:
+   270×80 of it, with everything the page drew before behind it. */
+.scan-bar {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px 0 12px;
+  /* Opaque, unlike every other surface here: there is nothing behind it worth
+     showing through, and a translucent one would read as a rendering fault. */
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+}
+.scan-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.scan-bar-hint {
+  font-size: calc(11px * var(--text-scale));
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scan-bar-hint.warn {
+  color: var(--warn);
+}
+
+/* Layered over the import dialog it was opened from. */
+.qr-cam-backdrop {
+  z-index: 55;
+}
+
+.qr-cam {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  backdrop-filter: blur(30px) saturate(160%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 var(--sheen), var(--shadow);
+  animation: modal-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* Expanded: the dialog drops its margins and takes the window. On a phone that
+   is the difference between reading a code at arm's length and having to bring
+   the lens to within a hand's width of it. */
+.qr-cam.expanded {
+  position: fixed;
+  inset: 0;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+}
+
+.qr-cam-view {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  /* Black rather than a token: this is the inside of a lens, not a surface of
+     the interface, and it is the same in every palette. */
+  background: #000;
+}
+.qr-cam.expanded .qr-cam-view {
+  flex: 1;
+  aspect-ratio: auto;
+}
+.qr-cam-view video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The aiming square, and the dimming around it in one property: an outsized
+   shadow spread fills the rest of the frame without a second element. */
+.qr-cam-target {
+  position: absolute;
+  width: min(64%, 280px);
+  aspect-ratio: 1;
+  border: 2px solid var(--accent-hi);
+  border-radius: var(--r-lg);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+}
+
+.qr-cam-message {
+  position: absolute;
+  max-width: 82%;
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: calc(13px * var(--text-scale));
+  text-align: center;
+}
+
+/* Reserves its line whether or not there is a hint to show, so switching the
+   camera does not make the dialog jump. */
+.qr-cam-foot {
+  min-height: 41px;
+  padding: 12px 16px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--text-muted);
+  text-align: center;
+}
+
 /* ============================================================ toasts */
 .toasts {
   position: fixed;

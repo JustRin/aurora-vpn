@@ -1,5 +1,5 @@
-//! Буфер обмена. В Slint своего API для него нет, а тянуть крейт ради двух
-//! вызовов незачем: под Windows это три функции user32.
+//! Буфер обмена. В Slint своего API для него нет, а тянуть крейт ради этого
+//! незачем: под Windows всё упирается в несколько функций user32.
 
 use crate::error::{AppError, Result};
 
@@ -41,5 +41,50 @@ pub fn set_text(text: &str) -> Result<()> {
 
 #[cfg(not(windows))]
 pub fn set_text(_text: &str) -> Result<()> {
+    Err(AppError::msg("буфер обмена доступен только под Windows"))
+}
+
+/// Текст из буфера обмена. Пустая строка — там лежит не текст (картинка,
+/// файлы): для кнопки «Вставить» это не ошибка, а «вставлять нечего».
+#[cfg(windows)]
+pub fn text() -> Result<String> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    };
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+    unsafe {
+        if IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32).is_err() {
+            return Ok(String::new());
+        }
+        OpenClipboard(None).map_err(|e| AppError::msg(format!("буфер обмена занят: {e}")))?;
+        let result = (|| -> Result<String> {
+            let handle = GetClipboardData(CF_UNICODETEXT.0 as u32)
+                .map_err(|e| AppError::msg(format!("буфер обмена: {e}")))?;
+            let memory = HGLOBAL(handle.0);
+            let start = GlobalLock(memory) as *const u16;
+            if start.is_null() {
+                return Err(AppError::msg("не удалось прочитать буфер"));
+            }
+            // Длина считается до завершающего нуля, но не дальше самого блока:
+            // владелец буфера обязан его поставить, а полагаться на это нельзя.
+            let capacity = GlobalSize(memory) / 2;
+            let mut length = 0usize;
+            while length < capacity && *start.add(length) != 0 {
+                length += 1;
+            }
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(start, length));
+            let _ = GlobalUnlock(memory);
+            Ok(text)
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+#[cfg(not(windows))]
+pub fn text() -> Result<String> {
     Err(AppError::msg("буфер обмена доступен только под Windows"))
 }

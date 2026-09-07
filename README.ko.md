@@ -58,6 +58,7 @@ TUN 모드, 앱별 분할 터널링, 규칙 기반 라우팅 — Windows, Androi
 | **보안** | uTLS 지문을 사용하는 REALITY, TLS, VLESS Encryption(ML-KEM-768) |
 | **전송** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
 | **가져오기** | `vless://` 등의 링크, 3x-ui / Marzban 구독, 백그라운드 자동 갱신 |
+| **QR 코드** | 화면에서, 이미지에서, 카메라로 읽기 — PC는 웹캠, 휴대폰은 전후면 카메라 모두 |
 | **요금제 상태** | 남은 일수와 트래픽을 패널에서 바로 읽어옴 |
 | **터널 모드** | 시스템 전체를 넘기는 TUN, 또는 관리자 권한이 필요 없는 시스템 프록시 |
 | **분할 터널링** | 앱 단위로 — *선택한 앱만 VPN 경유* 또는 *선택한 앱만 VPN 제외* |

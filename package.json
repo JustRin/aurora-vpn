@@ -1,7 +1,7 @@
 {
   "name": "aurora-vpn",
   "private": true,
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "description": "Cross-platform VPN client for VLESS, VMess, Trojan, Shadowsocks, Hysteria2 and TUIC servers, powered by sing-box",
   "scripts": {
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.3",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "lucide-react": "^1.31.0",

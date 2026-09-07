@@ -58,6 +58,7 @@ As versões não são assinadas com um Apple Developer ID. Baixe o `.pkg`: quand
 | **Segurança** | REALITY com impressões digitais uTLS, TLS, VLESS Encryption (ML-KEM-768) |
 | **Transportes** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
 | **Importação** | links `vless://` e afins, assinaturas 3x-ui / Marzban, atualização automática em segundo plano |
+| **Códigos QR** | leitura da tela, de uma imagem ou pela câmera — webcam no computador, qualquer uma das duas no celular |
 | **Status do plano** | dias e tráfego restantes, lidos direto do painel |
 | **Modos de túnel** | TUN para todo o sistema, ou um proxy do sistema que dispensa direitos de administrador |
 | **Túnel dividido** | por aplicativo — *apenas estes pela VPN* ou *todos, menos estes* |

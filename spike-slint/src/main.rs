@@ -16,6 +16,7 @@ mod keys;
 mod link;
 mod model;
 mod net;
+mod qr;
 mod settings;
 mod shell;
 mod state;
@@ -107,6 +108,11 @@ struct Lang {
     notify_unreachable_title: String,
     notify_unreachable_body: String,
     notify_reachable_title: String,
+    qr_nothing: String,
+    qr_found_one: String,
+    qr_found_many: String,
+    clipboard_empty: String,
+    paste_failed: String,
 }
 
 impl Lang {
@@ -179,6 +185,11 @@ impl Lang {
             notify_unreachable_title: s.get_notify_unreachable_title().into(),
             notify_unreachable_body: s.get_notify_unreachable_body().into(),
             notify_reachable_title: s.get_notify_reachable_title().into(),
+            qr_nothing: s.get_qr_nothing().into(),
+            qr_found_one: s.get_qr_found_one().into(),
+            qr_found_many: s.get_qr_found_many().into(),
+            clipboard_empty: s.get_srv_clipboard_empty().into(),
+            paste_failed: s.get_srv_paste_failed().into(),
         }
     }
 
