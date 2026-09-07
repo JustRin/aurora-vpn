@@ -40,25 +40,87 @@ const XRAY_ASSETS = {
   "darwin-arm64": "Xray-macos-arm64-v8a.zip",
 };
 
+/**
+ * Statuses that say «not now» rather than «not ever». The release CDN hands out
+ * 502s and 504s often enough that a build giving up on the first one is a coin
+ * toss, and it is a 45 MB download on a shared runner.
+ */
+const RETRY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const ATTEMPTS = 5;
+/** Doubles each time: 2, 4, 8, 16 seconds — a minute of patience in total. */
+const BACKOFF_MS = 2000;
+/** Long enough for the slowest runner, short enough to end a hung connection. */
+const API_TIMEOUT_MS = 30_000;
+const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+
+class HttpError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run `attempt` again while it keeps failing for a reason that might not
+ * repeat. A 404 is the wrong version and a 403 an exhausted rate limit —
+ * waiting changes neither, so those come straight back out. Everything else
+ * these callers can throw is the transport: a reset socket, a stalled body, a
+ * gateway that timed out.
+ */
+async function retrying(what, attempt) {
+  for (let round = 1; ; round += 1) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (error instanceof HttpError && !RETRY_STATUS.has(error.status)) throw error;
+      if (round === ATTEMPTS) throw error;
+      const wait = BACKOFF_MS * 2 ** (round - 1);
+      console.log(
+        `  … ${what}: ${error.message}` +
+          ` — повтор ${round + 1}/${ATTEMPTS} через ${wait / 1000} с`,
+      );
+      await sleep(wait);
+    }
+  }
+}
+
 async function latestTag(repo) {
   // `GITHUB_TOKEN` lifts the anonymous rate limit on CI runners, whose shared
   // egress addresses exhaust it quickly; locally it is simply absent.
   const auth = process.env.GITHUB_TOKEN
     ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
     : {};
-  const response = await fetch(
-    `https://api.github.com/repos/${repo}/releases/latest`,
-    { headers: { "User-Agent": "aurora-vpn-setup", ...auth } },
-  );
-  if (!response.ok) throw new Error(`GitHub API ответил ${response.status}`);
-  const body = await response.json();
-  return String(body.tag_name);
+  return retrying(`${repo}: список релизов`, async () => {
+    const response = await fetch(
+      `https://api.github.com/repos/${repo}/releases/latest`,
+      {
+        headers: { "User-Agent": "aurora-vpn-setup", ...auth },
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new HttpError(`GitHub API ответил ${response.status}`, response.status);
+    }
+    const body = await response.json();
+    return String(body.tag_name);
+  });
 }
 
 async function download(url, dest) {
-  const response = await fetch(url, { headers: { "User-Agent": "aurora-vpn-setup" } });
-  if (!response.ok) throw new Error(`не удалось скачать ${url}: ${response.status}`);
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
+  await retrying(`загрузка ${path.basename(url)}`, async () => {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "aurora-vpn-setup" },
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new HttpError(`не удалось скачать ${url}: ${response.status}`, response.status);
+    }
+    // A body that breaks halfway leaves a truncated file behind; the next
+    // attempt opens the same path for writing, which starts it over.
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
+  });
 }
 
 async function extract(archive, into) {
