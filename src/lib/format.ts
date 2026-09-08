@@ -132,6 +132,8 @@ export function protocolLabel(protocol: string): string {
       return "Shadowsocks";
     case "hysteria2":
       return "Hysteria2";
+    case "wireguard":
+      return "WARP";
     case "tuic":
       return "TUIC";
     default:
@@ -140,7 +142,14 @@ export function protocolLabel(protocol: string): string {
 }
 
 /** Compact description of a node's transport, e.g. `REALITY · ws`. */
-export function transportLabel(security: string, network: string): string {
+export function transportLabel(
+  security: string,
+  network: string,
+  protocol?: string,
+): string {
+  // WireGuard has neither a TLS layer nor a transport to name: it is its own
+  // encryption, so the pair below would describe something that is not there.
+  if (protocol === "wireguard") return "WireGuard";
   const sec =
     security === "reality"
       ? "REALITY"

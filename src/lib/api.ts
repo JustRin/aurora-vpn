@@ -18,6 +18,7 @@ import type {
   Traffic,
   UpdateInfo,
   UpdateProgress,
+  WarpInfo,
 } from "./types";
 
 export const EVT = {
@@ -55,6 +56,17 @@ export const api = {
     invoke<ImportReport>("refresh_subscription", { id }),
   refreshAllSubscriptions: () => invoke<ImportReport>("refresh_all_subscriptions"),
   deleteSubscription: (id: string) => invoke<void>("delete_subscription", { id }),
+
+  /** Cloudflare WARP: один аккаунт и на слой поверх прокси, и на отдельный
+   *  узел — живую сессию Cloudflare держит ровно одну на ключ. */
+  warpStatus: () => invoke<WarpInfo>("warp_status"),
+  /** Регистрирует аккаунт, если его ещё нет. Сам слой — настройка, так что
+   *  дальше идёт `saveSettings({ warpOverProxy: true })`. */
+  enableWarp: () => invoke<WarpInfo>("enable_warp"),
+  /** Новая регистрация: другой ключ, а с ним и другой адрес на выходе. */
+  resetWarp: () => invoke<WarpInfo>("reset_warp"),
+  /** Кладёт WARP в список серверов как обычный сервер. */
+  addWarpNode: () => invoke<void>("add_warp_node"),
 
   /** Reveals the main window; called once the UI has actually painted. */
   appReady: () => invoke<void>("app_ready"),

@@ -150,7 +150,7 @@ export function ServerPicker() {
                     <span className="picker-name truncate">{node.name}</span>
                     <span className="picker-meta truncate">
                       {protocolLabel(node.protocol)} ·{" "}
-                      {transportLabel(node.security, node.network)}
+                      {transportLabel(node.security, node.network, node.protocol)}
                     </span>
                   </span>
                   {routed && <span className="chip accent">{t("pick.nowChip")}</span>}

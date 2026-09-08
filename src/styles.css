@@ -1678,6 +1678,29 @@ html[data-platform="linux"] .app {
   margin-bottom: 16px;
 }
 
+/* The WARP layer switch: a notice-shaped row, but neutral — it reports a
+   choice rather than a problem. Sits between the page head and the hero. */
+.warp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.warp-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .alert {
   display: flex;
   gap: 11px;

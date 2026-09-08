@@ -52,6 +52,12 @@ pub struct Settings {
     pub dns_strategy: String,
     pub fake_ip: bool,
 
+    /// «Дополнительная защита через WARP»: трафик, уже ушедший в выбранный
+    /// сервер, заворачивается ещё и в бесплатный WireGuard-туннель Cloudflare.
+    /// Сервер при этом видит только шифрованный поток до Cloudflare, а сайт на
+    /// выходе — адрес Cloudflare, а не адрес сервера.
+    pub warp_over_proxy: bool,
+
     pub auto_connect: bool,
     pub start_minimized: bool,
     pub close_to_tray: bool,
@@ -119,6 +125,8 @@ impl Default for Settings {
             dns_strategy: "prefer_ipv4".into(),
             fake_ip: false,
 
+            warp_over_proxy: false,
+
             auto_connect: false,
             start_minimized: false,
             close_to_tray: true,
@@ -163,6 +171,8 @@ impl Settings {
             dns_direct,
             dns_strategy,
             fake_ip,
+            // Adds an endpoint the whole routing table is re-pointed at.
+            warp_over_proxy,
             // Baked into the `urltest` outbound of the generated document.
             latency_url,
             // Живут в приложении, а не в документе: балансировщик
@@ -195,6 +205,7 @@ impl Settings {
             || *dns_direct != next.dns_direct
             || *dns_strategy != next.dns_strategy
             || *fake_ip != next.fake_ip
+            || *warp_over_proxy != next.warp_over_proxy
             || *latency_url != next.latency_url
     }
 

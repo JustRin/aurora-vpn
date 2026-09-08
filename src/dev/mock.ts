@@ -43,6 +43,13 @@ function node(id: string, name: string, address: string): ServerNode {
     obfs: "",
     obfsPassword: "",
     hopPorts: [],
+    privateKey: "",
+    peerPublicKey: "",
+    localV4: "",
+    localV6: "",
+    reserved: [],
+    mtu: 1280,
+    keepalive: 30,
     subscriptionId: null,
     rawLink: "",
   };
@@ -67,6 +74,7 @@ const snapshot: Snapshot = {
     dnsDirect: "https://77.88.8.8/dns-query",
     dnsStrategy: "prefer_ipv4",
     fakeIp: true,
+    warpOverProxy: false,
     autoConnect: false,
     startMinimized: false,
     launchAtLogin: false,
@@ -130,6 +138,15 @@ const logs: LogLine[] = [
   { seq: 1, level: "info", text: "mock backend ready" },
 ];
 
+/** The Cloudflare account the WARP switch asks about. */
+const warp = {
+  registered: false,
+  accountType: "free",
+  license: "",
+  created: new Date().toISOString(),
+  hasNode: false,
+};
+
 mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
@@ -188,6 +205,15 @@ mockIPC(
           "?type=tcp&security=reality&pbk=demo&sni=www.example.com#Clipboard";
       case "check_update":
         return null;
+      case "warp_status":
+      case "enable_warp":
+      case "reset_warp":
+        // Registered from the second call on, so the consent dialog shows once
+        // and the switch behaves the way it does against the real backend.
+        warp.registered = cmd !== "warp_status" || warp.registered;
+        return { ...warp };
+      case "add_warp_node":
+        return undefined;
       case "list_running_apps":
         return [];
       case "test_latency":

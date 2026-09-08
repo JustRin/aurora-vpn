@@ -28,6 +28,7 @@ use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode}
 use crate::state::{AppState, ConnState, Link, Status, Traffic};
 use crate::sys::autostart::{self, AutostartMode};
 use crate::sys::{elevate, procs, sysproxy};
+use crate::warp::{self, WarpAccount};
 
 pub const EVT_STATUS: &str = "app://status";
 pub const EVT_TRAFFIC: &str = "app://traffic";
@@ -267,6 +268,22 @@ fn cached_rule_sets(dir: &std::path::Path, split: &SplitConfig) -> HashSet<Strin
         .collect()
 }
 
+/// The node describing the WARP layer, when it is switched on and there is an
+/// account to build it from.
+///
+/// The layer and the standalone WARP node share one account on purpose:
+/// Cloudflare keeps a single live session per key, so a second registration
+/// would only give the two tunnels something to fight over.
+fn warp_chain_node(state: &AppState) -> Option<ServerNode> {
+    if !state.settings.read().warp_over_proxy {
+        return None;
+    }
+    let account = state.warp.read().clone();
+    account
+        .is_usable()
+        .then(|| account.to_node(String::new(), "WARP".into()))
+}
+
 /// Which geo sets the current rules ask for.
 fn required_rule_sets(split: &SplitConfig) -> Vec<ruleset::Spec> {
     let mut tags: Vec<&str> = Vec::new();
@@ -300,6 +317,7 @@ fn build_document(
     let xray_exe = state.xray.lock().as_ref().map(|e| e.exe().to_path_buf());
     #[cfg(target_os = "android")]
     let xray_exe: Option<std::path::PathBuf> = None;
+    let warp_chain = warp_chain_node(state);
 
     config::build(&BuildInput {
         nodes: &nodes,
@@ -312,6 +330,7 @@ fn build_document(
         xray_exe: xray_exe.as_deref(),
         rule_sets,
         rule_set_dir: &state.paths.rule_set_dir,
+        warp_chain: warp_chain.as_ref(),
         #[cfg(target_os = "android")]
         log_file: &state.paths.log_file,
     })
@@ -1644,13 +1663,32 @@ pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
     let mut added = 0;
     let mut skipped = 0;
     let mut errors = report.errors;
+    let mut fresh = report.nodes;
+
+    // A `warp://` link carries no credentials: they belong to the account, not
+    // to the link. Register one (or reuse the existing) the moment such a link
+    // turns up, and drop those nodes if Cloudflare cannot be reached — a WARP
+    // node without keys is a server that silently carries nothing.
+    if fresh.iter().any(needs_warp_account) {
+        match ensure_warp_account(&app).await {
+            Ok(account) => {
+                for node in fresh.iter_mut().filter(|n| needs_warp_account(n)) {
+                    apply_warp_account(node, &account);
+                }
+            }
+            Err(e) => {
+                fresh.retain(|n| !needs_warp_account(n));
+                errors.push(("warp://".to_string(), e.to_string()));
+            }
+        }
+    }
 
     {
         let state = app.state::<AppState>();
         let mut nodes = state.nodes.write();
         let existing: Vec<String> = nodes.iter().map(|n| n.fingerprint_key()).collect();
 
-        for node in report.nodes {
+        for node in fresh {
             if existing.contains(&node.fingerprint_key()) {
                 skipped += 1;
                 continue;
@@ -1981,6 +2019,146 @@ fn host_of(url: &str) -> String {
     } else {
         host.to_string()
     }
+}
+
+// ------------------------------------------------------------------- warp
+
+/// What the UI needs to know about the Cloudflare account behind both the WARP
+/// layer and the standalone WARP node.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WarpInfo {
+    pub registered: bool,
+    /// `free`, or `limited`/`unlimited` once a WARP+ licence is applied.
+    pub account_type: String,
+    pub license: String,
+    pub created: String,
+    /// Whether a node running on this account is in the server list.
+    pub has_node: bool,
+}
+
+fn warp_info(state: &AppState) -> WarpInfo {
+    let account = state.warp.read();
+    WarpInfo {
+        registered: account.is_usable(),
+        account_type: account.account_type.clone(),
+        license: account.license.clone(),
+        created: account.created.clone(),
+        has_node: state.nodes.read().iter().any(|n| n.is_endpoint()),
+    }
+}
+
+/// The account, registering one on first use.
+///
+/// Registration is deliberately lazy: an install that never switches WARP on
+/// never tells Cloudflare it exists.
+async fn ensure_warp_account(app: &AppHandle) -> Result<WarpAccount> {
+    {
+        let state = app.state::<AppState>();
+        let account = state.warp.read().clone();
+        if account.is_usable() {
+            return Ok(account);
+        }
+    }
+    let account = warp::register().await?;
+    {
+        let state = app.state::<AppState>();
+        *state.warp.write() = account.clone();
+        state.save_warp()?;
+    }
+    Ok(account)
+}
+
+/// A WARP node still waiting for the account behind it — what a `warp://` link
+/// parses into, since such a link carries no keys of its own.
+fn needs_warp_account(node: &ServerNode) -> bool {
+    node.is_endpoint() && node.private_key.is_empty()
+}
+
+/// Copy an account's credentials onto a WARP node.
+///
+/// The entry point is left as it stands whenever the node already names one:
+/// address and port are the part of a WARP node worth editing by hand, since
+/// which of Cloudflare's ports survives a given network is a local question.
+fn apply_warp_account(node: &mut ServerNode, account: &WarpAccount) {
+    let refreshed = account.to_node(node.id.clone(), node.name.clone());
+    node.private_key = refreshed.private_key;
+    node.peer_public_key = refreshed.peer_public_key;
+    node.local_v4 = refreshed.local_v4;
+    node.local_v6 = refreshed.local_v6;
+    node.reserved = refreshed.reserved;
+    if node.address.is_empty() {
+        node.address = refreshed.address;
+        node.port = refreshed.port;
+    }
+}
+
+/// Point every WARP node at the given account. Called after a re-registration,
+/// so nodes carrying the retired keys do not quietly stop passing traffic.
+fn rekey_warp_nodes(state: &AppState, account: &WarpAccount) -> bool {
+    let mut nodes = state.nodes.write();
+    let mut touched = false;
+    for node in nodes.iter_mut().filter(|n| n.is_endpoint()) {
+        apply_warp_account(node, account);
+        touched = true;
+    }
+    touched
+}
+
+#[tauri::command]
+pub async fn warp_status(app: AppHandle) -> Result<WarpInfo> {
+    Ok(warp_info(&app.state::<AppState>()))
+}
+
+/// Register an account if there is none yet. The layer itself is a setting, so
+/// the frontend follows this with `save_settings`.
+#[tauri::command]
+pub async fn enable_warp(app: AppHandle) -> Result<WarpInfo> {
+    ensure_warp_account(&app).await?;
+    Ok(warp_info(&app.state::<AppState>()))
+}
+
+/// Throw the registration away and take a fresh one — a new key, and with it a
+/// new address on the way out.
+#[tauri::command]
+pub async fn reset_warp(app: AppHandle) -> Result<WarpInfo> {
+    let account = warp::register().await?;
+    let rekeyed = {
+        let state = app.state::<AppState>();
+        *state.warp.write() = account.clone();
+        state.save_warp()?;
+        let rekeyed = rekey_warp_nodes(&state, &account);
+        if rekeyed {
+            state.save_nodes()?;
+        }
+        rekeyed
+    };
+    if rekeyed {
+        emit_nodes(&app);
+    }
+    // The running document carries the retired keys either way — through a node
+    // or through the layer — so it has to be rebuilt.
+    restart_if_running(&app).await?;
+    Ok(warp_info(&app.state::<AppState>()))
+}
+
+/// Put WARP in the server list as a server of its own.
+///
+/// A second one would be pointless — both would share the single session
+/// Cloudflare allows — so an existing WARP node is refreshed in place instead.
+#[tauri::command]
+pub async fn add_warp_node(app: AppHandle) -> Result<()> {
+    let account = ensure_warp_account(&app).await?;
+    {
+        let state = app.state::<AppState>();
+        if !rekey_warp_nodes(&state, &account) {
+            let node = account.to_node(uuid::Uuid::new_v4().to_string(), "WARP".into());
+            state.nodes.write().push(node);
+        }
+        state.save_nodes()?;
+    }
+    emit_nodes(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2392,6 +2570,7 @@ pub async fn preview_config(app: AppHandle) -> Result<String> {
         // Preview what the current cache allows, not an optimistic view of it.
         rule_sets: &cached_rule_sets(&state.paths.rule_set_dir, &split),
         rule_set_dir: &state.paths.rule_set_dir,
+        warp_chain: warp_chain_node(&state).as_ref(),
         #[cfg(target_os = "android")]
         log_file: &state.paths.log_file,
     })?;

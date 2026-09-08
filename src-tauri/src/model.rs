@@ -11,6 +11,9 @@ pub enum Protocol {
     Shadowsocks,
     Hysteria2,
     Tuic,
+    /// WireGuard, and with it Cloudflare WARP. Unlike every other protocol here
+    /// it is not an outbound but an *endpoint* — see [`ServerNode::is_endpoint`].
+    Wireguard,
 }
 
 impl Protocol {
@@ -22,6 +25,7 @@ impl Protocol {
             Protocol::Shadowsocks => "shadowsocks",
             Protocol::Hysteria2 => "hysteria2",
             Protocol::Tuic => "tuic",
+            Protocol::Wireguard => "wireguard",
         }
     }
 }
@@ -119,6 +123,21 @@ pub struct ServerNode {
     /// порт остаётся в `port`.
     pub hop_ports: Vec<String>,
 
+    // ---- wireguard / WARP ----
+    /// Our own x25519 secret, base64. The peer lives in `address`/`port`.
+    pub private_key: String,
+    pub peer_public_key: String,
+    /// Addresses of the virtual interface, bare (`172.16.0.2`); the prefix
+    /// length is implied — a WireGuard client owns exactly its own address.
+    pub local_v4: String,
+    pub local_v6: String,
+    /// WARP tags every packet with three bytes derived from the account's
+    /// `client_id`; a plain WireGuard peer leaves this empty.
+    pub reserved: Vec<u8>,
+    pub mtu: u16,
+    /// Seconds between keepalives; 0 leaves it off.
+    pub keepalive: u16,
+
     /// Set when the node came from a subscription, so refreshes can replace it.
     pub subscription_id: Option<String>,
     pub raw_link: String,
@@ -155,6 +174,15 @@ impl Default for ServerNode {
             obfs: String::new(),
             obfs_password: String::new(),
             hop_ports: Vec::new(),
+            private_key: String::new(),
+            peer_public_key: String::new(),
+            local_v4: String::new(),
+            local_v6: String::new(),
+            reserved: Vec::new(),
+            // WARP's own client advertises 1280: the tunnel rides inside UDP that
+            // itself crosses networks of unknown MTU, and 1420 fragments there.
+            mtu: 1280,
+            keepalive: 30,
             subscription_id: None,
             raw_link: String::new(),
         }
@@ -169,9 +197,24 @@ impl ServerNode {
     /// node is dialled by Xray and handed to sing-box over a loopback SOCKS
     /// hop, so routing and split tunnelling keep working unchanged.
     pub fn needs_xray(&self) -> bool {
+        // An endpoint has no transport and no TLS layer, so neither of the two
+        // Xray-only features below can apply — whatever a hand-edited file says.
+        if self.is_endpoint() {
+            return false;
+        }
         let encrypted = !self.encryption.is_empty()
             && !self.encryption.eq_ignore_ascii_case("none");
         (self.protocol == Protocol::Vless && encrypted) || self.network == Network::Xhttp
+    }
+
+    /// Whether the node renders into `endpoints` rather than `outbounds`.
+    ///
+    /// sing-box dropped the `wireguard` outbound in 1.13; the protocol lives on
+    /// as an endpoint — a thing with both inbound and outbound behaviour. It is
+    /// still addressed by tag everywhere else, so selectors, the Clash API and
+    /// the latency probes cannot tell the difference.
+    pub fn is_endpoint(&self) -> bool {
+        self.protocol == Protocol::Wireguard
     }
 
     /// Whether the Xray-only part of this node is negotiable.
@@ -391,6 +434,9 @@ impl ServerNode {
                 o.insert("password".into(), json!(self.password));
                 o.insert("congestion_control".into(), json!("bbr"));
             }
+            // Never reached: `is_endpoint` sends these nodes to `to_endpoint`
+            // before an outbound is ever built for them.
+            Protocol::Wireguard => {}
         }
 
         if let Some(tls) = self.tls_block() {
@@ -423,6 +469,64 @@ impl ServerNode {
         }
 
         Value::Object(o)
+    }
+
+    /// Render this node as a sing-box WireGuard endpoint.
+    ///
+    /// `detour` chains the endpoint on top of another outbound: this is what
+    /// carries the WARP layer, where the tunnel's own UDP travels through the
+    /// user's proxy instead of leaving the machine directly.
+    pub fn to_endpoint(&self, tag: &str, domain_resolver: &str, detour: Option<&str>) -> Value {
+        let mut e = Map::new();
+        e.insert("type".into(), json!("wireguard"));
+        e.insert("tag".into(), json!(tag));
+        e.insert("mtu".into(), json!(self.mtu));
+
+        // A WireGuard client owns exactly the addresses it was handed, so each
+        // one is a host route rather than a subnet.
+        let mut addresses: Vec<String> = Vec::new();
+        if !self.local_v4.is_empty() {
+            addresses.push(with_prefix(&self.local_v4, 32));
+        }
+        if !self.local_v6.is_empty() {
+            addresses.push(with_prefix(&self.local_v6, 128));
+        }
+        e.insert("address".into(), json!(addresses));
+        e.insert("private_key".into(), json!(self.private_key));
+
+        let mut peer = Map::new();
+        peer.insert("address".into(), json!(self.address));
+        peer.insert("port".into(), json!(self.port));
+        peer.insert("public_key".into(), json!(self.peer_public_key));
+        // Everything goes through the tunnel: this endpoint is either the exit
+        // itself or the layer wrapped around one.
+        peer.insert("allowed_ips".into(), json!(["0.0.0.0/0", "::/0"]));
+        if !self.reserved.is_empty() {
+            peer.insert("reserved".into(), json!(self.reserved));
+        }
+        if self.keepalive > 0 {
+            peer.insert("persistent_keepalive_interval".into(), json!(self.keepalive));
+        }
+        e.insert("peers".into(), json!([Value::Object(peer)]));
+
+        if let Some(tag) = detour {
+            e.insert("detour".into(), json!(tag));
+        }
+        if !domain_resolver.is_empty() {
+            e.insert("domain_resolver".into(), json!(domain_resolver));
+        }
+
+        Value::Object(e)
+    }
+}
+
+/// `172.16.0.2` → `172.16.0.2/32`, leaving an address that already carries a
+/// prefix alone.
+fn with_prefix(address: &str, bits: u8) -> String {
+    if address.contains('/') {
+        address.to_string()
+    } else {
+        format!("{address}/{bits}")
     }
 }
 
@@ -548,5 +652,81 @@ mod tests {
             ..Default::default()
         };
         assert!(node.to_outbound("t", "").get("flow").is_none());
+    }
+
+    #[test]
+    fn a_wireguard_endpoint_carries_host_routes_and_the_warp_tag() {
+        let node = ServerNode {
+            protocol: Protocol::Wireguard,
+            address: "162.159.192.1".into(),
+            port: 2408,
+            private_key: "priv".into(),
+            peer_public_key: "peer".into(),
+            local_v4: "172.16.0.2".into(),
+            local_v6: "2606:4700:110::2".into(),
+            reserved: vec![189, 239, 196],
+            ..Default::default()
+        };
+        let out = node.to_endpoint("warp", "dns-direct", None);
+
+        assert_eq!(out["type"], json!("wireguard"));
+        // Клиент владеет ровно выданными адресами — это /32 и /128, не подсети.
+        assert_eq!(out["address"], json!(["172.16.0.2/32", "2606:4700:110::2/128"]));
+        let peer = &out["peers"][0];
+        assert_eq!(peer["address"], json!("162.159.192.1"));
+        assert_eq!(peer["port"], json!(2408));
+        assert_eq!(peer["allowed_ips"], json!(["0.0.0.0/0", "::/0"]));
+        assert_eq!(peer["reserved"], json!([189, 239, 196]));
+        assert_eq!(out["domain_resolver"], json!("dns-direct"));
+        assert!(out.get("detour").is_none());
+    }
+
+    #[test]
+    fn a_detour_turns_the_endpoint_into_a_layer() {
+        let node = ServerNode {
+            protocol: Protocol::Wireguard,
+            local_v4: "172.16.0.2".into(),
+            ..Default::default()
+        };
+        let out = node.to_endpoint("warp-layer", "", Some("proxy"));
+        assert_eq!(out["detour"], json!("proxy"));
+        // Пустой resolver не выдумывает ключ: у sing-box отсутствие поля само
+        // означает «как обычно».
+        assert!(out.get("domain_resolver").is_none());
+    }
+
+    #[test]
+    fn a_plain_wireguard_peer_carries_no_reserved_bytes() {
+        // Пустой `reserved` пропускается: WARP-метка есть не у всякого пира, а
+        // массив неверной длины ядро отвергает вместе со всем документом.
+        let node = ServerNode {
+            protocol: Protocol::Wireguard,
+            local_v4: "10.0.0.2".into(),
+            keepalive: 0,
+            ..Default::default()
+        };
+        let out = node.to_endpoint("wg", "", None);
+        assert!(out["peers"][0].get("reserved").is_none());
+        assert!(out["peers"][0].get("persistent_keepalive_interval").is_none());
+    }
+
+    #[test]
+    fn an_address_that_already_has_a_prefix_is_left_alone() {
+        assert_eq!(with_prefix("172.16.0.2", 32), "172.16.0.2/32");
+        assert_eq!(with_prefix("172.16.0.2/30", 32), "172.16.0.2/30");
+    }
+
+    #[test]
+    fn an_endpoint_never_goes_to_the_second_engine() {
+        // У endpoint нет ни транспорта, ни TLS-слоя, так что ни одна причина
+        // уйти в Xray к нему не относится — что бы ни лежало в файле.
+        let node = ServerNode {
+            protocol: Protocol::Wireguard,
+            network: Network::Xhttp,
+            encryption: "mlkem768x25519plus.native.0rtt.KEY".into(),
+            ..Default::default()
+        };
+        assert!(node.is_endpoint());
+        assert!(!node.needs_xray());
     }
 }

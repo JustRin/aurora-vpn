@@ -9,6 +9,7 @@ mod settings;
 mod state;
 mod store;
 mod sys;
+mod warp;
 
 #[cfg(desktop)]
 use std::path::PathBuf;
@@ -561,6 +562,10 @@ pub fn run() {
             commands::refresh_subscription,
             commands::refresh_all_subscriptions,
             commands::delete_subscription,
+            commands::warp_status,
+            commands::enable_warp,
+            commands::reset_warp,
+            commands::add_warp_node,
             commands::app_ready,
             commands::get_autostart,
             commands::set_autostart,

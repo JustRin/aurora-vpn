@@ -1,6 +1,7 @@
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   ClipboardPaste,
+  Cloud,
   Copy,
   Gauge,
   Pencil,
@@ -67,6 +68,13 @@ function emptyNode(): ServerNode {
     obfs: "",
     obfsPassword: "",
     hopPorts: [],
+    privateKey: "",
+    peerPublicKey: "",
+    localV4: "",
+    localV6: "",
+    reserved: [],
+    mtu: 1280,
+    keepalive: 30,
     subscriptionId: null,
     rawLink: "",
   };
@@ -96,6 +104,23 @@ export function Servers() {
   const [importOpen, setImportOpen] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [editing, setEditing] = useState<ServerNode | null>(null);
+  const [addingWarp, setAddingWarp] = useState(false);
+
+  /** WARP as a server of its own, for when there is no server to wrap.
+   *  A second one would be pointless — both would share the single session
+   *  Cloudflare allows — so the backend refreshes the existing one instead. */
+  async function addWarp() {
+    setAddingWarp(true);
+    try {
+      await api.addWarpNode();
+      await reload();
+      toast("success", t("srv.warpAdded"));
+    } catch (e) {
+      toast("error", t("srv.warpFailed"), errText(e));
+    } finally {
+      setAddingWarp(false);
+    }
+  }
 
   async function remove(node: ServerNode) {
     try {
@@ -134,6 +159,16 @@ export function Servers() {
           >
             <Gauge size={15} className={testing ? "spin" : ""} />
             {t("srv.testLatency")}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={addingWarp}
+            title={t("srv.addWarpTitle")}
+            onClick={() => void addWarp()}
+          >
+            <Cloud size={15} className={addingWarp ? "spin" : ""} />
+            WARP
           </button>
           <button
             type="button"
@@ -279,7 +314,7 @@ export function Servers() {
                       <span className="chip accent">{t("pick.nowChip")}</span>
                     )}
                     <span className="chip">{protocolLabel(node.protocol)}</span>
-                    <span>{transportLabel(node.security, node.network)}</span>
+                    <span>{transportLabel(node.security, node.network, node.protocol)}</span>
                     <span>·</span>
                     <span className="truncate">
                       {node.address}:{node.port}
@@ -492,7 +527,12 @@ function NodeEditor({
   const needsPassword = ["trojan", "shadowsocks", "hysteria2", "tuic"].includes(
     current.protocol,
   );
-  const hasTransport = !["hysteria2", "tuic"].includes(current.protocol);
+  // WireGuard is its own encryption and carries no transport, so every field
+  // below the address describes something that is not there. Its keys are not
+  // shown either: they belong to the Cloudflare account, which is managed from
+  // the settings rather than typed in by hand.
+  const isWireguard = current.protocol === "wireguard";
+  const hasTransport = !["hysteria2", "tuic", "wireguard"].includes(current.protocol);
 
   async function save() {
     try {
@@ -556,9 +596,10 @@ function NodeEditor({
           <select
             className="select"
             value={current.protocol}
+            disabled={isWireguard}
             onChange={(e) => set({ protocol: e.target.value as Protocol })}
           >
-            {PROTOCOLS.map((p) => (
+            {(isWireguard ? ["wireguard" as Protocol] : PROTOCOLS).map((p) => (
               <option key={p} value={p}>
                 {protocolLabel(p)}
               </option>
@@ -581,6 +622,17 @@ function NodeEditor({
             onChange={(e) => set({ port: Number(e.target.value) || 0 })}
           />
         </Field>
+
+        {isWireguard && (
+          <Field label="MTU" hint={t("srv.warpEndpointHint")}>
+            <input
+              className="input"
+              type="number"
+              value={current.mtu}
+              onChange={(e) => set({ mtu: Number(e.target.value) || 0 })}
+            />
+          </Field>
+        )}
 
         {needsUuid && (
           <Field label="UUID">
@@ -670,7 +722,7 @@ function NodeEditor({
           </Field>
         )}
 
-        {current.security !== "none" && (
+        {hasTransport && current.security !== "none" && (
           <>
             <Field label="SNI">
               <input
@@ -690,7 +742,7 @@ function NodeEditor({
           </>
         )}
 
-        {current.security === "reality" && (
+        {hasTransport && current.security === "reality" && (
           <>
             <Field label="Public key (pbk)">
               <input
@@ -720,7 +772,7 @@ function NodeEditor({
         )}
       </div>
 
-      {current.security === "tls" && (
+      {hasTransport && current.security === "tls" && (
         <ToggleRow
           label={t("srv.skipCertLabel")}
           desc={t("srv.skipCertDesc")}

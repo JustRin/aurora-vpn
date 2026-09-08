@@ -16,6 +16,7 @@ import { ElevateModal } from "../components/ElevateModal";
 import { ServerPicker } from "../components/ServerPicker";
 import { SubscriptionCard } from "../components/SubscriptionCard";
 import { TrafficGraph } from "../components/TrafficGraph";
+import { WarpToggle } from "../components/WarpToggle";
 import { Empty, Segmented } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { onBackup } from "../lib/balancers";
@@ -183,6 +184,11 @@ export function Dashboard() {
           </button>
         </div>
       )}
+
+      {/* Under the mode switch, the way Hiddify puts it: one control that
+          applies to whichever server is in use, rather than a property of any
+          single one. Hidden with no servers, where there is nothing to wrap. */}
+      {nodes.length > 0 && <WarpToggle />}
 
       {nodes.length === 0 ? (
         /* No servers means the power button would be a dead control — swap the

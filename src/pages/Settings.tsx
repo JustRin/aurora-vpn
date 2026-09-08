@@ -1,4 +1,4 @@
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ElevateModal } from "../components/ElevateModal";
@@ -23,6 +23,7 @@ import {
   type ResourceGroup,
   type TunStack,
   type TunnelMode,
+  type WarpInfo,
 } from "../lib/types";
 import { useStore } from "../store";
 
@@ -378,6 +379,11 @@ export function Settings() {
             )}
           </div>
 
+          <div className="section-title">WARP</div>
+          <div className="card">
+            <WarpAccountRow />
+          </div>
+
           <div className="section-title">{t("set.subsSection")}</div>
           <div className="card">
             <div className="toggle-row stack">
@@ -608,3 +614,58 @@ export function Settings() {
 }
 
 export { Settings as SettingsPage };
+
+/**
+ * The Cloudflare account behind the WARP layer and the WARP node.
+ *
+ * The only action worth offering is a fresh registration: WARP hands out no
+ * choice of location, so "somewhere else" is the one thing a user can ask for
+ * when the address they got is blocked or rate-limited where they are.
+ */
+function WarpAccountRow() {
+  const t = useT();
+  const toast = useStore((s) => s.toast);
+  const [info, setInfo] = useState<WarpInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api.warpStatus().then(setInfo).catch(() => {});
+  }, []);
+
+  async function reset() {
+    setBusy(true);
+    try {
+      setInfo(await api.resetWarp());
+      toast("success", t("warp.resetDone"));
+    } catch (e) {
+      toast("error", t("warp.resetFailed"), errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const state = !info
+    ? "…"
+    : info.registered
+      ? t("warp.accountOn", { type: info.accountType || "free" })
+      : t("warp.accountOff");
+
+  return (
+    <div className="toggle-row">
+      <div className="grow" style={{ minWidth: 0 }}>
+        <div className="toggle-label">{t("warp.account")}</div>
+        <div className="toggle-desc">{state}</div>
+      </div>
+      <button
+        type="button"
+        className="btn sm"
+        disabled={busy || !info?.registered}
+        title={t("warp.newAddressHint")}
+        onClick={() => void reset()}
+      >
+        <RefreshCw size={14} className={busy ? "spin" : ""} />
+        {t("warp.newAddress")}
+      </button>
+    </div>
+  );
+}

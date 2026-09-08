@@ -43,6 +43,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.23"
 url = "2"
 percent-encoding = "2"
+# Cloudflare WARP hands out a WireGuard tunnel bound to a key we generate
+# ourselves; this is the only piece of crypto the app owns. Pure Rust, so it
+# cross-compiles to the NDK without an OpenSSL of its own.
+x25519-dalek = { version = "2", features = ["static_secrets", "getrandom"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 # QR codes as an import source. `rqrr` finds and reads the code, `image` turns

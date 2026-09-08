@@ -484,6 +484,138 @@ fn parse_vmess(rest: &str) -> Result<ServerNode> {
     Ok(node)
 }
 
+/// The port Cloudflare's own client dials when nothing else is said.
+const WARP_DEFAULT_PORT: u16 = 2408;
+
+/// Split `host[:port]`, defaulting the port — unlike [`split_host_port`], which
+/// treats a missing one as a broken link.
+fn split_host_optional_port(hostport: &str, default: u16) -> Result<(String, u16)> {
+    if hostport.contains(':') || hostport.starts_with('[') {
+        return split_host_port(hostport);
+    }
+    if hostport.is_empty() {
+        return Err(AppError::msg("в ссылке нет адреса сервера"));
+    }
+    Ok((hostport.to_string(), default))
+}
+
+/// `warp://…` — a Cloudflare WARP node.
+///
+/// The credentials are deliberately not in the link: they belong to the account
+/// the app registers, and the link says at most which entry point to dial. What
+/// Hiddify writes into these links — an account label in the userinfo position,
+/// its own obfuscation options (`ifp`, `ifps`, `ifpd`, `ifpm`) in the query — is
+/// meaningful only to its own core, so it is dropped rather than refused.
+fn parse_warp(rest: &str) -> Result<ServerNode> {
+    let (before_fragment, fragment) = match rest.split_once('#') {
+        Some((head, tail)) => (head, pct(tail)),
+        None => (rest, String::new()),
+    };
+    let authority = before_fragment.split('?').next().unwrap_or("");
+    // Split on the last '@' for the same reason every other parser does.
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let authority = authority.trim_end_matches('/');
+
+    let mut node = ServerNode {
+        id: new_id(),
+        protocol: Protocol::Wireguard,
+        ..Default::default()
+    };
+
+    // `warp://auto` — and a bare `warp://` — mean "wherever the account says".
+    if !authority.is_empty() && !authority.eq_ignore_ascii_case("auto") {
+        let (host, port) = split_host_optional_port(authority, WARP_DEFAULT_PORT)?;
+        node.address = host;
+        node.port = port;
+    }
+
+    node.name = if fragment.is_empty() { "WARP".into() } else { fragment };
+    Ok(node)
+}
+
+/// `wireguard://<private key>@host:port?publickey=…&address=…` — a plain
+/// WireGuard peer, credentials and all.
+fn parse_wireguard(rest: &str) -> Result<ServerNode> {
+    let parts = split_uri(rest)?;
+    let q = &parts.query;
+    let first = |keys: &[&str]| -> String {
+        keys.iter()
+            .find_map(|k| q.get(*k))
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    let private_key = pct(&parts.userinfo);
+    if private_key.is_empty() {
+        return Err(AppError::msg("в ссылке нет приватного ключа"));
+    }
+    let peer_public_key = first(&["publickey", "public_key", "peer_public_key", "pbk"]);
+    if peer_public_key.is_empty() {
+        return Err(AppError::msg("в ссылке нет публичного ключа сервера"));
+    }
+
+    let mut node = ServerNode {
+        id: new_id(),
+        protocol: Protocol::Wireguard,
+        address: parts.host,
+        port: parts.port,
+        private_key,
+        peer_public_key,
+        reserved: parse_reserved(&first(&["reserved"])),
+        ..Default::default()
+    };
+
+    // `address=172.16.0.2/32,2606:4700:110::2/128`: the prefixes are implied by
+    // the protocol, so only the addresses themselves are kept.
+    for address in first(&["address", "ip", "addresses"]).split(',') {
+        let address = address.trim().split('/').next().unwrap_or("").trim();
+        if address.is_empty() {
+            continue;
+        }
+        if address.contains(':') {
+            node.local_v6 = address.to_string();
+        } else {
+            node.local_v4 = address.to_string();
+        }
+    }
+    if node.local_v4.is_empty() && node.local_v6.is_empty() {
+        return Err(AppError::msg("в ссылке нет адреса интерфейса (address)"));
+    }
+
+    if let Ok(mtu) = first(&["mtu"]).parse::<u16>() {
+        node.mtu = mtu;
+    }
+    if let Ok(keepalive) = first(&["keepalive", "persistent_keepalive"]).parse::<u16>() {
+        node.keepalive = keepalive;
+    }
+
+    node.name = if parts.fragment.is_empty() {
+        fallback_name(&node)
+    } else {
+        parts.fragment
+    };
+    Ok(node)
+}
+
+/// `reserved` comes either as the three bytes themselves (`1,2,3`) or as the
+/// base64 `client_id` they are derived from. Anything else is dropped: a
+/// wrong-length value makes sing-box refuse the whole document, while an absent
+/// one just means "no tag".
+fn parse_reserved(raw: &str) -> Vec<u8> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Vec::new();
+    }
+    if raw.contains(',') {
+        let bytes: Vec<u8> = raw
+            .split(',')
+            .filter_map(|part| part.trim().parse::<u8>().ok())
+            .collect();
+        return if bytes.len() == 3 { bytes } else { Vec::new() };
+    }
+    b64_decode(raw).filter(|bytes| bytes.len() == 3).unwrap_or_default()
+}
+
 /// Parse a single share link into a node.
 pub fn parse_link(raw: &str) -> Result<ServerNode> {
     let link = raw.trim();
@@ -498,6 +630,8 @@ pub fn parse_link(raw: &str) -> Result<ServerNode> {
         "ss" => parse_shadowsocks(rest),
         "hysteria2" | "hy2" => parse_hysteria2(rest),
         "tuic" => parse_tuic(rest),
+        "warp" => parse_warp(rest),
+        "wireguard" | "wg" => parse_wireguard(rest),
         other => Err(AppError::msg(format!("протокол «{other}» не поддерживается"))),
     }?;
 
@@ -841,5 +975,83 @@ mod tests {
         let n = parse_link("trojan://p@ss@real.host:443?security=tls#t").unwrap();
         assert_eq!(n.address, "real.host");
         assert_eq!(n.password, "p@ss");
+    }
+
+    #[test]
+    fn a_warp_link_names_an_entry_point_and_nothing_else() {
+        // Ключей в ссылке нет и быть не должно: они принадлежат аккаунту,
+        // который приложение регистрирует само.
+        let n = parse_link("warp://188.114.98.0:955#Мой WARP").unwrap();
+        assert_eq!(n.protocol, Protocol::Wireguard);
+        assert_eq!(n.address, "188.114.98.0");
+        assert_eq!(n.port, 955);
+        assert_eq!(n.name, "Мой WARP");
+        assert!(n.private_key.is_empty());
+    }
+
+    #[test]
+    fn warp_auto_leaves_the_entry_point_to_the_account() {
+        for link in ["warp://auto", "warp://auto#WARP", "warp://AUTO/"] {
+            let n = parse_link(link).unwrap();
+            assert_eq!(n.protocol, Protocol::Wireguard);
+            assert!(n.address.is_empty(), "{link}");
+        }
+    }
+
+    #[test]
+    fn a_warp_link_without_a_port_gets_cloudflares_own() {
+        let n = parse_link("warp://162.159.192.1").unwrap();
+        assert_eq!(n.address, "162.159.192.1");
+        assert_eq!(n.port, 2408);
+    }
+
+    #[test]
+    fn hiddify_warp_extras_are_dropped_rather_than_refused() {
+        // `A1@` — метка аккаунта их ядра, `ifp*` — его же обфускация; sing-box
+        // не знает ни того, ни другого, но точка входа в ссылке настоящая.
+        let n = parse_link("warp://A1@188.114.97.170:894?ifp=40-80&ifpm=m4#m4").unwrap();
+        assert_eq!(n.address, "188.114.97.170");
+        assert_eq!(n.port, 894);
+        assert_eq!(n.name, "m4");
+    }
+
+    #[test]
+    fn parses_a_plain_wireguard_link() {
+        let n = parse_link(
+            "wireguard://cHJpdmF0ZQ==@10.0.0.1:51820?publickey=cHVibGlj&address=10.7.0.2/32,fd00::2/128&reserved=1,2,3&mtu=1420#WG",
+        )
+        .unwrap();
+        assert_eq!(n.protocol, Protocol::Wireguard);
+        assert_eq!(n.private_key, "cHJpdmF0ZQ==");
+        assert_eq!(n.peer_public_key, "cHVibGlj");
+        // Префиксы подразумеваются протоколом, в модели живут голые адреса.
+        assert_eq!(n.local_v4, "10.7.0.2");
+        assert_eq!(n.local_v6, "fd00::2");
+        assert_eq!(n.reserved, vec![1, 2, 3]);
+        assert_eq!(n.mtu, 1420);
+        assert_eq!(n.name, "WG");
+    }
+
+    #[test]
+    fn a_wireguard_link_missing_what_it_cannot_work_without_is_refused() {
+        // Молча принять такую ссылку — значит завести сервер, который
+        // подключается и не несёт ни байта.
+        for link in [
+            "wireguard://@10.0.0.1:51820?publickey=p&address=10.7.0.2",
+            "wireguard://priv@10.0.0.1:51820?address=10.7.0.2",
+            "wireguard://priv@10.0.0.1:51820?publickey=p",
+        ] {
+            assert!(parse_link(link).is_err(), "{link}");
+        }
+    }
+
+    #[test]
+    fn reserved_is_taken_either_as_bytes_or_as_the_client_id_behind_them() {
+        assert_eq!(parse_reserved("1,2,3"), vec![1, 2, 3]);
+        assert_eq!(parse_reserved("ve/E"), vec![189, 239, 196]);
+        // Неверная длина отбрасывается: массив не из трёх байт заставит ядро
+        // отвергнуть весь документ, а пустой просто означает «без метки».
+        assert!(parse_reserved("1,2").is_empty());
+        assert!(parse_reserved("").is_empty());
     }
 }

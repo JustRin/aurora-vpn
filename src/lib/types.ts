@@ -6,7 +6,10 @@ export type Protocol =
   | "trojan"
   | "shadowsocks"
   | "hysteria2"
-  | "tuic";
+  | "tuic"
+  /** Cloudflare WARP and plain WireGuard. Rendered as a sing-box *endpoint*
+   *  rather than an outbound; everything else treats it like any other node. */
+  | "wireguard";
 
 export type Network = "tcp" | "ws" | "grpc" | "http" | "httpupgrade";
 export type Security = "none" | "tls" | "reality";
@@ -40,6 +43,17 @@ export interface ServerNode {
   obfsPassword: string;
   /** hysteria2: диапазоны прыжковых портов в форме sing-box («20000:50000»). */
   hopPorts: string[];
+  /** wireguard: наш секретный ключ; у WARP приходит из аккаунта Cloudflare. */
+  privateKey: string;
+  peerPublicKey: string;
+  /** Адреса виртуального интерфейса, голые: длина префикса подразумевается. */
+  localV4: string;
+  localV6: string;
+  /** WARP помечает пакеты тремя байтами из `client_id`; обычный пир — пустой. */
+  reserved: number[];
+  mtu: number;
+  /** Секунды между keepalive; 0 — без них. */
+  keepalive: number;
   subscriptionId: string | null;
   rawLink: string;
 }
@@ -69,6 +83,9 @@ export interface Settings {
   dnsDirect: string;
   dnsStrategy: string;
   fakeIp: boolean;
+  /** «Дополнительная защита через WARP»: трафик, ушедший в выбранный сервер,
+   *  заворачивается ещё и в бесплатный WireGuard-туннель Cloudflare. */
+  warpOverProxy: boolean;
   autoConnect: boolean;
   startMinimized: boolean;
   launchAtLogin: boolean;
@@ -243,6 +260,17 @@ export interface ImportReport {
 
 /** Sentinel the backend returns when TUN mode is requested without elevation. */
 export const ELEVATION_REQUIRED = "ELEVATION_REQUIRED";
+
+/** The Cloudflare account behind both the WARP layer and the WARP node. */
+export interface WarpInfo {
+  registered: boolean;
+  /** `free`, или `limited`/`unlimited` с лицензией WARP+. */
+  accountType: string;
+  license: string;
+  created: string;
+  /** Есть ли в списке серверов узел, работающий на этом аккаунте. */
+  hasNode: boolean;
+}
 
 /** A published release the running build can be upgraded to. */
 export interface UpdateInfo {

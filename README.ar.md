@@ -60,9 +60,10 @@
 
 | | |
 |---|---|
-| **البروتوكولات** | VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC |
+| **البروتوكولات** | VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard |
 | **الأمان** | REALITY ببصمات uTLS، وTLS، وVLESS Encryption (ML-KEM-768) |
 | **طبقات النقل** | TCP، WebSocket، gRPC، HTTP/2، HTTPUpgrade، XHTTP |
+| **WARP** | ‏Cloudflare WARP كخادم مستقل، أو كطبقة إضافية فوق أي خادم — الموقع يرى Cloudflare، والخادم لا يرى سوى WireGuard |
 | **الاستيراد** | روابط `vless://` وأخواتها، واشتراكات 3x-ui / Marzban، وتحديث تلقائي في الخلفية |
 | **رموز QR** | قراءة من الشاشة أو من صورة أو بالكاميرا — كاميرا الويب على الحاسوب، وأي من كاميرتَي الهاتف |
 | **حالة الباقة** | الأيام والبيانات المتبقية، تُقرأ مباشرة من اللوحة |

@@ -54,9 +54,10 @@ TUN 模式、按应用分流与基于规则的路由 —— 覆盖 Windows、And
 
 | | |
 |---|---|
-| **协议** | VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC |
+| **协议** | VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、WireGuard |
 | **安全** | 带 uTLS 指纹的 REALITY、TLS、VLESS Encryption（ML-KEM-768） |
 | **传输** | TCP、WebSocket、gRPC、HTTP/2、HTTPUpgrade、XHTTP |
+| **WARP** | Cloudflare WARP 可作为独立服务器，也可作为任一服务器之上的额外一层 —— 网站看到的是 Cloudflare，服务器只看到 WireGuard |
 | **导入** | `vless://` 等链接、3x-ui / Marzban 订阅、后台自动刷新 |
 | **二维码** | 从屏幕、图片或摄像头识别 —— 电脑用摄像头，手机前后摄像头任选 |
 | **套餐状态** | 剩余天数与流量，直接从面板读取 |

@@ -112,6 +112,7 @@ async fn core_starts_from_a_generated_config_and_answers_its_control_api() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -221,6 +222,7 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -257,6 +259,7 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -277,6 +280,94 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
     if let Err(e) = ready {
         panic!(
             "ядро не поднялось со split-правилами и fake-ip: {e}\n--- журнал ядра ---\n{}",
+            captured.lock().join("\n")
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+/// The WARP layer is the one shape our own unit tests cannot vouch for: it
+/// leans on `endpoints` and on a `detour` out of one, both of which only the
+/// real parser can confirm we spelled correctly.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_warp_layer_and_a_warp_node_are_accepted_by_the_core() {
+    let Some(exe) = core_binary() else {
+        eprintln!("пропуск: бинарник sing-box не найден (запустите npm run fetch-core)");
+        return;
+    };
+
+    let work = std::env::temp_dir().join("aurora-core-warp");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    // Cloudflare's own peer key and entry point, with a throwaway private key:
+    // nothing is dialled, so an unregistered account still exercises the whole
+    // start-up path.
+    let warp = ServerNode {
+        id: "w".into(),
+        name: "WARP".into(),
+        protocol: Protocol::Wireguard,
+        address: "162.159.192.1".into(),
+        port: 2408,
+        private_key: "YPxqmCyjmwV8MU2IZ4dSAlhmDHW/+9M2uXn9fq6Kb3c=".into(),
+        peer_public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
+        local_v4: "172.16.0.2".into(),
+        local_v6: "2606:4700:110:8b68:d94b:2ee3:c511:b023".into(),
+        reserved: vec![189, 239, 196],
+        ..Default::default()
+    };
+
+    let mut nodes = sample_nodes();
+    nodes.push(warp.clone());
+
+    let settings = Settings {
+        tunnel_mode: TunnelMode::SystemProxy,
+        clash_port: CLASH_PORT + 2,
+        mixed_port: MIXED_PORT + 2,
+        warp_over_proxy: true,
+        ..Default::default()
+    };
+    let split = SplitConfig::default();
+
+    let built = config::build(&BuildInput {
+        nodes: &nodes,
+        active_id: "n1",
+        settings: &settings,
+        split: &split,
+        clash_secret: "s",
+        cache_path: &work.join("cache.db"),
+        xray_ports: &no_xray(),
+        xray_exe: None,
+        rule_sets: &no_sets(),
+        rule_set_dir: &work.join("rulesets"),
+        warp_chain: Some(&warp),
+    })
+    .expect("конфигурация со слоем должна собираться");
+
+    let config_path = work.join("warp.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+
+    let mut core = CoreSupervisor::new(Engine::SingBox, exe, work.clone());
+    core.check_config(&config_path)
+        .expect("ядро должно принять endpoints и detour из них");
+
+    // `check` only parses; starting is what proves the endpoint can actually be
+    // constructed and that the layer's detour resolves to a real outbound.
+    let captured: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
+    let sink = Arc::clone(&captured);
+    core.start(&config_path, move |line| {
+        sink.lock().push(format!("[{}] {}", line.level, line.text));
+    })
+    .expect("ядро должно запуститься");
+
+    let api = ClashApi::new(settings.clash_port, "s");
+    let ready = api.wait_ready(Duration::from_secs(20)).await;
+    core.stop();
+
+    if let Err(e) = ready {
+        panic!(
+            "ядро не поднялось со слоем WARP: {e}\n--- журнал ядра ---\n{}",
             captured.lock().join("\n")
         );
     }

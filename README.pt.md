@@ -54,9 +54,10 @@ As versões não são assinadas com um Apple Developer ID. Baixe o `.pkg`: quand
 
 | | |
 |---|---|
-| **Protocolos** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC |
+| **Protocolos** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard |
 | **Segurança** | REALITY com impressões digitais uTLS, TLS, VLESS Encryption (ML-KEM-768) |
 | **Transportes** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
+| **WARP** | O Cloudflare WARP como servidor próprio ou como camada extra sobre qualquer servidor — o site vê a Cloudflare, o servidor vê apenas WireGuard |
 | **Importação** | links `vless://` e afins, assinaturas 3x-ui / Marzban, atualização automática em segundo plano |
 | **Códigos QR** | leitura da tela, de uma imagem ou pela câmera — webcam no computador, qualquer uma das duas no celular |
 | **Status do plano** | dias e tráfego restantes, lidos direto do painel |

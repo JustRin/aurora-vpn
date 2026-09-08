@@ -54,9 +54,10 @@ TUN 모드, 앱별 분할 터널링, 규칙 기반 라우팅 — Windows, Androi
 
 | | |
 |---|---|
-| **프로토콜** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC |
+| **프로토콜** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard |
 | **보안** | uTLS 지문을 사용하는 REALITY, TLS, VLESS Encryption(ML-KEM-768) |
 | **전송** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
+| **WARP** | Cloudflare WARP를 독립 서버로, 또는 임의의 서버 위에 얹는 추가 계층으로 — 사이트는 Cloudflare를, 서버는 WireGuard만 봅니다 |
 | **가져오기** | `vless://` 등의 링크, 3x-ui / Marzban 구독, 백그라운드 자동 갱신 |
 | **QR 코드** | 화면에서, 이미지에서, 카메라로 읽기 — PC는 웹캠, 휴대폰은 전후면 카메라 모두 |
 | **요금제 상태** | 남은 일수와 트래픽을 패널에서 바로 읽어옴 |
