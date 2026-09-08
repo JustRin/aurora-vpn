@@ -290,6 +290,16 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
 /// The WARP layer is the one shape our own unit tests cannot vouch for: it
 /// leans on `endpoints` and on a `detour` out of one, both of which only the
 /// real parser can confirm we spelled correctly.
+///
+/// Unlike every other fixture here, the addresses are loopback ports nothing
+/// listens on rather than the usual TEST-NET-1 ones. A WireGuard endpoint is
+/// not dialled lazily the way an outbound is: it brings its tunnel up while the
+/// core is still booting, and behind a `detour` that means dialling the proxy
+/// too. Against an address that swallows packets that dial waits out its
+/// timeout and holds up the whole start — measured at 15 s on Windows and past
+/// 20 s on Linux, which is exactly how this test first failed in CI. A refused
+/// port fails in microseconds on either, so what the test measures is the
+/// document, not the host's dial timeout.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_warp_layer_and_a_warp_node_are_accepted_by_the_core() {
     let Some(exe) = core_binary() else {
@@ -301,15 +311,18 @@ async fn the_warp_layer_and_a_warp_node_are_accepted_by_the_core() {
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).unwrap();
 
-    // Cloudflare's own peer key and entry point, with a throwaway private key:
-    // nothing is dialled, so an unregistered account still exercises the whole
-    // start-up path.
+    // Port 1 on loopback: reserved, never served, and refused at once.
+    const REFUSED: (&str, u16) = ("127.0.0.1", 1);
+
+    // Cloudflare's own peer key with a throwaway private key. The handshake
+    // never completes, which is fine — what is under test is that the core
+    // accepts the document and builds the endpoint from it.
     let warp = ServerNode {
         id: "w".into(),
         name: "WARP".into(),
         protocol: Protocol::Wireguard,
-        address: "162.159.192.1".into(),
-        port: 2408,
+        address: REFUSED.0.into(),
+        port: REFUSED.1,
         private_key: "YPxqmCyjmwV8MU2IZ4dSAlhmDHW/+9M2uXn9fq6Kb3c=".into(),
         peer_public_key: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=".into(),
         local_v4: "172.16.0.2".into(),
@@ -318,8 +331,20 @@ async fn the_warp_layer_and_a_warp_node_are_accepted_by_the_core() {
         ..Default::default()
     };
 
-    let mut nodes = sample_nodes();
-    nodes.push(warp.clone());
+    // The server the layer wraps, and therefore the address its handshake has
+    // to cross before anything else can happen.
+    let server = ServerNode {
+        id: "n1".into(),
+        name: "Заглушка".into(),
+        protocol: Protocol::Vless,
+        address: REFUSED.0.into(),
+        port: REFUSED.1,
+        uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+        security: Security::Tls,
+        ..Default::default()
+    };
+
+    let nodes = vec![server, warp.clone()];
 
     let settings = Settings {
         tunnel_mode: TunnelMode::SystemProxy,
