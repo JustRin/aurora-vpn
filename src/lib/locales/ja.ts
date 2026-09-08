@@ -354,6 +354,8 @@ export const ja: Record<keyof typeof ru, string> = {
   "srv.serverFew": "台のサーバー",
   "srv.serverMany": "台のサーバー",
   "srv.updatedWhen": "{when}に更新",
+  "srv.reorderHandle": "ドラッグして並べ替え",
+  "srv.reorderFailed": "並び順を保存できませんでした",
   "srv.addWarpTitle": "WARP を単独のサーバーとして追加",
   "srv.warpAdded": "WARP をサーバー一覧に追加しました",
   "srv.warpFailed": "WARP を追加できませんでした",

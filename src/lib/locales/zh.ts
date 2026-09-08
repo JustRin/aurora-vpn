@@ -341,6 +341,8 @@ export const zh: Record<keyof typeof ru, string> = {
   "srv.serverFew": "台服务器",
   "srv.serverMany": "台服务器",
   "srv.updatedWhen": "{when}更新",
+  "srv.reorderHandle": "拖动以调整顺序",
+  "srv.reorderFailed": "无法保存新的顺序",
   "srv.addWarpTitle": "将 WARP 添加为独立服务器",
   "srv.warpAdded": "WARP 已加入服务器列表",
   "srv.warpFailed": "无法添加 WARP",

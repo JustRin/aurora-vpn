@@ -359,6 +359,8 @@ export const pt: Record<keyof typeof ru, string> = {
   "srv.serverFew": "servidores",
   "srv.serverMany": "servidores",
   "srv.updatedWhen": "atualizado {when}",
+  "srv.reorderHandle": "Arraste para reordenar",
+  "srv.reorderFailed": "Não foi possível salvar a nova ordem",
   "srv.addWarpTitle": "Adicionar o WARP como servidor próprio",
   "srv.warpAdded": "WARP adicionado à lista de servidores",
   "srv.warpFailed": "Não foi possível adicionar o WARP",

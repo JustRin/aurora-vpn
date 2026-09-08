@@ -355,6 +355,8 @@ export const ar: Record<keyof typeof ru, string> = {
   "srv.serverFew": "خوادم",
   "srv.serverMany": "خادمًا",
   "srv.updatedWhen": "حُدّث {when}",
+  "srv.reorderHandle": "اسحب لإعادة الترتيب",
+  "srv.reorderFailed": "تعذّر حفظ الترتيب الجديد",
   "srv.addWarpTitle": "إضافة WARP كخادم مستقل",
   "srv.warpAdded": "تمت إضافة WARP إلى قائمة الخوادم",
   "srv.warpFailed": "تعذّرت إضافة WARP",

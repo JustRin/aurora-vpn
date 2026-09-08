@@ -4,13 +4,14 @@ import {
   Cloud,
   Copy,
   Gauge,
+  GripVertical,
   Pencil,
   Plus,
   RefreshCw,
   Server as ServerIcon,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { QrSources } from "../components/QrScanner";
 import { SubscriptionCard } from "../components/SubscriptionCard";
@@ -18,6 +19,7 @@ import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { BALANCERS, balancerMeta, onBackup } from "../lib/balancers";
 import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
+import { applyOrder, useReorder } from "../lib/reorder";
 import { tNow, useT } from "../lib/i18n";
 import {
   type ImportReport,
@@ -105,6 +107,25 @@ export function Servers() {
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [editing, setEditing] = useState<ServerNode | null>(null);
   const [addingWarp, setAddingWarp] = useState(false);
+
+  /** Новый порядок уезжает на бэкенд один раз, когда строку отпустили. */
+  const saveOrder = useCallback(
+    async (ids: string[]) => {
+      try {
+        await api.reorderServers(ids);
+      } catch (e) {
+        toast("error", tNow("srv.reorderFailed"), errText(e));
+        // Порядок на экране был предположением: вернуть тот, что на диске.
+        await reload();
+      }
+    },
+    [reload, toast],
+  );
+  const reorder = useReorder(
+    nodes.map((n) => n.id),
+    saveOrder,
+  );
+  const ordered = applyOrder(nodes, reorder.order);
 
   /** WARP as a server of its own, for when there is no server to wrap.
    *  A second one would be pointless — both would share the single session
@@ -285,16 +306,30 @@ export function Servers() {
           }
         />
       ) : (
-        <div className="list">
-          {nodes.map((node) => {
+        <div className="list" data-reorder-list>
+          {ordered.map((node) => {
             const ms = latency[node.id];
             const tier = latencyTier(ms);
+            const held = reorder.dragging === node.id;
             return (
               <div
                 key={node.id}
-                className={`node${node.id === activeId ? " active" : ""}`}
+                data-reorder-id={node.id}
+                className={`node${node.id === activeId ? " active" : ""}${held ? " dragging" : ""}`}
                 onDoubleClick={() => void selectServer(node.id)}
               >
+                {/* Тянуть за отдельную ручку, а не за строку: строка занята
+                    двойным щелчком, кнопками и прокруткой пальцем. */}
+                <span
+                  className="node-grip"
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={t("srv.reorderHandle")}
+                  title={t("srv.reorderHandle")}
+                  {...reorder.gripProps(node.id)}
+                >
+                  <GripVertical size={15} />
+                </span>
                 <button
                   type="button"
                   className="node-radio"

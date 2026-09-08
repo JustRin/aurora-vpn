@@ -357,6 +357,8 @@ export const en: Record<keyof typeof ru, string> = {
   "srv.serverFew": "servers",
   "srv.serverMany": "servers",
   "srv.updatedWhen": "updated {when}",
+  "srv.reorderHandle": "Drag to reorder",
+  "srv.reorderFailed": "Could not save the new order",
   "srv.addWarpTitle": "Add WARP as a server of its own",
   "srv.warpAdded": "WARP added to the server list",
   "srv.warpFailed": "Could not add WARP",

@@ -214,6 +214,18 @@ mockIPC(
         return { ...warp };
       case "add_warp_node":
         return undefined;
+      case "reorder_servers": {
+        const ids = (args as { ids: string[] }).ids;
+        const rank = new Map(ids.map((id, index) => [id, index] as const));
+        snapshot.nodes.sort(
+          (a, b) => (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length),
+        );
+        void invoke("plugin:event|emit", {
+          event: "app://nodes",
+          payload: [...snapshot.nodes],
+        });
+        return undefined;
+      }
       case "list_running_apps":
         return [];
       case "test_latency":

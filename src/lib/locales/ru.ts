@@ -359,6 +359,8 @@ export const ru = {
   "srv.serverFew": "сервера",
   "srv.serverMany": "серверов",
   "srv.updatedWhen": "обновлено {when}",
+  "srv.reorderHandle": "Перетащить, чтобы изменить порядок",
+  "srv.reorderFailed": "Не удалось сохранить порядок",
   "srv.addWarpTitle": "Добавить WARP отдельным сервером",
   "srv.warpAdded": "WARP добавлен в список серверов",
   "srv.warpFailed": "Не удалось добавить WARP",

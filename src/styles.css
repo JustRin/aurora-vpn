@@ -1890,6 +1890,38 @@ html[data-platform="linux"] .app {
   box-shadow: inset 0 1px 0 var(--sheen);
   transition: border-color 0.13s, background 0.13s, transform 0.13s;
 }
+/* Ручка перетаскивания. Приглушена, пока на строку не навели: в списке из
+   полусотни серверов полсотни ярких ручек — это шум, а не подсказка. */
+.node-grip {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  margin: -12px 0 -12px -6px;
+  padding: 12px 0;
+  color: var(--text-muted);
+  opacity: 0.3;
+  cursor: grab;
+  /* Иначе палец на телефоне прокрутит список вместо перетаскивания. */
+  touch-action: none;
+  transition: opacity 0.13s;
+}
+.node:hover .node-grip {
+  opacity: 0.7;
+}
+.node-grip:active {
+  cursor: grabbing;
+  opacity: 1;
+}
+/* Строка, которую держат, идёт вместе с курсором сквозь остальные; поднятой её
+   делает тень, а приглушённый фон говорит, что это ещё не итог. */
+.node.dragging {
+  opacity: 0.75;
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+  transform: none;
+}
+
 .node:hover {
   background: var(--panel-hover);
   transform: translateY(-1px);

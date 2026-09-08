@@ -49,6 +49,9 @@ export const api = {
   setScreenScan: (on: boolean) => invoke<void>("set_screen_scan", { on }),
   deleteServer: (id: string) => invoke<void>("delete_server", { id }),
   updateServer: (node: ServerNode) => invoke<void>("update_server", { node }),
+  /** Порядок серверов, собранный перетаскиванием. Ядро не перезапускается:
+   *  теги живого документа привязаны к идентификаторам, а не к позициям. */
+  reorderServers: (ids: string[]) => invoke<void>("reorder_servers", { ids }),
 
   addSubscription: (name: string, url: string) =>
     invoke<ImportReport>("add_subscription", { input: { name, url } }),

@@ -1979,6 +1979,39 @@ pub async fn update_server(app: AppHandle, node: ServerNode) -> Result<()> {
     restart_if_running(&app).await
 }
 
+/// Переставить серверы в порядок `ids` — то, что пользователь собрал
+/// перетаскиванием.
+///
+/// Ядро при этом не перезапускается, и это намеренно: теги запущенного
+/// документа держатся в `state.tags` по идентификатору узла, а не по позиции,
+/// так что и панель, и балансировщик после перестановки указывают туда же, куда
+/// указывали. Новый порядок попадает в документ при следующем подключении —
+/// рвать живое соединение ради порядка строк в списке не за что.
+#[tauri::command]
+pub async fn reorder_servers(app: AppHandle, ids: Vec<String>) -> Result<()> {
+    {
+        let state = app.state::<AppState>();
+        let mut nodes = state.nodes.write();
+
+        let rank: HashMap<&str, usize> = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.as_str(), index))
+            .collect();
+
+        // Сортировка устойчивая, а неизвестные идентификаторы получают ранг за
+        // концом списка: если подписка обновилась, пока тянули строку, её новые
+        // узлы просто останутся в хвосте в своём порядке, а не перемешаются.
+        let tail = ids.len();
+        nodes.sort_by_key(|node| rank.get(node.id.as_str()).copied().unwrap_or(tail));
+
+        drop(nodes);
+        state.save_nodes()?;
+    }
+    emit_nodes(&app);
+    Ok(())
+}
+
 fn emit_nodes(app: &AppHandle) {
     let resolved = {
         let state = app.state::<AppState>();
@@ -2174,6 +2207,57 @@ pub async fn add_warp_node(app: AppHandle) -> Result<()> {
     Ok(())
 }
 
+/// Fold a freshly fetched subscription into the server list.
+///
+/// The node a refresh re-issues is replaced **where it stands** rather than
+/// dropped and re-appended. Two things ride on that. Ids, so the pinned server
+/// and its measured latency survive a refresh — that part predates dragging.
+/// And position: the order of the list is the user's own, arranged by hand, and
+/// a nightly refresh that shuffled every server of a subscription back to the
+/// bottom would quietly undo it.
+fn merge_subscription_nodes(
+    existing: Vec<ServerNode>,
+    incoming: Vec<ServerNode>,
+    sub_id: &str,
+) -> Vec<ServerNode> {
+    // `Option` per slot rather than a map keyed by fingerprint: a provider that
+    // lists the same node twice should still yield two nodes, and each incoming
+    // one may be claimed only once.
+    let mut incoming: Vec<Option<ServerNode>> = incoming
+        .into_iter()
+        .map(|mut node| {
+            node.subscription_id = Some(sub_id.to_string());
+            Some(node)
+        })
+        .collect();
+
+    let mut merged: Vec<ServerNode> = Vec::with_capacity(existing.len());
+    for node in existing {
+        // Manual servers and other subscriptions are not this refresh's
+        // business; they keep their places untouched.
+        if node.subscription_id.as_deref() != Some(sub_id) {
+            merged.push(node);
+            continue;
+        }
+        let key = node.fingerprint_key();
+        let slot = incoming
+            .iter_mut()
+            .find(|candidate| candidate.as_ref().is_some_and(|n| n.fingerprint_key() == key));
+        // No slot means the provider stopped serving this node, and it goes
+        // away with it.
+        if let Some(slot) = slot {
+            let mut fresh = slot.take().expect("совпадение ищется только среди занятых мест");
+            fresh.id = node.id;
+            merged.push(fresh);
+        }
+    }
+
+    // Whatever the provider has added since last time goes to the end, in the
+    // order it listed them.
+    merged.extend(incoming.into_iter().flatten());
+    merged
+}
+
 #[tauri::command]
 pub async fn add_subscription(app: AppHandle, input: SubInput) -> Result<ImportReport> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -2258,23 +2342,7 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
         let state = app.state::<AppState>();
         let mut nodes = state.nodes.write();
 
-        // Preserve ids across a refresh so the pinned server and its measured
-        // latency survive when the provider re-issues the same node.
-        let previous: HashMap<String, String> = nodes
-            .iter()
-            .filter(|n| n.subscription_id.as_deref() == Some(id.as_str()))
-            .map(|n| (n.fingerprint_key(), n.id.clone()))
-            .collect();
-
-        nodes.retain(|n| n.subscription_id.as_deref() != Some(id.as_str()));
-
-        for mut node in report.nodes {
-            if let Some(old_id) = previous.get(&node.fingerprint_key()) {
-                node.id = old_id.clone();
-            }
-            node.subscription_id = Some(id.clone());
-            nodes.push(node);
-        }
+        *nodes = merge_subscription_nodes(nodes.drain(..).collect(), report.nodes, &id);
         drop(nodes);
 
         let mut subs = state.subs.write();
@@ -3199,7 +3267,8 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        installer_suffix, parse_version, pick_installer_url, split_frame, split_import_text,
+        installer_suffix, merge_subscription_nodes, parse_version, pick_installer_url, split_frame,
+        split_import_text, ServerNode,
     };
     use serde_json::json;
 
@@ -3284,5 +3353,92 @@ mod tests {
             let marker = if std::env::consts::ARCH == "aarch64" { "arm64" } else { "x64" };
             assert!(url.contains(marker), "{url}");
         }
+    }
+
+    // ------------------------------------------- обновление подписки на месте
+
+    fn sub_node(name: &str, id: &str, address: &str, sub: Option<&str>) -> ServerNode {
+        ServerNode {
+            id: id.into(),
+            name: name.into(),
+            protocol: crate::model::Protocol::Vless,
+            address: address.into(),
+            port: 443,
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+            subscription_id: sub.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_refresh_keeps_every_node_where_the_user_put_it() {
+        // Порядок в списке — ручной, собранный перетаскиванием. Обновление,
+        // сбрасывающее узлы подписки в конец, молча его отменяло бы.
+        let existing = vec![
+            sub_node("B", "b", "b.example", Some("s1")),
+            sub_node("Свой", "m", "manual.example", None),
+            sub_node("A", "a", "a.example", Some("s1")),
+        ];
+        // Провайдер отдаёт их в своём порядке — он ничего не решает.
+        let incoming = vec![
+            sub_node("A", "new-a", "a.example", None),
+            sub_node("B", "new-b", "b.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        let order: Vec<&str> = merged.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(order, vec!["B", "Свой", "A"]);
+        // Идентификаторы переживают обновление: на них держатся закреплённый
+        // сервер и измеренная задержка.
+        assert_eq!(merged[0].id, "b");
+        assert_eq!(merged[2].id, "a");
+        assert!(merged.iter().all(|n| n.subscription_id.is_some() == (n.id != "m")));
+    }
+
+    #[test]
+    fn a_node_the_provider_dropped_goes_away_and_a_new_one_lands_at_the_end() {
+        let existing = vec![
+            sub_node("A", "a", "a.example", Some("s1")),
+            sub_node("Ушедший", "gone", "gone.example", Some("s1")),
+        ];
+        let incoming = vec![
+            sub_node("A", "x", "a.example", None),
+            sub_node("Новый", "y", "new.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        let order: Vec<&str> = merged.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(order, vec!["A", "Новый"]);
+        assert_eq!(merged[0].id, "a");
+    }
+
+    #[test]
+    fn another_subscriptions_nodes_are_not_touched_by_this_refresh() {
+        let existing = vec![
+            sub_node("Чужой", "o", "other.example", Some("s2")),
+            sub_node("A", "a", "a.example", Some("s1")),
+        ];
+        let incoming = vec![sub_node("A", "x", "a.example", None)];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, "o");
+        assert_eq!(merged[0].subscription_id.as_deref(), Some("s2"));
+    }
+
+    #[test]
+    fn a_provider_listing_the_same_node_twice_still_yields_two() {
+        // Совпадение ищется по одному разу на входящий узел: иначе дубль в
+        // выдаче панели молча схлопывался бы, и счётчик серверов расходился бы
+        // со списком.
+        let existing = vec![sub_node("A", "a", "a.example", Some("s1"))];
+        let incoming = vec![
+            sub_node("A", "x", "a.example", None),
+            sub_node("A-копия", "y", "a.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, "a");
     }
 }

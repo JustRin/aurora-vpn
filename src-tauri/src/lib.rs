@@ -558,6 +558,7 @@ pub fn run() {
             commands::set_screen_scan,
             commands::delete_server,
             commands::update_server,
+            commands::reorder_servers,
             commands::add_subscription,
             commands::refresh_subscription,
             commands::refresh_all_subscriptions,

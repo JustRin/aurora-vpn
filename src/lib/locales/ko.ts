@@ -346,6 +346,8 @@ export const ko: Record<keyof typeof ru, string> = {
   "srv.serverFew": "개 서버",
   "srv.serverMany": "개 서버",
   "srv.updatedWhen": "{when} 갱신",
+  "srv.reorderHandle": "끌어서 순서 변경",
+  "srv.reorderFailed": "새 순서를 저장하지 못했습니다",
   "srv.addWarpTitle": "WARP를 독립 서버로 추가",
   "srv.warpAdded": "WARP를 서버 목록에 추가했습니다",
   "srv.warpFailed": "WARP를 추가하지 못했습니다",
