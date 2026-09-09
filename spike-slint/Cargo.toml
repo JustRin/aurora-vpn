@@ -33,6 +33,10 @@ tokio = { version = "1", features = [
 ] }
 uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.23"
+# Cloudflare WARP hands out a WireGuard tunnel bound to a key we generate
+# ourselves; this is the only piece of crypto the app owns. Pure Rust, so it
+# needs no OpenSSL of its own.
+x25519-dalek = { version = "2", features = ["static_secrets", "getrandom"] }
 url = "2"
 percent-encoding = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }

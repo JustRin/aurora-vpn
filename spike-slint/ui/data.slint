@@ -163,6 +163,26 @@ export global Data {
     in-out property <bool> update-busy;
     in-out property <float> update-progress;
 
+    // Cloudflare WARP. `warp-on` — тумблер слоя, `warp-registered` говорит,
+    // заведён ли уже анонимный аккаунт: пока нет, первое включение спрашивает
+    // согласия. `warp-busy` гасит переключатель на время регистрации и
+    // пересборки конфига — она перезапускает ядро.
+    in-out property <bool> warp-on;
+    in-out property <bool> warp-registered;
+    in-out property <bool> warp-busy;
+    // «free», либо «limited»/«unlimited» с лицензией WARP+.
+    // Готовая подпись под «Аккаунт Cloudflare» — склеена в Rust.
+    in-out property <string> warp-account-state;
+    callback warp-reset();
+    callback warp-toggle(bool);
+    callback warp-add-node();
+    // Ссылка открывается системным браузером: условия — у Cloudflare, а не тут.
+    callback open-url(string);
+    // Строку перетащили на новое место внутри её раздела: id и новый номер.
+    // Разделы — это подписки, и переезд между ними значил бы смену панели,
+    // которая сервер раздаёт; такое перетаскиванием не решается.
+    callback reorder-node(string, int);
+
     callback select-server(string);
     callback delete-server(string);
     callback copy-link(string);

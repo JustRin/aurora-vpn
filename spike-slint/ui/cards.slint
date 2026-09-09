@@ -133,8 +133,19 @@ export component NodeRow inherits Rectangle {
     callback copy-link();
     callback edit();
     callback remove();
+    // Перетаскивание: `drag-move` отдаёт, насколько указатель уехал от места
+    // нажатия — раскладка одинаковых по высоте строк переводит это в номер.
+    callback drag-start();
+    callback drag-move(length);
+    callback drag-end();
+    // Строку держат: она приглушена, пока не отпустят.
+    in property <bool> dragging;
+    // Здесь она встанет — линия над строкой или под ней, смотря куда едет.
+    in property <bool> drop-above;
+    in property <bool> drop-below;
 
     height: 62px;
+    opacity: root.dragging ? 0.55 : 1.0;
     vertical-stretch: 0;
     border-radius: 12px;
     border-width: 1px;
@@ -163,10 +174,56 @@ export component NodeRow inherits Rectangle {
         clicked => { root.select(); }
     }
 
+    // Куда встанет строка. Линия рисуется в промежутке между строками, поэтому
+    // выходит за их границы — Rectangle ничего не обрезает.
+    if root.drop-above: Rectangle {
+        y: -5px;
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.accent;
+    }
+    if root.drop-below: Rectangle {
+        y: root.height + 3px;
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.accent;
+    }
+
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
         spacing: 13px;
+
+        // Ручка перетаскивания. Отдельная, а не вся строка: по строке щёлкают,
+        // чтобы выбрать сервер, и её же тянут пальцем, когда прокручивают
+        // список.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 34px;
+                NavIcon {
+                    commands: Icons.grip;
+                    tint: Theme.text-muted;
+                    width: 14px;
+                    height: 14px;
+                    opacity: grip.has-hover || root.dragging ? 0.9 : 0.32;
+                    animate opacity { duration: 130ms; }
+                }
+                grip := TouchArea {
+                    mouse-cursor: root.dragging ? grabbing : grab;
+                    moved => { root.drag-move(self.mouse-y - self.pressed-y); }
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down) {
+                            root.drag-start();
+                        }
+                        if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
+                            root.drag-end();
+                        }
+                    }
+                }
+            }
+        }
 
         // .node-radio
         VerticalLayout {
@@ -463,9 +520,18 @@ export component NodeGroupSection inherits VerticalLayout {
     callback copy-link(string);
     callback edit(string);
     callback remove-node(string);
+    // Строку отпустили на новом месте: id и новый номер внутри этого раздела.
+    callback reorder(string, int);
 
     // У раздела своих серверов подписки нет: ни обновлять, ни удалять нечего.
     property <bool> own: root.group.sub.id == "";
+
+    // Откуда тянут и куда встанет; -1 — не тянут. Шаг списка: высота строки
+    // плюс промежуток, одинаковые у всех, поэтому номер считается делением, а
+    // не поиском строки под указателем.
+    property <int> drag-from: -1;
+    property <int> drag-to: -1;
+    property <length> row-pitch: 70px;
 
     spacing: 8px;
 
@@ -614,14 +680,34 @@ export component NodeGroupSection inherits VerticalLayout {
         padding-left: 14px;
         padding-bottom: 4px;
         spacing: 8px;
-        for node in root.group.nodes: NodeRow {
+        for node[i] in root.group.nodes: NodeRow {
             node: node;
             active: node.id == root.active-id;
             routed: node.id == root.routed-id;
+            dragging: root.drag-from == i;
+            drop-above: root.drag-from >= 0 && root.drag-to == i && root.drag-to < root.drag-from;
+            drop-below: root.drag-from >= 0 && root.drag-to == i && root.drag-to > root.drag-from;
             select => { root.select(node.id); }
             copy-link => { root.copy-link(node.id); }
             edit => { root.edit(node.id); }
             remove => { root.remove-node(node.id); }
+            drag-start => {
+                root.drag-from = i;
+                root.drag-to = i;
+            }
+            drag-move(dy) => {
+                root.drag-to = clamp(
+                    i + Math.round(dy / root.row-pitch),
+                    0,
+                    root.group.nodes.length - 1);
+            }
+            drag-end => {
+                if (root.drag-from >= 0 && root.drag-to != root.drag-from) {
+                    root.reorder(node.id, root.drag-to);
+                }
+                root.drag-from = -1;
+                root.drag-to = -1;
+            }
         }
     }
 }

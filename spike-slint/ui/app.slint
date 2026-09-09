@@ -5,7 +5,7 @@
 import { Theme, Icons, Divider, NavItem, NavPill, CoreLine, WinButton, NavIcon } from "theme.slint";
 import { Toast } from "widgets.slint";
 import { Data, Conf, Ui, Draft } from "data.slint";
-import { DashboardPage } from "pages/dashboard.slint";
+import { DashboardPage, WarpConsentModal } from "pages/dashboard.slint";
 import { ServersPage, ImportModal, NodeEditorModal, CameraModal, ScanBar } from "pages/servers.slint";
 import { SplitPage, ProcessPickerModal } from "pages/split.slint";
 import { RoutingPage, ConfigModal } from "pages/routing.slint";
@@ -437,6 +437,7 @@ export component AppWindow inherits Window {
     if Ui.modal == 5: ElevateModal { }
     if Ui.modal == 6: OrphanModal { }
     if Ui.modal == 7: CameraModal { }
+    if Ui.modal == 8: WarpConsentModal { }
 
     // Полоска режима «считать с экрана». Рисуется поверх всего и непрозрачна:
     // окно в этот момент ровно её размера, и остального под ней не видно.

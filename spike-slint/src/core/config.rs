@@ -24,6 +24,10 @@ use crate::settings::{Settings, SplitConfig, SplitMode, TunnelMode};
 pub const TAG_PROXY: &str = "proxy";
 pub const TAG_AUTO: &str = "auto";
 pub const TAG_DIRECT: &str = "direct";
+/// The WARP layer: a WireGuard endpoint whose own traffic is detoured through
+/// [`TAG_PROXY`], so everything routed at it comes out of Cloudflare having
+/// crossed the user's server first.
+pub const TAG_WARP: &str = "warp-layer";
 pub const TAG_DNS_REMOTE: &str = "dns-remote";
 pub const TAG_DNS_DIRECT: &str = "dns-direct";
 pub const TAG_DNS_FAKE: &str = "dns-fake";
@@ -48,6 +52,10 @@ pub struct BuildInput<'a> {
     /// start, taking the whole tunnel down over an optional filter.
     pub rule_sets: &'a HashSet<String>,
     pub rule_set_dir: &'a Path,
+    /// The node describing the WARP layer, when the user has it switched on and
+    /// an account has been registered. It is not part of `nodes`: it never
+    /// appears in the selector, it wraps it.
+    pub warp_chain: Option<&'a ServerNode>,
     /// In-process libbox has no stdout the app could capture, so the config
     /// points its log output at a file the Rust side tails.
     #[cfg(target_os = "android")]
@@ -223,6 +231,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         xray_exe,
         rule_sets,
         rule_set_dir,
+        warp_chain,
         #[cfg(target_os = "android")]
         log_file,
     } = input;
@@ -270,22 +279,43 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     }
 
     // ---------------------------------------------------------------- outbounds
+    // The layer wraps whatever the selector points at, so a WARP node left
+    // *inside* the selector would open a second live session of the same
+    // Cloudflare account — and Cloudflare keeps exactly one per key, the two
+    // knocking each other out. With the layer on, such nodes step aside. If
+    // nothing else is left there is nothing to wrap: the layer stands down and
+    // the nodes stay, which beats a tunnel with no servers in it.
+    let selectable: Vec<&ServerNode> = nodes.iter().filter(|n| !n.is_endpoint()).collect();
+    let warp_chain = warp_chain.filter(|_| !selectable.is_empty());
+    let nodes: Vec<&ServerNode> = match warp_chain {
+        Some(_) => selectable,
+        None => nodes.iter().collect(),
+    };
+
     let mut outbounds: Vec<Value> = Vec::new();
+    let mut endpoints: Vec<Value> = Vec::new();
     let mut tags: Vec<(String, String)> = Vec::new();
 
     for (index, node) in nodes.iter().enumerate() {
         let tag = sanitize_tag(&node.name, index);
-        let outbound = match xray_ports.get(&node.id) {
-            Some(port) => json!({
-                "type": "socks",
-                "tag": tag,
-                "server": "127.0.0.1",
-                "server_port": port,
-                "version": "5"
-            }),
-            None => node.to_outbound(&tag, TAG_DNS_DIRECT),
-        };
-        outbounds.push(outbound);
+        // WireGuard is an endpoint rather than an outbound since sing-box 1.13,
+        // but it is addressed by tag exactly the same everywhere else — the
+        // selector, the Clash API and the latency probes cannot tell.
+        if node.is_endpoint() {
+            endpoints.push(node.to_endpoint(&tag, TAG_DNS_DIRECT, None));
+        } else {
+            let outbound = match xray_ports.get(&node.id) {
+                Some(port) => json!({
+                    "type": "socks",
+                    "tag": tag,
+                    "server": "127.0.0.1",
+                    "server_port": port,
+                    "version": "5"
+                }),
+                None => node.to_outbound(&tag, TAG_DNS_DIRECT),
+            };
+            outbounds.push(outbound);
+        }
         tags.push((node.id.clone(), tag));
     }
 
@@ -306,7 +336,11 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         .filter(|(node, _)| {
             let ws_vmess = node.protocol == crate::model::Protocol::Vmess
                 && node.network == crate::model::Network::Ws;
-            !ws_vmess || xray_ports.contains_key(&node.id)
+            // Узлы WARP держатся вне группы по своей причине: urltest — это
+            // дозвоны до всех её участников каждые три минуты, а Cloudflare на
+            // один ключ держит одну живую сессию, и такие дозвоны выбивают
+            // рабочий туннель.
+            (!ws_vmess || xray_ports.contains_key(&node.id)) && !node.is_endpoint()
         })
         .map(|(_, tag)| tag.clone())
         .collect();
@@ -349,6 +383,20 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     }));
     outbounds.push(json!({ "type": "direct", "tag": TAG_DIRECT }));
 
+    // The one place the layer is wired in. Everything downstream — routing
+    // rules, the final outbound, the remote resolver — is pointed at
+    // `proxy_tag` instead of the selector, so switching the layer on moves the
+    // whole table one hop outward and leaves the selector itself untouched.
+    // That is what keeps the balancer working: it goes on picking servers
+    // inside the selector, and the layer stays wrapped around whatever it picks.
+    let proxy_tag = match warp_chain {
+        Some(node) => {
+            endpoints.push(node.to_endpoint(TAG_WARP, TAG_DNS_DIRECT, Some(TAG_PROXY)));
+            TAG_WARP
+        }
+        None => TAG_PROXY,
+    };
+
     // --------------------------------------------------------------------- dns
     let mut dns_servers: Vec<Value> = Vec::new();
 
@@ -358,7 +406,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // sense". `sing-box check` does not catch it — only running the core does.
     let (direct_server, direct_needs_bootstrap) =
         dns_server(TAG_DNS_DIRECT, &settings.dns_direct, None);
-    let (remote_server, _) = dns_server(TAG_DNS_REMOTE, &settings.dns_remote, Some(TAG_PROXY));
+    let (remote_server, _) = dns_server(TAG_DNS_REMOTE, &settings.dns_remote, Some(proxy_tag));
 
     if direct_needs_bootstrap {
         dns_servers.push(json!({ "type": "local", "tag": TAG_DNS_BOOTSTRAP }));
@@ -587,7 +635,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // but the mode belongs to the API, and a Clash dashboard pointed at it can
     // still ask for either.
     rules.push(json!({ "clash_mode": "Direct", "outbound": TAG_DIRECT }));
-    rules.push(json!({ "clash_mode": "Global", "outbound": TAG_PROXY }));
+    rules.push(json!({ "clash_mode": "Global", "outbound": proxy_tag }));
 
     if !split.block_domains.is_empty() {
         rules.push(json!({ "domain_suffix": split.block_domains, "action": "reject" }));
@@ -605,7 +653,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "domain_suffix": split.direct_domains, "outbound": TAG_DIRECT }));
     }
     if !split.proxy_domains.is_empty() {
-        rules.push(json!({ "domain_suffix": split.proxy_domains, "outbound": TAG_PROXY }));
+        rules.push(json!({ "domain_suffix": split.proxy_domains, "outbound": proxy_tag }));
     }
 
     if bypass_ru {
@@ -630,7 +678,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "ip_cidr": split.direct_ips, "outbound": TAG_DIRECT }));
     }
     if !split.proxy_ips.is_empty() {
-        rules.push(json!({ "ip_cidr": split.proxy_ips, "outbound": TAG_PROXY }));
+        rules.push(json!({ "ip_cidr": split.proxy_ips, "outbound": proxy_tag }));
     }
     if bypass_ru {
         rules.push(json!({ "rule_set": ["geoip-ru"], "outbound": TAG_DIRECT }));
@@ -645,18 +693,18 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // include/exclude packages above): whatever still enters the tunnel goes
     // to the proxy, so process-attribution rules are neither possible nor needed.
     #[cfg(target_os = "android")]
-    let route_final = TAG_PROXY;
+    let route_final = proxy_tag;
     #[cfg(not(target_os = "android"))]
     let route_final = match split.mode {
         SplitMode::Include if split.has_active_apps() => {
-            rules.extend(app_rules(split, &[("outbound", json!(TAG_PROXY))]));
+            rules.extend(app_rules(split, &[("outbound", json!(proxy_tag))]));
             TAG_DIRECT
         }
         SplitMode::Exclude if split.has_active_apps() => {
             rules.extend(app_rules(split, &[("outbound", json!(TAG_DIRECT))]));
-            TAG_PROXY
+            proxy_tag
         }
-        _ => TAG_PROXY,
+        _ => proxy_tag,
     };
 
     let mut route = Map::new();
@@ -681,7 +729,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         "output": log_file.to_string_lossy()
     });
 
-    let config = json!({
+    let mut config = json!({
         "log": log_section,
         "experimental": {
             "clash_api": {
@@ -700,6 +748,12 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         "outbounds": outbounds,
         "route": Value::Object(route)
     });
+
+    // Omitted rather than left empty: an installation without WireGuard should
+    // produce the document it produced before this key existed.
+    if !endpoints.is_empty() {
+        config["endpoints"] = json!(endpoints);
+    }
 
     Ok(BuiltConfig { json: config, tags, candidates: auto_members })
 }
@@ -774,6 +828,7 @@ mod tests {
             xray_exe: Some(&xray_exe),
             rule_sets: &rule_sets,
             rule_set_dir: &dir,
+            warp_chain: None,
         })
         .unwrap()
         .json
@@ -927,6 +982,7 @@ mod tests {
             xray_exe: Some(&xray_exe),
             rule_sets: &sets,
             rule_set_dir: &dir,
+            warp_chain: None,
         })
         .unwrap()
         .json
@@ -1047,6 +1103,7 @@ mod tests {
             xray_exe: None,
             rule_sets: &all_sets(),
             rule_set_dir: &PathBuf::from("rules"),
+            warp_chain: None,
         })
         .unwrap();
         assert_eq!(built.candidates, vec!["0-Tokyo".to_string(), "2-Berlin".to_string()]);
@@ -1239,8 +1296,156 @@ mod tests {
             xray_exe: None,
             rule_sets: &sets,
             rule_set_dir: &dir,
+            warp_chain: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("сервер"));
+    }
+
+    // ------------------------------------------------------------------ warp
+
+    fn warp_node(name: &str, id: &str) -> ServerNode {
+        ServerNode {
+            id: id.into(),
+            name: name.into(),
+            protocol: Protocol::Wireguard,
+            address: "162.159.192.1".into(),
+            port: 2408,
+            private_key: "priv".into(),
+            peer_public_key: "peer".into(),
+            local_v4: "172.16.0.2".into(),
+            local_v6: "2606:4700:110::2".into(),
+            reserved: vec![1, 2, 3],
+            ..Default::default()
+        }
+    }
+
+    fn build_with_warp(nodes: Vec<ServerNode>, chain: Option<ServerNode>) -> Value {
+        let settings = Settings::default();
+        // One rule of each shape the layer has to take over.
+        let split = SplitConfig {
+            proxy_domains: vec!["example.org".into()],
+            proxy_ips: vec!["203.0.113.0/24".into()],
+            ..Default::default()
+        };
+        let cache = PathBuf::from("cache.db");
+        let dir = PathBuf::from("rules");
+        let sets = all_sets();
+        build(&BuildInput {
+            nodes: &nodes,
+            active_id: "a",
+            settings: &settings,
+            split: &split,
+            clash_secret: "secret",
+            cache_path: &cache,
+            xray_ports: &HashMap::new(),
+            xray_exe: None,
+            rule_sets: &sets,
+            rule_set_dir: &dir,
+            warp_chain: chain.as_ref(),
+        })
+        .unwrap()
+        .json
+    }
+
+    fn tagged<'a>(cfg: &'a Value, key: &str, tag: &str) -> Option<&'a Value> {
+        cfg[key].as_array()?.iter().find(|o| o["tag"] == json!(tag))
+    }
+
+    #[test]
+    fn a_wireguard_node_is_an_endpoint_but_still_a_member_of_the_selector() {
+        // sing-box dropped the wireguard outbound in 1.13; the tag works the
+        // same everywhere else, which is what keeps the selector, the Clash API
+        // and the latency probes from having to know the difference.
+        let cfg = build_with_warp(vec![warp_node("WARP", "a"), node("Berlin", "b")], None);
+
+        let endpoint = tagged(&cfg, "endpoints", "0-WARP").expect("узел WARP — endpoint");
+        assert_eq!(endpoint["type"], json!("wireguard"));
+        assert_eq!(endpoint["address"], json!(["172.16.0.2/32", "2606:4700:110::2/128"]));
+        assert_eq!(endpoint["peers"][0]["reserved"], json!([1, 2, 3]));
+        // Никакого detour: самостоятельный узел выходит сам, а не поверх прокси.
+        assert!(endpoint.get("detour").is_none());
+
+        assert!(tagged(&cfg, "outbounds", "0-WARP").is_none());
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert!(selector["outbounds"].as_array().unwrap().contains(&json!("0-WARP")));
+    }
+
+    #[test]
+    fn wireguard_nodes_stay_out_of_the_urltest_group() {
+        // urltest дозванивается до всех участников каждые три минуты, а
+        // Cloudflare держит на ключ одну живую сессию: такие дозвоны выбили бы
+        // рабочий туннель.
+        let cfg = build_with_warp(vec![node("Berlin", "a"), warp_node("WARP", "b")], None);
+        let auto = tagged(&cfg, "outbounds", TAG_AUTO).unwrap();
+        assert_eq!(auto["outbounds"], json!(["0-Berlin"]));
+    }
+
+    #[test]
+    fn a_document_without_wireguard_carries_no_endpoints_key() {
+        let cfg = build_with_warp(vec![node("Berlin", "a")], None);
+        assert!(cfg.get("endpoints").is_none());
+    }
+
+    #[test]
+    fn the_warp_layer_wraps_the_selector_and_takes_the_routing_with_it() {
+        let cfg = build_with_warp(vec![node("Berlin", "a")], Some(warp_node("WARP", "w")));
+
+        // Слой — endpoint поверх селектора, а не участник выбора.
+        let layer = tagged(&cfg, "endpoints", TAG_WARP).expect("слой собран");
+        assert_eq!(layer["detour"], json!(TAG_PROXY));
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert!(!selector["outbounds"].as_array().unwrap().contains(&json!(TAG_WARP)));
+
+        // И весь стол переехал на одну ступень наружу: правило, оставшееся
+        // смотреть на селектор, ходило бы мимо слоя.
+        assert_eq!(cfg["route"]["final"], json!(TAG_WARP));
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        assert!(rules.iter().all(|r| r["outbound"] != json!(TAG_PROXY)));
+        assert!(rules.iter().any(|r| r["clash_mode"] == json!("Global")
+            && r["outbound"] == json!(TAG_WARP)));
+        assert!(rules
+            .iter()
+            .any(|r| r["domain_suffix"] == json!(["example.org"]) && r["outbound"] == json!(TAG_WARP)));
+        assert!(rules
+            .iter()
+            .any(|r| r["ip_cidr"] == json!(["203.0.113.0/24"]) && r["outbound"] == json!(TAG_WARP)));
+
+        // Удалённый резолвер тоже: иначе запросы шли бы мимо слоя, и адрес
+        // выхода расходился бы с адресом, откуда спрашивали имя.
+        let remote = cfg["dns"]["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["tag"] == json!(TAG_DNS_REMOTE))
+            .unwrap();
+        assert_eq!(remote["detour"], json!(TAG_WARP));
+    }
+
+    #[test]
+    fn the_warp_layer_pushes_wireguard_nodes_out_of_the_selector() {
+        // Узел WARP внутри селектора — вторая живая сессия того же аккаунта, а
+        // Cloudflare держит одну: две выбивают друг друга.
+        let nodes = vec![node("Berlin", "a"), warp_node("WARP", "b")];
+        let cfg = build_with_warp(nodes, Some(warp_node("layer", "w")));
+
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert_eq!(selector["outbounds"], json!([TAG_AUTO, "0-Berlin"]));
+        // Единственный endpoint в документе — сам слой.
+        let endpoints = cfg["endpoints"].as_array().unwrap();
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0]["tag"], json!(TAG_WARP));
+    }
+
+    #[test]
+    fn the_warp_layer_stands_down_when_there_is_nothing_left_to_wrap() {
+        // Кроме WARP узлов нет: выкинуть их ради слоя значило бы собрать
+        // туннель без серверов вовсе.
+        let cfg = build_with_warp(vec![warp_node("WARP", "a")], Some(warp_node("layer", "w")));
+
+        assert!(tagged(&cfg, "endpoints", TAG_WARP).is_none());
+        assert_eq!(cfg["route"]["final"], json!(TAG_PROXY));
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert!(selector["outbounds"].as_array().unwrap().contains(&json!("0-WARP")));
     }
 }

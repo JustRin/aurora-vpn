@@ -2094,6 +2094,15 @@ fn warp_info(state: &AppState) -> WarpInfo {
     }
 }
 
+/// Локальный вход работающего ядра, если оно поднято.
+///
+/// Через него регистрация идёт тем же путём, что и трафик пользователя, — а
+/// напрямую клиентский API Cloudflare пускают не все сети.
+fn warp_route(state: &AppState) -> Option<String> {
+    let connected = state.status.read().state == ConnState::Connected;
+    connected.then(|| format!("http://127.0.0.1:{}", state.settings.read().mixed_port))
+}
+
 /// The account, registering one on first use.
 ///
 /// Registration is deliberately lazy: an install that never switches WARP on
@@ -2106,7 +2115,19 @@ async fn ensure_warp_account(app: &AppHandle) -> Result<WarpAccount> {
             return Ok(account);
         }
     }
-    let account = warp::register().await?;
+    let via = warp_route(&app.state::<AppState>());
+    let account = warp::register(via.as_deref()).await.map_err(|e| {
+        // Напрямую клиентский API Cloudflare пускают не все сети, и это первое,
+        // обо что спотыкается включение. Через поднятый туннель запрос уходит
+        // сам — сказать об этом стоит здесь, а не оставлять «сетевую ошибку».
+        if via.is_none() {
+            AppError::msg(format!(
+                "{e}. Cloudflare недоступен напрямую — подключитесь к серверу и включите WARP снова"
+            ))
+        } else {
+            e
+        }
+    })?;
     {
         let state = app.state::<AppState>();
         *state.warp.write() = account.clone();
@@ -2168,7 +2189,7 @@ pub async fn enable_warp(app: AppHandle) -> Result<WarpInfo> {
 /// new address on the way out.
 #[tauri::command]
 pub async fn reset_warp(app: AppHandle) -> Result<WarpInfo> {
-    let account = warp::register().await?;
+    let account = warp::register(warp_route(&app.state::<AppState>()).as_deref()).await?;
     let rekeyed = {
         let state = app.state::<AppState>();
         *state.warp.write() = account.clone();

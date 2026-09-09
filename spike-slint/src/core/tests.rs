@@ -116,6 +116,7 @@ async fn core_starts_from_a_generated_config_and_answers_its_control_api() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -269,6 +270,7 @@ async fn a_running_core_of_ours_is_never_reported_as_an_orphan() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -351,6 +353,7 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 
@@ -387,6 +390,7 @@ async fn split_tunnel_config_with_process_rules_is_accepted_by_the_core() {
         xray_exe: None,
         rule_sets: &no_sets(),
         rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
     })
     .expect("конфигурация должна собираться");
 

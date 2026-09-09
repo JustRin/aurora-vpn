@@ -554,6 +554,30 @@ export component SettingsPage inherits ScrollArea {
         }
 
         Rectangle { height: 30px; }
+        SectionTitle { text: "WARP"; }
+        Rectangle { height: 12px; }
+        Card {
+            StackRow {
+                label: Str.warp-account;
+                // Единственное действие, которое тут имеет смысл: своей страны
+                // WARP не предлагает, так что «где-нибудь ещё» — это новая
+                // регистрация, и просят её, когда выданный адрес перестал
+                // пускать.
+                // Строка собрана в Rust: подстановки в разметке нет, ровно
+                // как у остальных строк с {n} — их тоже склеивает Rust.
+                desc: Data.warp-account-state;
+                Btn {
+                    label: Str.warp-new-address;
+                    icon: Icons.refresh;
+                    small: true;
+                    busy: Data.warp-busy;
+                    enabled: Data.warp-registered && !Data.warp-busy;
+                    clicked => { Data.warp-reset(); }
+                }
+            }
+        }
+
+        Rectangle { height: 30px; }
         SectionTitle { text: Str.set-subs-section-caps; }
         Rectangle { height: 12px; }
         Card {

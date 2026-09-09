@@ -64,6 +64,12 @@ export component ServersPage inherits ScrollArea {
                     clicked => { Data.test-latency(); }
                 }
                 Btn {
+                    label: "WARP";
+                    icon: Icons.cloud;
+                    enabled: !Data.warp-busy;
+                    clicked => { Data.warp-add-node(); }
+                }
+                Btn {
                     label: Str.srv-add-btn;
                     icon: Icons.plus;
                     kind: "primary";
@@ -143,6 +149,7 @@ export component ServersPage inherits ScrollArea {
             copy-link(id) => { Data.copy-link(id); }
             edit(id) => { Data.edit-server(id); }
             remove-node(id) => { Data.delete-server(id); }
+            reorder(id, to) => { Data.reorder-node(id, to); }
         }
     }
 
@@ -467,6 +474,11 @@ export component NodeEditorModal inherits ModalShell {
     ScrollArea {
         pad: 18px;
         content-spacing: 14px;
+        // Без собственной высоты диалог схлопывался в пустую полоску: лента
+        // внутри ScrollArea позиционируется сама, поэтому раскладка берёт её
+        // минимум как есть — а он нулевой. Та же поправка, что в split.slint:
+        // растём вместе с окном, но не перерастаем его.
+        min-height: clamp(root.height - 200px, 240px, 620px);
 
         HorizontalLayout {
             spacing: 14px;

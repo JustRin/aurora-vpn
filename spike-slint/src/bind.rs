@@ -171,6 +171,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     view::render_uptime(ui);
 
     write_settings(ui, &snap.settings, snap.autostart);
+    write_warp(ui, snap.warp_registered, "");
     // Язык теперь известен — строки, которые собирает Rust, надо переснять:
     // первый снимок делался до того, как настройки были прочитаны.
     crate::reload_lang(ui);
@@ -186,6 +187,22 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
 }
 
 /// Настройки ядра → поля разметки.
+/// Подпись под «Аккаунт Cloudflare»: тариф подставляется здесь, потому что
+/// подстановок в разметке Slint нет — как и у остальных строк с {n}.
+fn write_warp(ui: &AppWindow, registered: bool, account_type: &str) {
+    let data = ui.global::<Data>();
+    data.set_warp_registered(registered);
+    data.set_warp_account_state(
+        if registered {
+            let plan = if account_type.is_empty() { "free" } else { account_type };
+            crate::tr(|l| l.warp_account_on.replace("{type}", plan))
+        } else {
+            crate::tr(|l| l.warp_account_off.clone())
+        }
+        .into(),
+    );
+}
+
 fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
     let conf = ui.global::<Conf>();
     conf.set_tunnel_mode(matches!(s.tunnel_mode, TunnelMode::SystemProxy) as i32);
@@ -198,6 +215,9 @@ fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
     conf.set_strict_route(s.strict_route);
     conf.set_ipv6(s.ipv6);
     conf.set_fake_ip(s.fake_ip);
+    // Тумблер WARP живёт на «Обзоре», в Data, а не в форме настроек — но
+    // хранится вместе с ними, и обновляться должен здесь же.
+    ui.global::<Data>().set_warp_on(s.warp_over_proxy);
     conf.set_dns_remote(s.dns_remote.as_str().into());
     conf.set_dns_direct(s.dns_direct.as_str().into());
     conf.set_mixed_port(s.mixed_port.to_string().into());
@@ -268,6 +288,9 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
         strict_route: conf.get_strict_route(),
         ipv6: conf.get_ipv6(),
         fake_ip: conf.get_fake_ip(),
+        // Тумблер живёт на «Обзоре», а не в форме настроек: сюда он попадает
+        // тем же путём, что тема и язык — из уже сохранённого состояния.
+        warp_over_proxy: current.warp_over_proxy,
         dns_remote: conf.get_dns_remote().to_string(),
         dns_direct: conf.get_dns_direct().to_string(),
         mixed_port: number(conf.get_mixed_port(), current.mixed_port as u32).clamp(1, 65535) as u16,
@@ -517,6 +540,106 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
                     }
                 }
             });
+        }
+    });
+
+    // Тумблер «Дополнительная защита через WARP». Первое включение заводит
+    // анонимный аккаунт Cloudflare — на это уходит секунда-другая, и всё это
+    // время переключатель погашен, чтобы по нему не щёлкали второй раз.
+    data.on_warp_toggle({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        move |on| {
+            let Some(ui) = weak.upgrade() else { return };
+            ui.global::<Data>().set_warp_busy(true);
+            let reporter = handle.clone();
+            let weak = weak.clone();
+            app::runtime().spawn(async move {
+                let done = api::enable_warp(reporter.clone(), on).await;
+                reporter.with_ui(move |ui| {
+                    let data = ui.global::<Data>();
+                    data.set_warp_busy(false);
+                    match &done {
+                        Ok(info) => {
+                            write_warp(ui, info.registered, &info.account_type);
+                            data.set_warp_on(on);
+                            if on {
+                                view::toast(ui, "success", &crate::tr(|l| l.warp_enabled.clone()), "");
+                            }
+                        }
+                        Err(e) => {
+                            // Тумблер возвращается сам: включённым он выглядел
+                            // бы обещанием, которого приложение не сдержало.
+                            data.set_warp_on(false);
+                            let detail = human(e.to_string());
+                            view::toast(ui, "error", &crate::tr(|l| l.warp_register_failed.clone()), &detail);
+                        }
+                    }
+                });
+                let _ = weak;
+            });
+        }
+    });
+
+    data.on_warp_add_node({
+        let handle = handle.clone();
+        move || {
+            let handle = handle.clone();
+            app::runtime().spawn(async move {
+                let reporter = handle.clone();
+                match api::add_warp_node(handle).await {
+                    Ok(()) => reporter.with_ui(move |ui| {
+                        view::toast(ui, "success", &crate::tr(|l| l.warp_node_added.clone()), "")
+                    }),
+                    Err(e) => {
+                        let detail = human(e.to_string());
+                        reporter.with_ui(move |ui| {
+                            view::toast(ui, "error", &crate::tr(|l| l.warp_register_failed.clone()), &detail)
+                        })
+                    }
+                }
+            });
+        }
+    });
+
+    // Новая регистрация: другой ключ, а с ним и другой адрес на выходе.
+    data.on_warp_reset({
+        let handle = handle.clone();
+        move || {
+            let handle = handle.clone();
+            app::runtime().spawn(async move {
+                let reporter = handle.clone();
+                reporter.with_ui(|ui| ui.global::<Data>().set_warp_busy(true));
+                let done = api::reset_warp(handle).await;
+                reporter.with_ui(move |ui| {
+                    let data = ui.global::<Data>();
+                    data.set_warp_busy(false);
+                    match &done {
+                        Ok(info) => {
+                            write_warp(ui, info.registered, &info.account_type);
+                            view::toast(ui, "success", &crate::tr(|l| l.warp_reset_done.clone()), "");
+                        }
+                        Err(e) => {
+                            let detail = human(e.to_string());
+                            view::toast(ui, "error", &crate::tr(|l| l.warp_register_failed.clone()), &detail);
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    data.on_open_url(move |url| {
+        let _ = crate::sys::open::uri(&url);
+    });
+
+    // Порядок, собранный перетаскиванием. Ядро не перезапускается: теги живого
+    // документа держатся по идентификаторам узлов, а не по позициям.
+    data.on_reorder_node({
+        let handle = handle.clone();
+        move |id, to| {
+            let id = id.to_string();
+            run(&handle, move |h| async move { api::reorder_node(h, id, to).await });
         }
     });
 

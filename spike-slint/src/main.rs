@@ -23,6 +23,7 @@ mod state;
 mod store;
 mod sys;
 mod view;
+mod warp;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -56,6 +57,12 @@ struct Lang {
     link_copied: String,
     server_saved: String,
     server_added: String,
+    warp_enabled: String,
+    warp_register_failed: String,
+    warp_node_added: String,
+    warp_reset_done: String,
+    warp_account_on: String,
+    warp_account_off: String,
     report_no_new: String,
     report_added: String,
     already_in_list: String,
@@ -133,6 +140,12 @@ impl Lang {
             link_copied: s.get_srv_link_copied().into(),
             server_saved: s.get_srv_server_saved().into(),
             server_added: s.get_srv_server_added().into(),
+            warp_enabled: s.get_warp_enabled().into(),
+            warp_register_failed: s.get_warp_register_failed().into(),
+            warp_node_added: s.get_warp_node_added().into(),
+            warp_reset_done: s.get_warp_reset_done().into(),
+            warp_account_on: s.get_warp_account_on().into(),
+            warp_account_off: s.get_warp_account_off().into(),
             report_no_new: s.get_srv_report_no_new().into(),
             report_added: s.get_srv_report_added().into(),
             already_in_list: s.get_split_already_in_list().into(),

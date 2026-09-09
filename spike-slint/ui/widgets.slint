@@ -434,6 +434,12 @@ export component Select inherits Rectangle {
 export component Switch inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> enabled: true;
+    // Тумблер, которым распоряжается не он сам: щелчок лишь сообщает
+    // намерение, а положение приезжает снаружи. Нужно там, где включение может
+    // и не случиться — спросить согласия, сходить в сеть, вернуться с отказом.
+    // Обычный тумблер переставляет себя сам, и присваивание убивает привязку:
+    // дальше он живёт своей жизнью и врёт про состояние.
+    in property <bool> driven;
     callback toggled(bool);
     width: 40px;
     height: 22px;
@@ -458,8 +464,12 @@ export component Switch inherits Rectangle {
     TouchArea {
         enabled: root.enabled;
         clicked => {
-            root.checked = !root.checked;
-            root.toggled(root.checked);
+            if (root.driven) {
+                root.toggled(!root.checked);
+            } else {
+                root.checked = !root.checked;
+                root.toggled(root.checked);
+            }
         }
     }
 }

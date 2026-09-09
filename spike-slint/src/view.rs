@@ -538,6 +538,7 @@ fn protocol_label(protocol: Protocol) -> &'static str {
         Protocol::Shadowsocks => "Shadowsocks",
         Protocol::Hysteria2 => "Hysteria2",
         Protocol::Tuic => "TUIC",
+        Protocol::Wireguard => "WARP",
     }
 }
 

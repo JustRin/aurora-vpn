@@ -16,6 +16,7 @@ use crate::model::ServerNode;
 use crate::settings::{Settings, SplitConfig, Subscription, TunnelMode};
 use crate::store::Store;
 use crate::sys::elevate;
+use crate::warp::WarpAccount;
 
 pub struct Paths {
     /// User documents: servers, settings, split rules.
@@ -144,6 +145,10 @@ pub struct AppState {
     pub subs: RwLock<Vec<Subscription>>,
     pub split: RwLock<SplitConfig>,
     pub active_id: RwLock<String>,
+    /// Аккаунт Cloudflare WARP — один на установку: и самостоятельный узел, и
+    /// слой поверх прокси берут его же, потому что живую сессию Cloudflare
+    /// держит ровно одну на ключ. Пустой, пока WARP ни разу не включали.
+    pub warp: RwLock<WarpAccount>,
 
     /// node id → last measured latency; `None` means "probed and unreachable".
     pub latency: RwLock<HashMap<String, Option<u32>>>,
@@ -235,6 +240,7 @@ impl AppState {
         let subs: Vec<Subscription> = store.load("subscriptions");
         let split: SplitConfig = store.load("split");
         let ui: UiState = store.load("ui");
+        let warp: WarpAccount = store.load("warp");
         let engine_overrides: HashMap<String, String> = store.load("engines");
 
         // Ядро, пережившее прошлый сеанс, здесь больше не снимается молча:
@@ -284,6 +290,7 @@ impl AppState {
             subs: RwLock::new(subs),
             split: RwLock::new(split),
             active_id: RwLock::new(ui.active_id),
+            warp: RwLock::new(warp),
             latency: RwLock::new(HashMap::new()),
             tags: RwLock::new(HashMap::new()),
             candidates: RwLock::new(Vec::new()),
@@ -313,6 +320,10 @@ impl AppState {
 
     pub fn save_split(&self) -> Result<()> {
         self.store.save("split", &*self.split.read())
+    }
+
+    pub fn save_warp(&self) -> Result<()> {
+        self.store.save("warp", &*self.warp.read())
     }
 
     pub fn save_ui(&self) -> Result<()> {

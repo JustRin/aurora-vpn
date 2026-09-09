@@ -26,6 +26,7 @@ use crate::link;
 use crate::model::ServerNode;
 use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
 use crate::state::{AppState, ConnState, Link, Status, Traffic};
+use crate::warp::WarpAccount;
 use crate::sys::autostart::{self, AutostartMode};
 use crate::sys::{elevate, procs, sysproxy};
 
@@ -52,6 +53,9 @@ pub struct Snapshot {
     /// Read back from the OS, not from settings — the user may have removed the
     /// registry value or the scheduled task behind our back.
     pub autostart: AutostartMode,
+    /// Заведён ли уже анонимный аккаунт Cloudflare: от этого зависит, спросит
+    /// ли первое включение WARP согласия.
+    pub warp_registered: bool,
 }
 
 #[derive(Serialize)]
@@ -242,6 +246,22 @@ fn required_rule_sets(split: &SplitConfig) -> Vec<ruleset::Spec> {
 }
 
 /// Render the current model into a sing-box document and remember the tag map.
+/// The node describing the WARP layer, when it is switched on and there is an
+/// account to build it from.
+///
+/// The layer and the standalone WARP node share one account on purpose:
+/// Cloudflare keeps a single live session per key, so a second registration
+/// would only give the two tunnels something to fight over.
+fn warp_chain_node(state: &AppState) -> Option<ServerNode> {
+    if !state.settings.read().warp_over_proxy {
+        return None;
+    }
+    let account = state.warp.read().clone();
+    account
+        .is_usable()
+        .then(|| account.to_node(String::new(), "WARP".into()))
+}
+
 fn build_and_write(
     state: &AppState,
     xray_ports: &HashMap<String, u16>,
@@ -255,6 +275,7 @@ fn build_and_write(
     let xray_exe = state.xray.lock().as_ref().map(|e| e.exe().to_path_buf());
     #[cfg(target_os = "android")]
     let xray_exe: Option<std::path::PathBuf> = None;
+    let warp_chain = warp_chain_node(state);
 
     let built = config::build(&BuildInput {
         nodes: &nodes,
@@ -267,6 +288,7 @@ fn build_and_write(
         xray_exe: xray_exe.as_deref(),
         rule_sets,
         rule_set_dir: &state.paths.rule_set_dir,
+        warp_chain: warp_chain.as_ref(),
         #[cfg(target_os = "android")]
         log_file: &state.paths.log_file,
     })?;
@@ -994,6 +1016,7 @@ pub async fn get_snapshot(app: AppHandle) -> Result<Snapshot> {
         active_id: state.resolve_active_id(),
         core_version,
         autostart: autostart::current(),
+        warp_registered: state.warp.read().is_usable(),
     };
     Ok(snapshot)
 }
@@ -1423,13 +1446,32 @@ pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
     let mut added = 0;
     let mut skipped = 0;
     let mut errors = report.errors;
+    let mut fresh = report.nodes;
+
+    // A `warp://` link carries no credentials: they belong to the account, not
+    // to the link. Register one (or reuse the existing) the moment such a link
+    // turns up, and drop those nodes if Cloudflare cannot be reached — a WARP
+    // node without keys is a server that silently carries nothing.
+    if fresh.iter().any(needs_warp_account) {
+        match ensure_warp_account(&app).await {
+            Ok(account) => {
+                for node in fresh.iter_mut().filter(|n| needs_warp_account(n)) {
+                    apply_warp_account(node, &account);
+                }
+            }
+            Err(e) => {
+                fresh.retain(|n| !needs_warp_account(n));
+                errors.push(("warp://".to_string(), e.to_string()));
+            }
+        }
+    }
 
     {
         let state = app.state();
         let mut nodes = state.nodes.write();
         let existing: Vec<String> = nodes.iter().map(|n| n.fingerprint_key()).collect();
 
-        for node in report.nodes {
+        for node in fresh {
             if existing.contains(&node.fingerprint_key()) {
                 skipped += 1;
                 continue;
@@ -1479,6 +1521,275 @@ pub async fn add_links(app: AppHandle, text: String) -> Result<ImportReport> {
         skipped,
         errors,
     })
+}
+
+// ------------------------------------------------------------------- warp
+
+/// What the interface needs to know about the Cloudflare account behind both
+/// the WARP layer and the standalone WARP node.
+#[derive(Debug, Clone, Default)]
+pub struct WarpInfo {
+    pub registered: bool,
+    /// `free`, or `limited`/`unlimited` once a WARP+ licence is applied.
+    pub account_type: String,
+}
+
+fn warp_info(state: &AppState) -> WarpInfo {
+    let account = state.warp.read();
+    WarpInfo {
+        registered: account.is_usable(),
+        account_type: account.account_type.clone(),
+    }
+}
+
+/// Локальный вход работающего ядра, если оно поднято.
+///
+/// Через него регистрация идёт тем же путём, что и трафик пользователя, — а
+/// напрямую клиентский API Cloudflare пускают не все сети.
+fn warp_route(state: &AppState) -> Option<String> {
+    let connected = state.status.read().state == ConnState::Connected;
+    connected.then(|| format!("http://127.0.0.1:{}", state.settings.read().mixed_port))
+}
+
+/// The account, registering one on first use.
+///
+/// Registration is deliberately lazy: an install that never switches WARP on
+/// never tells Cloudflare it exists.
+async fn ensure_warp_account(app: &AppHandle) -> Result<WarpAccount> {
+    {
+        let state = app.state();
+        let account = state.warp.read().clone();
+        if account.is_usable() {
+            return Ok(account);
+        }
+    }
+    let via = warp_route(&app.state());
+    let account = crate::warp::register(via.as_deref()).await.map_err(|e| {
+        // Напрямую клиентский API Cloudflare пускают не все сети, и это первое,
+        // обо что спотыкается включение. Через поднятый туннель запрос уходит
+        // сам — сказать об этом стоит здесь, а не оставлять «сетевую ошибку».
+        if via.is_none() {
+            AppError::msg(format!(
+                "{e}. Cloudflare недоступен напрямую — подключитесь к серверу и включите WARP снова"
+            ))
+        } else {
+            e
+        }
+    })?;
+    {
+        let state = app.state();
+        *state.warp.write() = account.clone();
+        state.save_warp()?;
+    }
+    Ok(account)
+}
+
+/// A WARP node still waiting for the account behind it — what a `warp://` link
+/// parses into, since such a link carries no keys of its own.
+fn needs_warp_account(node: &ServerNode) -> bool {
+    node.is_endpoint() && node.private_key.is_empty()
+}
+
+/// Copy an account's credentials onto a WARP node.
+///
+/// The entry point is left as it stands whenever the node already names one:
+/// address and port are the part of a WARP node worth editing by hand, since
+/// which of Cloudflare's ports survives a given network is a local question.
+fn apply_warp_account(node: &mut ServerNode, account: &WarpAccount) {
+    let refreshed = account.to_node(node.id.clone(), node.name.clone());
+    node.private_key = refreshed.private_key;
+    node.peer_public_key = refreshed.peer_public_key;
+    node.local_v4 = refreshed.local_v4;
+    node.local_v6 = refreshed.local_v6;
+    node.reserved = refreshed.reserved;
+    if node.address.is_empty() {
+        node.address = refreshed.address;
+        node.port = refreshed.port;
+    }
+}
+
+/// Point every WARP node at the given account. Called after a re-registration,
+/// so nodes carrying the retired keys do not quietly stop passing traffic.
+fn rekey_warp_nodes(state: &AppState, account: &WarpAccount) -> bool {
+    let mut nodes = state.nodes.write();
+    let mut touched = false;
+    for node in nodes.iter_mut().filter(|n| n.is_endpoint()) {
+        apply_warp_account(node, account);
+        touched = true;
+    }
+    touched
+}
+
+/// Register an account if there is none yet, then switch the layer on.
+pub async fn enable_warp(app: AppHandle, on: bool) -> Result<WarpInfo> {
+    if on {
+        ensure_warp_account(&app).await?;
+    }
+    {
+        let state = app.state();
+        state.settings.write().warp_over_proxy = on;
+        state.save_settings()?;
+    }
+    // Слой живёт в документе ядра, а не в приложении: без пересборки он не
+    // появится и не исчезнет.
+    restart_if_running(&app).await?;
+    Ok(warp_info(&app.state()))
+}
+
+/// Throw the registration away and take a fresh one — a new key, and with it a
+/// new address on the way out.
+pub async fn reset_warp(app: AppHandle) -> Result<WarpInfo> {
+    let account = crate::warp::register(warp_route(&app.state()).as_deref()).await?;
+    let rekeyed = {
+        let state = app.state();
+        *state.warp.write() = account.clone();
+        state.save_warp()?;
+        let rekeyed = rekey_warp_nodes(&state, &account);
+        if rekeyed {
+            state.save_nodes()?;
+        }
+        rekeyed
+    };
+    if rekeyed {
+        emit_nodes(&app);
+    }
+    // The running document carries the retired keys either way — through a node
+    // or through the layer — so it has to be rebuilt.
+    restart_if_running(&app).await?;
+    Ok(warp_info(&app.state()))
+}
+
+/// Put WARP in the server list as a server of its own.
+///
+/// A second one would be pointless — both would share the single session
+/// Cloudflare allows — so an existing WARP node is refreshed in place instead.
+pub async fn add_warp_node(app: AppHandle) -> Result<()> {
+    let account = ensure_warp_account(&app).await?;
+    {
+        let state = app.state();
+        if !rekey_warp_nodes(&state, &account) {
+            let node = account.to_node(uuid::Uuid::new_v4().to_string(), "WARP".into());
+            state.nodes.write().push(node);
+        }
+        state.save_nodes()?;
+    }
+    emit_nodes(&app);
+    Ok(())
+}
+
+/// Fold a freshly fetched subscription into the server list.
+///
+/// The node a refresh re-issues is replaced **where it stands** rather than
+/// dropped and re-appended. Two things ride on that.
+///
+/// Ids, so the pinned server and its measured latency survive a refresh — and
+/// each old id is handed out at most once. Panels serve a dozen rows on one
+/// address and port, differing only by name, and their fingerprint is shared;
+/// handing ids out "by key" collapsed them all onto one id, and everything
+/// addressed by it broke after that: picking a server, its latency, deleting
+/// one row taking its neighbours with it.
+///
+/// And position: the order of the list is the user's own, arranged by
+/// dragging, and a nightly refresh that shuffled every server of a
+/// subscription back to the bottom would quietly undo it.
+fn merge_subscription_nodes(
+    existing: Vec<ServerNode>,
+    incoming: Vec<ServerNode>,
+    sub_id: &str,
+) -> Vec<ServerNode> {
+    // `Option` per slot rather than a map keyed by fingerprint: that is what
+    // keeps a repeated address from collapsing into one node, and lets each
+    // incoming node be claimed exactly once.
+    let mut incoming: Vec<Option<ServerNode>> = incoming
+        .into_iter()
+        .map(|mut node| {
+            node.subscription_id = Some(sub_id.to_string());
+            Some(node)
+        })
+        .collect();
+
+    let mut merged: Vec<ServerNode> = Vec::with_capacity(existing.len());
+    for node in existing {
+        // Manual servers and other subscriptions are not this refresh's
+        // business; they keep their places untouched.
+        if node.subscription_id.as_deref() != Some(sub_id) {
+            merged.push(node);
+            continue;
+        }
+        let key = node.fingerprint_key();
+        let slot = incoming
+            .iter_mut()
+            .find(|candidate| candidate.as_ref().is_some_and(|n| n.fingerprint_key() == key));
+        // No slot means the provider stopped serving this node, and it goes
+        // away with it.
+        if let Some(slot) = slot {
+            let mut fresh = slot.take().expect("совпадение ищется только среди занятых мест");
+            fresh.id = node.id;
+            merged.push(fresh);
+        }
+    }
+
+    // Whatever the provider has added since last time goes to the end, in the
+    // order it listed them.
+    merged.extend(incoming.into_iter().flatten());
+    merged
+}
+
+/// Переставить узел внутри его раздела. Возвращает, сдвинулось ли что-нибудь.
+///
+/// Между разделами строка не ездит: раздел — это панель, которая сервер
+/// раздаёт, и сменить её перетаскиванием нельзя. Поэтому переставляются не
+/// узлы в общем списке, а их содержимое по тем же местам, которые узлы этой
+/// подписки в списке и занимают.
+fn move_within_group(nodes: &mut [ServerNode], id: &str, to: i32) -> bool {
+    let Some(moved_at) = nodes.iter().position(|n| n.id == id) else {
+        return false;
+    };
+    let group = nodes[moved_at].subscription_id.clone();
+
+    let slots: Vec<usize> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.subscription_id == group)
+        .map(|(index, _)| index)
+        .collect();
+    let Some(from) = slots.iter().position(|&index| index == moved_at) else {
+        return false;
+    };
+    let to = to.clamp(0, slots.len().saturating_sub(1) as i32) as usize;
+    if from == to {
+        return false;
+    }
+
+    let mut order: Vec<ServerNode> = slots.iter().map(|&index| nodes[index].clone()).collect();
+    let node = order.remove(from);
+    order.insert(to, node);
+    for (slot, node) in slots.iter().zip(order) {
+        nodes[*slot] = node;
+    }
+    true
+}
+
+/// Переставить сервер внутри его раздела: `to` — новый номер среди узлов той
+/// же подписки (у своих серверов раздел общий, подписки у них нет).
+///
+/// Ядро не перезапускается намеренно: теги запущенного документа держатся в
+/// `state.tags` по идентификатору узла, а не по позиции, так что и панель
+/// управления, и балансировщик после перестановки указывают туда же, куда
+/// указывали. Новый порядок попадает в документ при следующем подключении —
+/// рвать живое соединение ради порядка строк в списке не за что.
+pub async fn reorder_node(app: AppHandle, id: String, to: i32) -> Result<()> {
+    {
+        let state = app.state();
+        let mut nodes = state.nodes.write();
+        if !move_within_group(&mut nodes, &id, to) {
+            return Ok(());
+        }
+        drop(nodes);
+        state.save_nodes()?;
+    }
+    emit_nodes(&app);
+    Ok(())
 }
 
 pub async fn delete_server(app: AppHandle, id: String) -> Result<()> {
@@ -1726,29 +2037,7 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
         let state = app.state();
         let mut nodes = state.nodes.write();
 
-        // Preserve ids across a refresh so the pinned server and its measured
-        // latency survive when the provider re-issues the same node.
-        //
-        // Каждый прежний id раздаётся не больше одного раза. Панели держат
-        // по десятку строк с одним адресом и портом — отличаются они только
-        // именем, а отпечаток у них общий, и раздача «по ключу» склеивала их
-        // все в один id. Дальше рушилось всё, что этим id адресуется: выбор
-        // сервера, задержка, удаление одной строки уносило соседние.
-        let mut previous: HashMap<String, String> = nodes
-            .iter()
-            .filter(|n| n.subscription_id.as_deref() == Some(id.as_str()))
-            .map(|n| (n.fingerprint_key(), n.id.clone()))
-            .collect();
-
-        nodes.retain(|n| n.subscription_id.as_deref() != Some(id.as_str()));
-
-        for mut node in report.nodes {
-            if let Some(old_id) = previous.remove(&node.fingerprint_key()) {
-                node.id = old_id;
-            }
-            node.subscription_id = Some(id.clone());
-            nodes.push(node);
-        }
+        *nodes = merge_subscription_nodes(nodes.drain(..).collect(), report.nodes, &id);
         drop(nodes);
 
         let mut subs = state.subs.write();
@@ -1986,6 +2275,8 @@ async fn probe_delays(
         xray_exe: None,
         rule_sets: &HashSet::new(),
         rule_set_dir: &rule_set_dir,
+        // Мерят узел, а не цепочку: слой поверх исказил бы и число, и смысл.
+        warp_chain: None,
     })
     .ok()?;
 
@@ -2273,6 +2564,7 @@ pub async fn preview_config(app: AppHandle) -> Result<String> {
         // Preview what the current cache allows, not an optimistic view of it.
         rule_sets: &cached_rule_sets(&state.paths.rule_set_dir, &split),
         rule_set_dir: &state.paths.rule_set_dir,
+        warp_chain: warp_chain_node(state).as_ref(),
         #[cfg(target_os = "android")]
         log_file: &state.paths.log_file,
     })?;
@@ -2694,7 +2986,10 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{installer_suffix, parse_version, pick_installer_url, split_import_text};
+    use super::{
+        installer_suffix, merge_subscription_nodes, move_within_group, parse_version,
+        pick_installer_url, split_import_text, ServerNode,
+    };
     use serde_json::json;
 
     #[test]
@@ -2752,6 +3047,117 @@ mod tests {
             assert!(url.contains(marker), "{url}");
         }
     }
+
+    // --------------------------------- порядок серверов и обновление подписки
+
+    fn sub_node(name: &str, id: &str, address: &str, sub: Option<&str>) -> ServerNode {
+        ServerNode {
+            id: id.into(),
+            name: name.into(),
+            protocol: crate::model::Protocol::Vless,
+            address: address.into(),
+            port: 443,
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+            subscription_id: sub.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn names(nodes: &[ServerNode]) -> Vec<&str> {
+        nodes.iter().map(|n| n.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_row_travels_only_over_the_places_its_own_section_occupies() {
+        // Разделы в списке чередуются, и узел подписки должен переезжать по
+        // местам своей подписки, перепрыгивая чужие строки, а не толкая их.
+        let mut nodes = vec![
+            sub_node("A", "a", "a.example", Some("s1")),
+            sub_node("Чужой", "o", "other.example", Some("s2")),
+            sub_node("B", "b", "b.example", Some("s1")),
+            sub_node("C", "c", "c.example", Some("s1")),
+        ];
+
+        assert!(move_within_group(&mut nodes, "a", 2));
+        assert_eq!(names(&nodes), vec!["B", "Чужой", "C", "A"]);
+        // Чужая строка осталась на своём месте в общем списке.
+        assert_eq!(nodes[1].id, "o");
+    }
+
+    #[test]
+    fn a_row_dropped_where_it_started_changes_nothing() {
+        let mut nodes = vec![
+            sub_node("A", "a", "a.example", None),
+            sub_node("B", "b", "b.example", None),
+        ];
+        assert!(!move_within_group(&mut nodes, "a", 0));
+        assert_eq!(names(&nodes), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn a_number_past_the_end_lands_on_the_last_place() {
+        // Тянуть можно и за край списка: там строка встаёт последней, а не
+        // теряется.
+        let mut nodes = vec![
+            sub_node("A", "a", "a.example", None),
+            sub_node("B", "b", "b.example", None),
+        ];
+        assert!(move_within_group(&mut nodes, "a", 99));
+        assert_eq!(names(&nodes), vec!["B", "A"]);
+    }
+
+    #[test]
+    fn a_refresh_keeps_every_node_where_the_user_put_it() {
+        // Порядок в списке — ручной, собранный перетаскиванием. Обновление,
+        // сбрасывающее узлы подписки в конец, молча его отменяло бы.
+        let existing = vec![
+            sub_node("B", "b", "b.example", Some("s1")),
+            sub_node("Свой", "m", "manual.example", None),
+            sub_node("A", "a", "a.example", Some("s1")),
+        ];
+        // Провайдер отдаёт их в своём порядке — он ничего не решает.
+        let incoming = vec![
+            sub_node("A", "new-a", "a.example", None),
+            sub_node("B", "new-b", "b.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        assert_eq!(names(&merged), vec!["B", "Свой", "A"]);
+        // Идентификаторы переживают обновление: на них держатся закреплённый
+        // сервер и измеренная задержка.
+        assert_eq!(merged[0].id, "b");
+        assert_eq!(merged[2].id, "a");
+    }
+
+    #[test]
+    fn a_node_the_provider_dropped_goes_away_and_a_new_one_lands_at_the_end() {
+        let existing = vec![
+            sub_node("A", "a", "a.example", Some("s1")),
+            sub_node("Ушедший", "gone", "gone.example", Some("s1")),
+        ];
+        let incoming = vec![
+            sub_node("A", "x", "a.example", None),
+            sub_node("Новый", "y", "new.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        assert_eq!(names(&merged), vec!["A", "Новый"]);
+        assert_eq!(merged[0].id, "a");
+    }
+
+    #[test]
+    fn a_provider_listing_the_same_node_twice_still_yields_two() {
+        // Совпадение ищется по одному разу на входящий узел. Панели держат по
+        // десятку строк с одним адресом и портом: раздача «по ключу» склеила бы
+        // их в одну, и счётчик серверов разошёлся бы со списком.
+        let existing = vec![sub_node("A", "a", "a.example", Some("s1"))];
+        let incoming = vec![
+            sub_node("A", "x", "a.example", None),
+            sub_node("A-копия", "y", "a.example", None),
+        ];
+
+        let merged = merge_subscription_nodes(existing, incoming, "s1");
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, "a");
+    }
 }
-
-
