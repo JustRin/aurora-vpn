@@ -18,6 +18,10 @@ export component ServersPage inherits ScrollArea {
         VerticalLayout {
             spacing: 5px;
             horizontal-stretch: 1;
+            // Заголовок уступает кнопкам, а не выталкивает их за край окна:
+            // без этого длинный подзаголовок задавал колонке минимум по своей
+            // ширине, и с третьей кнопкой шапка перестала помещаться.
+            min-width: 0px;
             Text {
                 text: Str.nav-servers;
                 color: Theme.text;
@@ -31,27 +35,38 @@ export component ServersPage inherits ScrollArea {
             HorizontalLayout {
                 spacing: 5px;
                 alignment: start;
+                min-width: 0px;
+                // Хвост фразы переносится, а не обрезается: многоточие прячет
+                // текст, и прочитать его потом негде. Перенос заодно и есть то,
+                // что позволяет колонке ужиматься — у переносимого текста
+                // минимум по самому длинному слову, а не по всей строке.
                 Text {
                     text: Str.srv-subtitle-before;
                     vertical-alignment: center;
                     color: Theme.text-muted;
                     font-size: 12.5px * Theme.text-scale;
+                    horizontal-stretch: 0;
                 }
                 MonoText {
                     text: "vless://";
                     vertical-alignment: center;
                     color: Theme.text-muted;
+                    horizontal-stretch: 0;
                 }
                 Text {
                     text: Str.srv-subtitle-after;
                     vertical-alignment: center;
                     color: Theme.text-muted;
                     font-size: 12.5px * Theme.text-scale;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
                 }
             }
         }
         VerticalLayout {
             alignment: center;
+            // Кнопки не сжимаются и не уезжают: место им отводится первым.
+            horizontal-stretch: 0;
             HorizontalLayout {
                 spacing: 10px;
                 Btn {
@@ -138,8 +153,9 @@ export component ServersPage inherits ScrollArea {
         spacing: 10px;
         // Подсвечен ровно один пункт списка: при ручном выборе — сервер, при
         // балансировщике — его строка, а серверу достаётся отметка «сейчас».
-        for group in Data.groups: NodeGroupSection {
+        for group[i] in Data.groups: NodeGroupSection {
             group: group;
+            index: i;
             active-id: Conf.balancer == 0 ? Data.active-id : "";
             routed-id: Conf.balancer != 0 ? Data.active-id : "";
             toggle => { Data.toggle-group(group.sub.id); }
@@ -150,6 +166,7 @@ export component ServersPage inherits ScrollArea {
             edit(id) => { Data.edit-server(id); }
             remove-node(id) => { Data.delete-server(id); }
             reorder(id, to) => { Data.reorder-node(id, to); }
+            reorder-section(to) => { Data.reorder-sub(group.sub.id, to); }
         }
     }
 

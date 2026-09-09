@@ -140,7 +140,11 @@ fn core_error_line(app: &AppHandle) -> Option<String> {
             matches!(line.level.as_str(), "fatal" | "error" | "panic")
                 && !crate::core::log::is_connection_churn(&line.text)
         })
-        .map(|line| line.text.clone())
+        .map(|line| match crate::core::log::explain(&line.text) {
+            // Строка ядра остаётся в журнале; в статусе — то, что с ней делать.
+            Some(hint) => hint.to_string(),
+            None => line.text.clone(),
+        })
 }
 
 /// Дождаться панель управления, глядя на само ядро, а не только на часы.

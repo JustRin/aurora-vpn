@@ -1735,6 +1735,71 @@ fn merge_subscription_nodes(
     merged
 }
 
+/// Переставить подписку: `to` — её новый номер среди подписок.
+///
+/// Возвращает новый порядок идентификаторов, если что-то сдвинулось.
+fn move_sub_order(subs: &mut Vec<Subscription>, id: &str, to: i32) -> Option<Vec<String>> {
+    let from = subs.iter().position(|s| s.id == id)?;
+    let to = to.clamp(0, subs.len().saturating_sub(1) as i32) as usize;
+    if from == to {
+        return None;
+    }
+    let moved = subs.remove(from);
+    subs.insert(to, moved);
+    Some(subs.iter().map(|s| s.id.clone()).collect())
+}
+
+/// Разложить узлы по разделам в порядке `order`, свои серверы — в конец.
+///
+/// Порядок разделов на экране — это порядок подписок, но вместе с ними должны
+/// переезжать и узлы: из этого списка собирается документ ядра, и «по кругу»
+/// обходил бы серверы в одном порядке, пока на экране стоял бы другой. Узел
+/// подписки, которой больше нет, попадает к своим — ровно туда, куда его
+/// кладёт и список.
+fn reflow_nodes_by_subs(nodes: &mut Vec<ServerNode>, order: &[String]) {
+    // Функцией, а не замыканием: время жизни ответа привязано к узлу, а
+    // замыкание такую связь выразить не умеет — то же, что в view::render_groups.
+    fn group_of<'a>(node: &'a ServerNode, order: &[String]) -> &'a str {
+        match node.subscription_id.as_deref() {
+            Some(id) if order.iter().any(|known| known == id) => id,
+            _ => "",
+        }
+    }
+    let mut reflowed: Vec<ServerNode> = Vec::with_capacity(nodes.len());
+    for id in order {
+        reflowed.extend(nodes.iter().filter(|n| group_of(n, order) == id).cloned());
+    }
+    reflowed.extend(nodes.iter().filter(|n| group_of(n, order).is_empty()).cloned());
+    *nodes = reflowed;
+}
+
+/// Переставить раздел — подписку целиком — на новое место в списке.
+///
+/// Ядро не перезапускается по той же причине, что и при перестановке строк:
+/// теги запущенного документа держатся по идентификаторам узлов, а не по
+/// позициям.
+pub async fn reorder_sub(app: AppHandle, id: String, to: i32) -> Result<()> {
+    let state = app.state();
+    // Замки берутся по одному: обновление подписки берёт сначала узлы, потом
+    // подписки, и встречный порядок здесь однажды сцепился бы с ним намертво.
+    let order = {
+        let mut subs = state.subs.write();
+        match move_sub_order(&mut subs, &id, to) {
+            Some(order) => order,
+            None => return Ok(()),
+        }
+    };
+    {
+        let mut nodes = state.nodes.write();
+        reflow_nodes_by_subs(&mut nodes, &order);
+    }
+    state.save_subs()?;
+    state.save_nodes()?;
+    emit_subs(&app);
+    emit_nodes(&app);
+    Ok(())
+}
+
 /// Переставить узел внутри его раздела. Возвращает, сдвинулось ли что-нибудь.
 ///
 /// Между разделами строка не ездит: раздел — это панель, которая сервер
@@ -2987,8 +3052,9 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        installer_suffix, merge_subscription_nodes, move_within_group, parse_version,
-        pick_installer_url, split_import_text, ServerNode,
+        installer_suffix, merge_subscription_nodes, move_sub_order, move_within_group,
+        parse_version, pick_installer_url, reflow_nodes_by_subs, split_import_text,
+        ServerNode, Subscription,
     };
     use serde_json::json;
 
@@ -3159,5 +3225,57 @@ mod tests {
         let merged = merge_subscription_nodes(existing, incoming, "s1");
         assert_eq!(merged.len(), 2);
         assert_eq!(merged[0].id, "a");
+    }
+
+    // ------------------------------------------------- порядок самих разделов
+
+    fn sub_entry(id: &str) -> Subscription {
+        Subscription {
+            id: id.into(),
+            name: id.into(),
+            url: format!("https://{id}.example/sub"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_section_moved_takes_its_servers_with_it() {
+        // Список, который видно, и список, из которого собирается документ,
+        // должны совпадать: иначе «по кругу» обходил бы серверы в одном
+        // порядке, а на экране стоял бы другой.
+        let mut subs = vec![sub_entry("s1"), sub_entry("s2")];
+        let mut nodes = vec![
+            sub_node("A", "a", "a.example", Some("s1")),
+            sub_node("Свой", "m", "manual.example", None),
+            sub_node("B", "b", "b.example", Some("s2")),
+        ];
+
+        let order = move_sub_order(&mut subs, "s2", 0).expect("раздел сдвинулся");
+        assert_eq!(order, vec!["s2".to_string(), "s1".to_string()]);
+        reflow_nodes_by_subs(&mut nodes, &order);
+
+        // Свои серверы всегда в конце — там же, где их показывает список.
+        assert_eq!(names(&nodes), vec!["B", "A", "Свой"]);
+    }
+
+    #[test]
+    fn a_section_dropped_where_it_started_changes_nothing() {
+        let mut subs = vec![sub_entry("s1"), sub_entry("s2")];
+        assert!(move_sub_order(&mut subs, "s1", 0).is_none());
+        // И номер за концом списка ставит раздел последним, а не теряет его.
+        let order = move_sub_order(&mut subs, "s1", 99).expect("раздел сдвинулся");
+        assert_eq!(order, vec!["s2".to_string(), "s1".to_string()]);
+    }
+
+    #[test]
+    fn a_node_of_a_subscription_that_is_gone_joins_the_manual_ones() {
+        // Подписку удалили, а её узел ещё лежит в списке: он должен попасть к
+        // своим, а не исчезнуть при перекладке.
+        let mut nodes = vec![
+            sub_node("Осиротевший", "o", "orphan.example", Some("gone")),
+            sub_node("A", "a", "a.example", Some("s1")),
+        ];
+        reflow_nodes_by_subs(&mut nodes, &["s1".to_string()]);
+        assert_eq!(names(&nodes), vec!["A", "Осиротевший"]);
     }
 }

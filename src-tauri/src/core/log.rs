@@ -92,6 +92,27 @@ pub fn is_connection_churn(text: &str) -> bool {
         .any(|marker| text.contains(marker))
 }
 
+/// Причина сбоя человеческим языком — там, где ядро говорит языком драйвера.
+///
+/// «configure tun interface: create adapter: Cannot create a file when that
+/// file already exists» — это не про файл: Windows ещё не убрала виртуальный
+/// адаптер прошлого запуска. Показанная как есть, строка не подсказывает
+/// пользователю ни одного действия, а действие тут простое.
+///
+/// Ищем по английским словам самого sing-box: текст ошибки Windows приходит
+/// уже переведённым на язык системы, и опираться на него нельзя.
+pub fn explain(text: &str) -> Option<&'static str> {
+    if text.contains("configure tun interface") && text.contains("create adapter") {
+        return Some(
+            "не удалось создать виртуальный адаптер — его всё ещё держит прошлый \
+             запуск. Подождите полминуты и подключитесь снова; если не поможет, \
+             удалите адаптер «sing-tun Tunnel» в диспетчере устройств или \
+             перезагрузите компьютер",
+        );
+    }
+    None
+}
+
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -181,6 +202,25 @@ mod tests {
              outbound/hysteria2[0-hy]: timeout: no recent network activity"
         ));
         assert!(!is_connection_churn("start service: initialize cache-file: timeout"));
+    }
+
+    #[test]
+    fn the_busy_adapter_gets_a_readable_reason() {
+        // Ровно то, чем падает ядро, когда адаптер прошлого запуска ещё жив.
+        let hint = explain(
+            "[0015] start service: start inbound/tun[tun-in]: configure tun interface:              (create adapter: Cannot create a file when that file already exists. |              open existing adapter: Element not found.)",
+        );
+        assert!(hint.unwrap().contains("виртуальный адаптер"));
+
+        // Локализованная Windows подставляет свой перевод — опора только на
+        // английские слова самого sing-box.
+        assert!(explain(
+            "start service: start inbound/tun[tun-in]: configure tun interface:              (create adapter: Невозможно создать файл, так как он уже существует.)"
+        )
+        .is_some());
+
+        // Прочие сбои остаются как есть.
+        assert!(explain("start service: initialize cache-file: timeout").is_none());
     }
 
     #[test]

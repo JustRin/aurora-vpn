@@ -3,7 +3,7 @@
 
 import { Theme, Icons, Card, NavIcon, MicroRow } from "theme.slint";
 import { IconBtn, Chip, Dot, Meter, Switch, RoundRect } from "widgets.slint";
-import { ServerNode, SubInfo, NodeGroup, AppRule, RunningApp, Data, Conf } from "data.slint";
+import { ServerNode, SubInfo, NodeGroup, AppRule, RunningApp, Data, Conf, Ui } from "data.slint";
 import { Str } from "i18n.slint";
 
 // .sub-card: остаток срока и трафика по данным панели.
@@ -135,25 +135,23 @@ export component NodeRow inherits Rectangle {
     callback remove();
     // Перетаскивание: `drag-move` отдаёт, насколько указатель уехал от места
     // нажатия — раскладка одинаковых по высоте строк переводит это в номер.
-    callback drag-start();
+    callback drag-start(length);
     callback drag-move(length);
     callback drag-end();
     // Строку держат: она приглушена, пока не отпустят.
     in property <bool> dragging;
-    // Здесь она встанет — линия над строкой или под ней, смотря куда едет.
-    in property <bool> drop-above;
-    in property <bool> drop-below;
-
     height: 62px;
-    opacity: root.dragging ? 0.55 : 1.0;
+    opacity: root.dragging ? 0.7 : 1.0;
+    drop-shadow-blur: root.dragging ? 22px : (root.active ? 20px : 0px);
     vertical-stretch: 0;
     border-radius: 12px;
     border-width: 1px;
     border-color: root.active ? Theme.accent : Theme.border;
     background: touch.has-hover && !root.active ? Theme.panel-hover : Theme.panel;
     animate background { duration: 130ms; }
-    drop-shadow-blur: root.active ? 20px : 0px;
-    drop-shadow-color: root.active ? Theme.accent.transparentize(0.6) : #00000000;
+    drop-shadow-color: root.dragging
+        ? Theme.shadow-deep
+        : (root.active ? Theme.accent.transparentize(0.6) : #00000000);
 
     // Подсветка выбранной строки. В вебе это градиент, здесь — ровная
     // заливка: полупрозрачный Path на софтверном рендере копится слоями при
@@ -171,22 +169,21 @@ export component NodeRow inherits Rectangle {
     }
 
     touch := TouchArea {
-        clicked => { root.select(); }
-    }
-
-    // Куда встанет строка. Линия рисуется в промежутке между строками, поэтому
-    // выходит за их границы — Rectangle ничего не обрезает.
-    if root.drop-above: Rectangle {
-        y: -5px;
-        height: 2px;
-        border-radius: 1px;
-        background: Theme.accent;
-    }
-    if root.drop-below: Rectangle {
-        y: root.height + 3px;
-        height: 2px;
-        border-radius: 1px;
-        background: Theme.accent;
+        // См. шапку раздела: щелчок засчитывается только тому, кто его начал,
+        // иначе конец перетаскивания выбирал бы тот сервер, над которым палец
+        // отпустили.
+        property <bool> mine;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                self.mine = true;
+            }
+        }
+        clicked => {
+            if (self.mine) {
+                root.select();
+            }
+            self.mine = false;
+        }
     }
 
     HorizontalLayout {
@@ -212,10 +209,16 @@ export component NodeRow inherits Rectangle {
                 }
                 grip := TouchArea {
                     mouse-cursor: root.dragging ? grabbing : grab;
-                    moved => { root.drag-move(self.mouse-y - self.pressed-y); }
+                    // Указатель в координатах окна, а не смещение от места
+                    // нажатия: строка под пальцем сама переезжает на новое
+                    // место, и отсчёт от неё сбрасывал бы сам себя — вышла бы
+                    // петля, в которой список дёргается и никуда не едет.
+                    // Сумма же положения ручки и курсора внутри неё от переезда
+                    // не меняется.
+                    moved => { root.drag-move(self.absolute-position.y + self.mouse-y); }
                     pointer-event(e) => {
                         if (e.kind == PointerEventKind.down) {
-                            root.drag-start();
+                            root.drag-start(self.absolute-position.y + self.mouse-y);
                         }
                         if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
                             root.drag-end();
@@ -522,6 +525,10 @@ export component NodeGroupSection inherits VerticalLayout {
     callback remove-node(string);
     // Строку отпустили на новом месте: id и новый номер внутри этого раздела.
     callback reorder(string, int);
+    // Раздел отпустили на новом месте: его новый номер среди разделов.
+    callback reorder-section(int);
+    // Номер этого раздела в списке — им он и отвечает, когда указатель внутри.
+    in property <int> index;
 
     // У раздела своих серверов подписки нет: ни обновлять, ни удалять нечего.
     property <bool> own: root.group.sub.id == "";
@@ -532,6 +539,54 @@ export component NodeGroupSection inherits VerticalLayout {
     property <int> drag-from: -1;
     property <int> drag-to: -1;
     property <length> row-pitch: 70px;
+    // Где был указатель, когда за строку взялись, — в координатах окна.
+    property <length> drag-press-y;
+
+    // Куда строка едет прямо сейчас. Пока её держат, список уже стоит в новом
+    // порядке: строки, через которые она проходит, отступают на одно место —
+    // и это видно, а не обещано линией.
+    pure function slot-of(index: int) -> int {
+        if (root.drag-from < 0) {
+            return index;
+        }
+        if (index == root.drag-from) {
+            return root.drag-to;
+        }
+        if (root.drag-from < root.drag-to && index > root.drag-from && index <= root.drag-to) {
+            return index - 1;
+        }
+        if (root.drag-from > root.drag-to && index >= root.drag-to && index < root.drag-from) {
+            return index + 1;
+        }
+        return index;
+    }
+
+    // Указатель, тянущий какой-то раздел, сейчас над этим. Отвечает раздел сам:
+    // чужой высоты он не знает, а свою — знает.
+    property <bool> under-pointer: Ui.group-drag >= 0
+        && Ui.group-drag-y >= root.absolute-position.y
+        && Ui.group-drag-y < root.absolute-position.y + root.height;
+    changed under-pointer => {
+        if (root.under-pointer) {
+            Ui.group-drop-to = root.index;
+        }
+    }
+    // Этот раздел держат; сюда он встанет.
+    property <bool> held: Ui.group-drag == root.index;
+    property <bool> drop-here: Ui.group-drag >= 0
+        && Ui.group-drop-to == root.index
+        && Ui.group-drag != root.index;
+
+    // Раздел, на чьё место встанет перетаскиваемый, расступается ровно на его
+    // высоту — с той стороны, откуда тот едет. Пустое место и есть ответ на
+    // вопрос «куда»; подсветка рамки его только обещала.
+    padding-top: root.drop-here && Ui.group-drag > root.index
+        ? Ui.group-drag-h + 10px
+        : 0px;
+    padding-bottom: root.drop-here && Ui.group-drag < root.index
+        ? Ui.group-drag-h + 10px
+        : 0px;
+    animate padding-top, padding-bottom { duration: 140ms; easing: ease-out; }
 
     spacing: 8px;
 
@@ -542,6 +597,7 @@ export component NodeGroupSection inherits VerticalLayout {
         border-width: 1px;
         border-color: Theme.border;
         background: head.has-hover ? Theme.panel-hover : Theme.panel;
+        opacity: root.held ? 0.55 : 1.0;
         animate background { duration: 130ms; }
 
         // Ниже кнопок по порядку — те перехватывают щелчок первыми.
@@ -558,6 +614,50 @@ export component NodeGroupSection inherits VerticalLayout {
 
             HorizontalLayout {
                 spacing: 12px;
+
+                // Раздел своих серверов подписке не соответствует, и переставлять
+                // его местами не с чем: он всегда идёт последним.
+                if !root.own: VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 14px;
+                        height: 34px;
+                        NavIcon {
+                            commands: Icons.grip;
+                            tint: Theme.text-muted;
+                            width: 14px;
+                            height: 14px;
+                            opacity: section-grip.has-hover || root.held ? 0.9 : 0.32;
+                            animate opacity { duration: 130ms; }
+                        }
+                        section-grip := TouchArea {
+                            mouse-cursor: root.held ? grabbing : grab;
+                            moved => {
+                                // Указатель в координатах окна: раздел под ним
+                                // отзовётся сам.
+                                Ui.group-drag-y = self.absolute-position.y + self.mouse-y;
+                            }
+                            pointer-event(e) => {
+                                if (e.kind == PointerEventKind.down) {
+                                    Ui.group-drag = root.index;
+                                    Ui.group-drop-to = root.index;
+                                    Ui.group-drag-h = root.height;
+                                    Ui.group-drag-y = self.absolute-position.y + self.mouse-y;
+                                }
+                                if (e.kind == PointerEventKind.up
+                                    || e.kind == PointerEventKind.cancel) {
+                                    if (e.kind == PointerEventKind.up
+                                        && Ui.group-drop-to >= 0
+                                        && Ui.group-drop-to != root.index) {
+                                        root.reorder-section(Ui.group-drop-to);
+                                    }
+                                    Ui.group-drag = -1;
+                                    Ui.group-drop-to = -1;
+                                }
+                            }
+                        }
+                    }
+                }
 
                 VerticalLayout {
                     alignment: center;
@@ -676,28 +776,33 @@ export component NodeGroupSection inherits VerticalLayout {
     }
 
     // ---- серверы раздела
-    if root.group.expanded: VerticalLayout {
-        padding-left: 14px;
-        padding-bottom: 4px;
-        spacing: 8px;
+    // Не лэйаут: строки расставлены вручную, потому что под перетаскиванием им
+    // надо разъезжаться, а лэйаут положениями своих детей ни с кем не делится.
+    // Высота у всех одна, так что место — это номер, умноженный на шаг.
+    if root.group.expanded: Rectangle {
+        vertical-stretch: 0;
+        height: root.group.nodes.length * root.row-pitch - 8px + 4px;
         for node[i] in root.group.nodes: NodeRow {
+            x: 14px;
+            y: root.slot-of(i) * root.row-pitch;
+            width: parent.width - 14px;
+            animate y { duration: 140ms; easing: ease-out; }
             node: node;
             active: node.id == root.active-id;
             routed: node.id == root.routed-id;
             dragging: root.drag-from == i;
-            drop-above: root.drag-from >= 0 && root.drag-to == i && root.drag-to < root.drag-from;
-            drop-below: root.drag-from >= 0 && root.drag-to == i && root.drag-to > root.drag-from;
             select => { root.select(node.id); }
             copy-link => { root.copy-link(node.id); }
             edit => { root.edit(node.id); }
             remove => { root.remove-node(node.id); }
-            drag-start => {
+            drag-start(at) => {
                 root.drag-from = i;
                 root.drag-to = i;
+                root.drag-press-y = at;
             }
-            drag-move(dy) => {
+            drag-move(at) => {
                 root.drag-to = clamp(
-                    i + Math.round(dy / root.row-pitch),
+                    i + Math.round((at - root.drag-press-y) / root.row-pitch),
                     0,
                     root.group.nodes.length - 1);
             }

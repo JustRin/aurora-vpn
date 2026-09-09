@@ -635,6 +635,14 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
 
     // Порядок, собранный перетаскиванием. Ядро не перезапускается: теги живого
     // документа держатся по идентификаторам узлов, а не по позициям.
+    data.on_reorder_sub({
+        let handle = handle.clone();
+        move |id, to| {
+            let id = id.to_string();
+            run(&handle, move |h| async move { api::reorder_sub(h, id, to).await });
+        }
+    });
+
     data.on_reorder_node({
         let handle = handle.clone();
         move |id, to| {

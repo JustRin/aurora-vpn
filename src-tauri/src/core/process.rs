@@ -21,6 +21,12 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 
+/// Сколько ждать, пока Windows уберёт виртуальный адаптер прошлого ядра.
+/// Обычный снос укладывается в секунду-две; больше — значит адаптер завис, и
+/// ожиданием это уже не лечится.
+#[cfg(windows)]
+const ADAPTER_RELEASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// The two engines differ only in their command line and in how they report a
 /// bad configuration, so one supervisor drives both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +154,20 @@ impl CoreSupervisor {
         }
         self.check_config(config)?;
 
+        // Адаптер прошлого ядра мог ещё не исчезнуть — новое споткнётся об него
+        // и умрёт (см. `wait_for_tun_release`). Xray этой очереди не ждёт:
+        // своего адаптера у него нет.
+        #[cfg(windows)]
+        if self.engine == Engine::SingBox && wants_tun(config) && !wait_for_tun_release() {
+            let entry = self.logs.lock().push(
+                "warn".to_string(),
+                "виртуальный адаптер прошлого запуска всё ещё в системе — \
+                 пробую стартовать, но ядро может его не получить"
+                    .to_string(),
+            );
+            on_log(entry);
+        }
+
         let mut child = self
             .base_command()
             .args(self.engine.run_args(config, &self.workdir))
@@ -228,6 +248,100 @@ fn same_exe(a: &Path, b: &Path) -> bool {
     cfg!(windows)
         && a.as_os_str().to_string_lossy().to_lowercase()
             == b.as_os_str().to_string_lossy().to_lowercase()
+}
+
+/// Просит ли документ виртуальный адаптер.
+///
+/// В режиме системного прокси ядро обходится без TUN, и чужой туннель — хоть
+/// соседнего клиента на sing-box, хоть свой в тестах — ему не мешает: ждать
+/// там нечего. Нечитаемый документ считаем требующим адаптера: лишняя доля
+/// секунды дешевле старта, который упрётся в занятый адаптер.
+#[cfg(windows)]
+fn wants_tun(config: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(config) else {
+        return true;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return true;
+    };
+    match json["inbounds"].as_array() {
+        Some(inbounds) => inbounds.iter().any(|inbound| inbound["type"] == "tun"),
+        None => true,
+    }
+}
+
+/// Есть ли сейчас в системе виртуальный адаптер, созданный sing-box.
+///
+/// Смотрим на описание, а не на имя интерфейса: `sing-tun` штампует им свой
+/// wintun-адаптер, а имя (`tun0`) слишком общее — под ним может оказаться
+/// чужой туннель, ждать которого нам незачем.
+#[cfg(windows)]
+fn tun_adapter_present() -> bool {
+    use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
+    use windows::Win32::NetworkManagement::IpHelper::{GetIfTable, MIB_IFTABLE};
+
+    const MARKER: &str = "sing-tun";
+
+    // Таблица интерфейсов, а не список адресов: адаптер в разгар сноса уже мог
+    // потерять свой IP, но пока он есть у стека — новый его и встретит.
+    // (`GetIfTable` к тому же обходится без фич Ndis и WinSock.)
+    //
+    // Буфер из u32: таблица выравнена по четыре байта, Vec<u8> такой гарантии
+    // не даёт. Между замером и чтением список может вырасти — отсюда попытки.
+    let mut size: u32 = 8 * 1024;
+    let mut buffer: Vec<u32> = Vec::new();
+    for _ in 0..4 {
+        buffer.clear();
+        buffer.resize(size.div_ceil(4).max(1) as usize, 0);
+        let table = buffer.as_mut_ptr() as *mut MIB_IFTABLE;
+        let code = unsafe { GetIfTable(Some(table), &mut size, false) };
+        if code == ERROR_INSUFFICIENT_BUFFER.0 {
+            // `size` теперь хранит нужный объём — пробуем ещё раз.
+            continue;
+        }
+        if code != ERROR_SUCCESS.0 {
+            // Таблица не прочитана — считаем, что мешать некому: задержать
+            // старт из-за сбоя опроса хуже, чем один раз наткнуться на адаптер.
+            return false;
+        }
+
+        let table = unsafe { &*table };
+        let rows = table.table.as_ptr();
+        for index in 0..table.dwNumEntries as usize {
+            let row = unsafe { &*rows.add(index) };
+            let len = (row.dwDescrLen as usize).min(row.bDescr.len());
+            if String::from_utf8_lossy(&row.bDescr[..len])
+                .to_lowercase()
+                .contains(MARKER)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    false
+}
+
+/// Дождаться, пока адаптер прошлого ядра исчезнет. `false` — не дождались.
+///
+/// Windows сносит wintun-адаптер асинхронно, уже после того, как процесс
+/// пожат: между `stop()` и следующим `start()` проходят миллисекунды, а снос
+/// занимает секунды. Новое ядро в этот момент получает от драйвера «файл уже
+/// существует», а на попытке подхватить существующий адаптер — «элемент не
+/// найден», и умирает, хотя виноват только порядок событий.
+#[cfg(windows)]
+fn wait_for_tun_release() -> bool {
+    if !tun_adapter_present() {
+        return true;
+    }
+    let deadline = std::time::Instant::now() + ADAPTER_RELEASE_TIMEOUT;
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        if !tun_adapter_present() {
+            return true;
+        }
+    }
+    false
 }
 
 /// Kill a core left behind by a crash, so its virtual adapter does not block a
