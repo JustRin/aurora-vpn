@@ -301,6 +301,8 @@ export component TextArea inherits Rectangle {
     in property <string> placeholder;
     in property <bool> read-only;
     callback edited(string);
+    // Фокус ушёл из поля: правка закончена.
+    callback committed();
     min-height: 108px;
     min-width: 60px;
     border-radius: 8px;
@@ -331,6 +333,11 @@ export component TextArea inherits Rectangle {
             selection-background-color: Theme.accent;
             selection-foreground-color: Theme.on-accent;
             edited => { root.edited(self.text); }
+            changed has-focus => {
+                if !self.has-focus {
+                    root.committed();
+                }
+            }
         }
     }
     if root.text == "" && !ti.has-focus: Text {

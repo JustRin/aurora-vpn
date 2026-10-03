@@ -1263,7 +1263,9 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         return Err(AppError::msg(detail));
     }
 
-    attach_session(&app, session, api, tunnel_mode, mixed_port, now_ms()).await
+    attach_session(&app, session, api, tunnel_mode, mixed_port, now_ms()).await?;
+    spawn_rule_set_retry(app, session, &split, &sets.available, mixed_port);
+    Ok(())
 }
 
 /// Всё после того, как панель ядра ответила: стартовый узел для селектора,
@@ -1325,6 +1327,53 @@ async fn attach_session(
     spawn_engine_probe(app.clone(), session);
     spawn_balancer(app.clone(), session);
     Ok(())
+}
+
+/// Гео-наборы, которые не скачались до подключения, — ещё одна попытка, уже
+/// через туннель. Без неё «блокировать рекламу» молча не работает ровно там,
+/// где GitHub недоступен напрямую. Удалось — ядро перезапускается с ними;
+/// нет — правило так и остаётся выключенным, предупреждение уже в журнале.
+fn spawn_rule_set_retry(
+    app: AppHandle,
+    session: u64,
+    split: &SplitConfig,
+    available: &HashSet<String>,
+    mixed_port: u16,
+) {
+    let missing: Vec<ruleset::Spec> = required_rule_sets(split)
+        .into_iter()
+        .filter(|spec| !available.contains(&spec.tag))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let dir = {
+        let state = app.state::<AppState>();
+        let dir = state.paths.rule_set_dir.clone();
+        dir
+    };
+    tauri::async_runtime::spawn(async move {
+        let proxy = format!("http://127.0.0.1:{mixed_port}");
+        let outcome = ruleset::ensure_via(&missing, &dir, Some(&proxy)).await;
+        if outcome.available.is_empty() {
+            return;
+        }
+        let ours = {
+            let state = app.state::<AppState>();
+            let ours = state.session.load(Ordering::SeqCst) == session;
+            ours
+        };
+        if !ours {
+            return;
+        }
+        let tags: Vec<String> = outcome.available.into_iter().collect();
+        log_line(
+            &app,
+            "info",
+            format!("гео-наборы {} скачаны через туннель — применяю", tags.join(", ")),
+        );
+        let _ = restart_if_running(&app).await;
+    });
 }
 
 // ------------------------------------------------------ туннель без Rust
@@ -1558,13 +1607,17 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<()> {
+/// Возвращает правила в том виде, в каком они сохранены: из ссылок вырезаны
+/// хосты, адреса и домены разложены по своим спискам — форма показывает это.
+pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<SplitConfig> {
+    let split = crate::core::rules::normalize_split(split);
     {
         let state = app.state::<AppState>();
-        *state.split.write() = split;
+        *state.split.write() = split.clone();
         state.save_split()?;
     }
-    restart_if_running(&app).await
+    restart_if_running(&app).await?;
+    Ok(split)
 }
 
 /// Выбрать сервер. Возвращает, пришлось ли ради этого выключить балансировщик.

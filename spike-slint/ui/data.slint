@@ -242,6 +242,8 @@ export global Data {
     // и changed в app.slint дёргает эти колбэки на любое изменение.
     callback settings-changed();
     callback split-changed();
+    // Поле своих правил потеряло фокус — время показать очищенный список.
+    callback split-committed();
     // Сообщение закрыли щелчком — гасить его досрочно.
     callback dismiss-toast(int);
     // Ширина графика изменилась — пути надо пересобрать в том же кадре,

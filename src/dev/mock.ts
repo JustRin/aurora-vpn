@@ -169,7 +169,7 @@ mockIPC(
         return undefined;
       case "set_split":
         Object.assign(snapshot.split, a.split as object);
-        return undefined;
+        return { ...snapshot.split };
       case "set_active_server":
         snapshot.activeId = String(a.id);
         snapshot.status.activeId = snapshot.activeId;

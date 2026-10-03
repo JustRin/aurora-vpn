@@ -192,6 +192,9 @@ export function StringList({
   return (
     <Field label={label} hint={hint}>
       <textarea
+        // The saved list comes back cleaned up (links cut down to hosts);
+        // remounting is what shows it, since the field is uncontrolled.
+        key={value.join("\n")}
         className="textarea"
         placeholder={placeholder}
         defaultValue={value.join("\n")}

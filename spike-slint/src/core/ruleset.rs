@@ -72,6 +72,13 @@ pub struct Outcome {
 /// correctly for the overwhelming majority of addresses, whereas a missing set
 /// silently disables the user's rule.
 pub async fn ensure(specs: &[Spec], dir: &Path) -> Outcome {
+    ensure_via(specs, dir, None).await
+}
+
+/// [`ensure`], optionally through an HTTP proxy — the tunnel's own mixed port,
+/// for a second try once it is up: GitHub is exactly the kind of host that is
+/// unreachable directly and fine through the tunnel.
+pub async fn ensure_via(specs: &[Spec], dir: &Path, proxy: Option<&str>) -> Outcome {
     let mut available = HashSet::new();
     let mut failures = Vec::new();
 
@@ -83,14 +90,17 @@ pub async fn ensure(specs: &[Spec], dir: &Path) -> Outcome {
         return Outcome { available, failures };
     }
 
-    let client = crate::net::http_builder()
+    // Without an explicit proxy the tunnel is not up yet, and a half-configured
+    // system proxy would deadlock this fetch.
+    let builder = crate::net::http_builder()
         .timeout(DOWNLOAD_TIMEOUT)
-        // The tunnel is not up yet, and a half-configured system proxy would
-        // deadlock this fetch.
         .no_proxy()
-        .user_agent("Aurora-VPN/0.1")
-        .build()
-        .ok();
+        .user_agent("Aurora-VPN/0.1");
+    let builder = match proxy.map(reqwest::Proxy::all) {
+        Some(Ok(proxy)) => builder.proxy(proxy),
+        _ => builder,
+    };
+    let client = builder.build().ok();
 
     for spec in specs {
         let path = path_for(dir, &spec.tag);
@@ -100,7 +110,7 @@ pub async fn ensure(specs: &[Spec], dir: &Path) -> Outcome {
         }
 
         let downloaded = match &client {
-            Some(client) => download(client, &spec.url, &path).await,
+            Some(client) => download_any(client, &spec.url, &path).await,
             None => Err("HTTP-клиент недоступен".to_string()),
         };
 
@@ -121,6 +131,28 @@ pub async fn ensure(specs: &[Spec], dir: &Path) -> Outcome {
     }
 
     Outcome { available, failures }
+}
+
+/// The upstream address first, then its jsDelivr mirror: raw.githubusercontent.com
+/// is throttled or blocked on many networks where the CDN still answers.
+async fn download_any(client: &reqwest::Client, url: &str, path: &Path) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for url in std::iter::once(url.to_string()).chain(mirror(url)) {
+        match download(client, &url, path).await {
+            Ok(()) => return Ok(()),
+            Err(e) => errors.push(e),
+        }
+    }
+    Err(errors.join("; "))
+}
+
+/// `raw.githubusercontent.com/{owner}/{repo}/{branch}/{file}` →
+/// `cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{file}`.
+fn mirror(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://raw.githubusercontent.com/")?;
+    let mut parts = rest.splitn(4, '/');
+    let (owner, repo, branch, file) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    Some(format!("https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{file}"))
 }
 
 async fn download(client: &reqwest::Client, url: &str, path: &Path) -> Result<(), String> {
@@ -153,6 +185,16 @@ mod tests {
         assert!(spec("geosite-ru").unwrap().url.ends_with("geosite-category-ru.srs"));
         assert!(spec("geoip-cn").unwrap().url.ends_with("geoip-cn.srs"));
         assert!(spec("nonsense").is_none());
+    }
+
+    #[test]
+    fn github_files_have_a_cdn_mirror() {
+        let url = spec("geosite-ads").unwrap().url;
+        assert_eq!(
+            mirror(&url).as_deref(),
+            Some("https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
+        );
+        assert_eq!(mirror("http://192.0.2.1/never.srs"), None);
     }
 
     #[tokio::test]

@@ -630,13 +630,10 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "protocol": "dns", "action": "hijack-dns" }));
     }
 
-    // The Clash-API mode switch, applied without restarting the core. The app's
-    // own switch only offers Global (Direct is what disconnecting already does),
-    // but the mode belongs to the API, and a Clash dashboard pointed at it can
-    // still ask for either.
-    rules.push(json!({ "clash_mode": "Direct", "outbound": TAG_DIRECT }));
-    rules.push(json!({ "clash_mode": "Global", "outbound": proxy_tag }));
-
+    // Blocking is not a routing choice: it holds in Global mode too, which
+    // otherwise sends everything below it straight to the proxy. After the
+    // hijack, though — a lookup for a blocked name must get a DNS answer
+    // (the reject rule in the DNS section), not a silently dropped packet.
     if !split.block_domains.is_empty() {
         rules.push(json!({ "domain_suffix": split.block_domains, "action": "reject" }));
     }
@@ -644,6 +641,13 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "rule_set": ["geosite-ads"], "action": "reject" }));
         used_rule_sets.push(rule_set("geosite-ads", rule_set_dir));
     }
+
+    // The Clash-API mode switch, applied without restarting the core. The app's
+    // own switch only offers Global (Direct is what disconnecting already does),
+    // but the mode belongs to the API, and a Clash dashboard pointed at it can
+    // still ask for either.
+    rules.push(json!({ "clash_mode": "Direct", "outbound": TAG_DIRECT }));
+    rules.push(json!({ "clash_mode": "Global", "outbound": proxy_tag }));
 
     if split.bypass_private {
         rules.push(json!({ "ip_is_private": true, "outbound": TAG_DIRECT }));

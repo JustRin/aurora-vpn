@@ -1229,7 +1229,55 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
     spawn_traffic_poller(app.clone(), session);
     spawn_engine_probe(app.clone(), session);
     spawn_balancer(app.clone(), session);
+    spawn_rule_set_retry(app.clone(), session, &split, &sets.available, mixed_port);
     Ok(())
+}
+
+/// Гео-наборы, которые не скачались до подключения, — ещё одна попытка, уже
+/// через туннель. Без неё «блокировать рекламу» молча не работает ровно там,
+/// где GitHub недоступен напрямую. Удалось — ядро перезапускается с ними;
+/// нет — правило так и остаётся выключенным, предупреждение уже в журнале.
+fn spawn_rule_set_retry(
+    app: AppHandle,
+    session: u64,
+    split: &SplitConfig,
+    available: &HashSet<String>,
+    mixed_port: u16,
+) {
+    let missing: Vec<ruleset::Spec> = required_rule_sets(split)
+        .into_iter()
+        .filter(|spec| !available.contains(&spec.tag))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let dir = {
+        let state = app.state();
+        let dir = state.paths.rule_set_dir.clone();
+        dir
+    };
+    tokio::spawn(async move {
+        let proxy = format!("http://127.0.0.1:{mixed_port}");
+        let outcome = ruleset::ensure_via(&missing, &dir, Some(&proxy)).await;
+        if outcome.available.is_empty() {
+            return;
+        }
+        let ours = {
+            let state = app.state();
+            let ours = state.session.load(Ordering::SeqCst) == session;
+            ours
+        };
+        if !ours {
+            return;
+        }
+        let tags: Vec<String> = outcome.available.into_iter().collect();
+        log_line(
+            &app,
+            "info",
+            format!("гео-наборы {} скачаны через туннель — применяю", tags.join(", ")),
+        );
+        let _ = restart_if_running(&app).await;
+    });
 }
 
 pub async fn disconnect(app: AppHandle) -> Result<()> {
@@ -1328,6 +1376,7 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
 }
 
 pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<()> {
+    let split = crate::core::rules::normalize_split(split);
     {
         let state = app.state();
         *state.split.write() = split;

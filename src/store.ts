@@ -96,6 +96,7 @@ interface AppStore {
 }
 
 let toastSeq = 0;
+let splitSeq = 0;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -287,9 +288,12 @@ export const useStore = create<AppStore>((set, get) => ({
 
   async saveSplit(patch) {
     const next = { ...get().split, ...patch };
+    const seq = ++splitSeq;
     set({ split: next });
     try {
-      await api.setSplit(next);
+      const saved = await api.setSplit(next);
+      // A newer save is already on its way; this answer would roll it back.
+      if (saved && seq === splitSeq) set({ split: saved });
     } catch (e) {
       get().toast("error", tNow("toast.rulesFailed"), errText(e));
       await get().reload();

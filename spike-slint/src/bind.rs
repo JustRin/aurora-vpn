@@ -105,6 +105,9 @@ struct Local {
     /// перезапускает ядро. Таймер перезаводится на каждое изменение и стреляет,
     /// когда правки прекратились.
     save: slint::Timer,
+    /// То же для своих правил маршрутизации: списки тоже правятся посимвольно,
+    /// а недописанный адрес вроде `192.` ядро и вовсе не примет.
+    split_save: slint::Timer,
 }
 
 /// Поднять ядро и подключить к нему интерфейс.
@@ -120,6 +123,7 @@ pub fn install(ui: &AppWindow) -> Result<AppHandle> {
         editing: RefCell::new(None),
         loading: std::cell::Cell::new(false),
         save: slint::Timer::default(),
+        split_save: slint::Timer::default(),
     });
 
     // Модели, которые правятся по месту, живут здесь: журнал и тосты дописывают
@@ -1325,15 +1329,55 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
             if local.loading.get() {
                 return;
             }
-            let Some(ui) = weak.upgrade() else { return };
-            let current = handle.state().split.read().clone();
-            let next = read_split(&ui, &current);
-            if !split_differs(&current, &next) {
-                return;
-            }
-            run(&handle, move |h| async move { api::set_split(h, next).await });
+            local.split_save.start(slint::TimerMode::SingleShot, SAVE_DELAY, {
+                let handle = handle.clone();
+                let weak = weak.clone();
+                let local = local.clone();
+                move || {
+                    if let Some(ui) = weak.upgrade() {
+                        commit_split(&ui, &handle, &local, false);
+                    }
+                }
+            });
         }
     });
+
+    // Поле списка потеряло фокус: сохранить сразу и показать список таким,
+    // каким его понимает ядро, — пока в поле печатают, текст не трогается.
+    data.on_split_committed({
+        let handle = handle.clone();
+        let weak = ui.as_weak();
+        let local = local.clone();
+        move || {
+            if local.loading.get() {
+                return;
+            }
+            local.split_save.stop();
+            if let Some(ui) = weak.upgrade() {
+                commit_split(&ui, &handle, &local, true);
+            }
+        }
+    });
+}
+
+/// Сохранить правила из формы. Ссылки сводятся к хостам, адреса и домены
+/// расходятся по своим спискам; `show` возвращает итог в поля.
+fn commit_split(ui: &AppWindow, handle: &AppHandle, local: &Local, show: bool) {
+    let current = handle.state().split.read().clone();
+    let next = crate::core::rules::normalize_split(read_split(ui, &current));
+    if show {
+        local.loading.set(true);
+        write_split(ui, &next);
+        local.loading.set(false);
+    }
+    if !split_differs(&current, &next) {
+        return;
+    }
+    // Состояние обновляется сразу, а не когда до него дойдёт set_split: запись
+    // в поля выше отзовётся split-changed позже, и сравнивать её надо уже
+    // с новым списком — иначе ядро перезапустилось бы второй раз впустую.
+    *handle.state().split.write() = next.clone();
+    run(handle, move |h| async move { api::set_split(h, next).await });
 }
 
 /// Привести автозапуск в системе к тому, что стоит в форме.

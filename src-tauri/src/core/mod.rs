@@ -6,6 +6,7 @@ pub mod config;
 pub mod log;
 #[cfg(not(target_os = "android"))]
 pub mod process;
+pub mod rules;
 pub mod ruleset;
 #[cfg(not(target_os = "android"))]
 pub mod xray;

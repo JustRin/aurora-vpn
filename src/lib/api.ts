@@ -38,7 +38,9 @@ export const api = {
   disconnect: () => invoke<void>("disconnect"),
 
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
-  setSplit: (split: SplitConfig) => invoke<void>("set_split", { split }),
+  /** Resolves to the rules as stored: hosts cut out of pasted links, addresses
+   * and domains moved to their own lists. */
+  setSplit: (split: SplitConfig) => invoke<SplitConfig>("set_split", { split }),
   /** Resolves to `true` when the balancer had to be switched off for the pick
    * to stick (fastest / rotation would otherwise move traffic back). */
   setActiveServer: (id: string) => invoke<boolean>("set_active_server", { id }),

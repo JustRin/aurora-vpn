@@ -82,6 +82,7 @@ export component RoutingPage inherits ScrollArea {
             horizontal-stretch: 1;
             TextArea {
                 text <=> Conf.direct-domains;
+                committed => { Data.split-committed(); }
                 placeholder: "gosuslugi.ru\nsberbank.ru";
             }
         }
@@ -91,6 +92,7 @@ export component RoutingPage inherits ScrollArea {
             horizontal-stretch: 1;
             TextArea {
                 text <=> Conf.proxy-domains;
+                committed => { Data.split-committed(); }
                 placeholder: "youtube.com\nopenai.com";
             }
         }
@@ -104,6 +106,7 @@ export component RoutingPage inherits ScrollArea {
             horizontal-stretch: 1;
             TextArea {
                 text <=> Conf.direct-ips;
+                committed => { Data.split-committed(); }
                 placeholder: "192.168.1.0/24\n1.2.3.4";
             }
         }
@@ -111,7 +114,10 @@ export component RoutingPage inherits ScrollArea {
             label: Str.route-proxy-ips;
             hint: Str.route-proxy-ips-hint;
             horizontal-stretch: 1;
-            TextArea { text <=> Conf.proxy-ips; }
+            TextArea {
+                text <=> Conf.proxy-ips;
+                committed => { Data.split-committed(); }
+            }
         }
     }
     Rectangle { height: 14px; }
@@ -123,6 +129,7 @@ export component RoutingPage inherits ScrollArea {
             horizontal-stretch: 1;
             TextArea {
                 text <=> Conf.block-domains;
+                committed => { Data.split-committed(); }
                 placeholder: "ads.example.com";
             }
         }

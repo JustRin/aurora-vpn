@@ -220,7 +220,7 @@ impl AppState {
         }
         let nodes: Vec<ServerNode> = store.load("servers");
         let subs: Vec<Subscription> = store.load("subscriptions");
-        let split: SplitConfig = store.load("split");
+        let split = crate::core::rules::normalize_split(store.load("split"));
         let ui: UiState = store.load("ui");
         let warp: WarpAccount = store.load("warp");
         let engine_overrides: HashMap<String, String> = store.load("engines");
