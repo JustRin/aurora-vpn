@@ -1263,6 +1263,16 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         return Err(AppError::msg(detail));
     }
 
+    // Ядро хранит режим в cache.db и при старте поднимает прошлый поверх
+    // `default_mode`. Global стоит выше всех правил пользователя, так что один
+    // раз нажатый «Глобальный» переживал бы каждый перезапуск — а экран, всегда
+    // стартующий с «Правила», этого бы не показывал: «напрямую» не работает,
+    // и причины не видно.
+    if let Err(e) = api.set_mode("Rule").await {
+        log_line(&app, "warn", format!("не удалось сбросить режим маршрутизации ({e})"));
+    }
+    set_status(&app, |s| s.mode = "Rule".into());
+
     attach_session(&app, session, api, tunnel_mode, mixed_port, now_ms()).await?;
     spawn_rule_set_retry(app, session, &split, &sets.available, mixed_port);
     Ok(())
