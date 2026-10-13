@@ -2,7 +2,7 @@ import { useEffect, type ComponentType } from "react";
 
 import { api } from "./lib/api";
 import { isRtl, useLang, useT } from "./lib/i18n";
-import { IS_WINDOWS } from "./lib/platform";
+import { IS_MAC, IS_WINDOWS } from "./lib/platform";
 
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
@@ -64,9 +64,13 @@ export default function App() {
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => void api.appReady());
     });
+    // WKWebView never fires rAF in a hidden window, and the window is hidden
+    // until this very call — so on macOS the frames above would not come.
+    const fallback = IS_MAC ? window.setTimeout(() => void api.appReady(), 300) : 0;
     return () => {
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
+      window.clearTimeout(fallback);
     };
   }, [ready]);
 

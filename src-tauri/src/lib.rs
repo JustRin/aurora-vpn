@@ -177,9 +177,17 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<tauri::WebviewWindow> {
         });
     });
 
+    // WKWebView does not run requestAnimationFrame in a window nobody can see,
+    // so on macOS `app_ready` has nothing to wait for and the net below is the
+    // normal way in; eight seconds of an app that "does not open" is too long.
+    #[cfg(target_os = "macos")]
+    const REVEAL_FALLBACK_SECS: u64 = 2;
+    #[cfg(not(target_os = "macos"))]
+    const REVEAL_FALLBACK_SECS: u64 = 8;
+
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(REVEAL_FALLBACK_SECS)).await;
         if let Some(window) = handle.get_webview_window("main") {
             if !window.is_visible().unwrap_or(true) {
                 let _ = window.show();
@@ -600,6 +608,16 @@ pub fn run() {
                 .unwrap_or(false);
             if tray_resident {
                 api.prevent_exit();
+            }
+        }
+        // A click on the Dock icon. With close-to-tray there is usually no
+        // window to bring forward — it was destroyed — and without this arm
+        // macOS activates an app that has nothing to show, so the only way
+        // back was the tray menu.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { has_visible_windows, .. } => {
+            if !has_visible_windows {
+                show_main_window(app);
             }
         }
         RunEvent::Exit => {
