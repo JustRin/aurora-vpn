@@ -4,6 +4,14 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # Прогрев кэша, а не релиз. Кэш Actions виден только той ссылке (ref), под
+  # которой сохранён, и ветке по умолчанию: сборка по тегу v0.5.6 не видит
+  # кэшей тега v0.5.5, и каждый релиз раньше шёл с нуля — Rust для четырёх ABI
+  # и libbox заново, около получаса. Запуск на main кладёт кэши туда, откуда их
+  # читает любой тег. Раз в три-четыре дня: GitHub стирает кэш, к которому не
+  # обращались неделю. Публикация на таких запусках отключена (см. publish).
+  schedule:
+    - cron: "17 3 * * 1,4"
 
 permissions:
   contents: write
@@ -34,6 +42,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: spike-slint
+          # Кэш, сохранённый под тегом, никому больше не виден, зато занимает
+          # место в 10 ГБ лимита и вытесняет нужные кэши main.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Скрипт на голом node, без зависимостей — npm ci здесь не нужен.
       - name: Fetch core binaries
@@ -122,6 +133,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         run: npm ci
@@ -276,11 +288,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # gomobile compiles the whole of sing-box for every ABI — ~20 minutes.
+      # gomobile compiles the whole of sing-box for every ABI — ~6 minutes.
       # The AAR only changes when the pinned version does, so cache it by key.
-      - name: Cache libbox
-        uses: actions/cache@v4
+      # Saved only from main (see the `schedule` trigger): a copy saved under a
+      # tag is invisible to the next tag.
+      - name: Restore libbox
+        id: libbox-cache
+        uses: actions/cache/restore@v4
         with:
           path: src-tauri/gen/android/app/libs/libbox.aar
           key: libbox-${{ env.LIBBOX_VERSION }}-api23
@@ -290,6 +306,13 @@ jobs:
 
       - name: Build libbox
         run: node scripts/build-libbox.mjs "$LIBBOX_VERSION"
+
+      - name: Save libbox
+        if: github.ref == 'refs/heads/main' && steps.libbox-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: src-tauri/gen/android/app/libs/libbox.aar
+          key: libbox-${{ env.LIBBOX_VERSION }}-api23
 
       # Real signing when the secrets exist; the debug key otherwise, so a fork
       # without secrets still gets an installable artifact.
@@ -373,7 +396,9 @@ jobs:
   # APK row of the table but must not hold the desktop release hostage.
   publish:
     needs: [build-windows, build, build-android]
-    if: ${{ !cancelled() && needs.build-windows.result == 'success' }}
+    # Только по тегу: запуски на main (расписание, ручной) греют кэш и ничего
+    # не публикуют.
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.build-windows.result == 'success' }}
     runs-on: ubuntu-latest
     # `secrets` is not allowed inside step-level `if`; mirroring the token into
     # the job environment is the sanctioned way to gate steps on its presence.
