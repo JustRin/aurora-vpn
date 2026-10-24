@@ -118,7 +118,7 @@ object TunnelBus {
     fun changed(context: Context) {
         val app = context.applicationContext
         WidgetUpdater.updateAll(app)
-        AuroraTileService.refresh(app)
+        AuroraTileService.refresh()
         VpnState.service?.syncStats()
     }
 
