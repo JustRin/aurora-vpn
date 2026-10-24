@@ -1,10 +1,10 @@
 package com.aurora.vpn
 
 import android.app.PendingIntent
-import android.content.ComponentName
-import android.content.Context
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 
@@ -18,23 +18,41 @@ import android.service.quicksettings.TileService
 class AuroraTileService : TileService() {
 
     override fun onStartListening() {
+        listening = this
         render()
+    }
+
+    override fun onStopListening() {
+        if (listening === this) listening = null
     }
 
     override fun onClick() {
         if (VpnState.phase == Phase.IDLE) {
-            if (!TunnelControl.start(this)) openApp()
+            if (TunnelControl.start(this)) {
+                // The service only reaches STARTING once this call returns;
+                // drawn from the phase, the tap would look ignored until then.
+                render(WidgetState.CONNECTING)
+            } else {
+                openApp()
+                render()
+            }
         } else if (isLocked) {
             // Anyone can turn a VPN on from the lock screen; turning it off
             // stays with whoever can unlock the phone.
-            unlockAndRun {
-                TunnelControl.stop()
-                render()
-            }
-            return
+            unlockAndRun { disconnect() }
         } else {
-            TunnelControl.stop()
+            disconnect()
         }
+    }
+
+    /**
+     * Off first, then the stop: tearing the box down blocks this thread for
+     * as long as libbox takes to close, and the tile should not sit there
+     * lit while it does.
+     */
+    private fun disconnect() {
+        render(WidgetState.OFF)
+        TunnelControl.stop()
         render()
     }
 
@@ -53,9 +71,8 @@ class AuroraTileService : TileService() {
         }
     }
 
-    private fun render() {
+    private fun render(state: WidgetState = currentWidgetState()) {
         val tile = qsTile ?: return
-        val state = currentWidgetState()
         tile.state = when (state) {
             WidgetState.ON, WidgetState.NO_LINK, WidgetState.CONNECTING -> Tile.STATE_ACTIVE
             WidgetState.OFF, WidgetState.ERROR -> Tile.STATE_INACTIVE
@@ -82,13 +99,20 @@ class AuroraTileService : TileService() {
     }
 
     companion object {
-        /** Ask the system to call [onStartListening] again; a no-op while the tile is not on the panel. */
-        fun refresh(context: Context) {
-            try {
-                requestListeningState(context, ComponentName(context, AuroraTileService::class.java))
-            } catch (_: Exception) {
-                // Some OEM panels throw when the tile was never added.
-            }
+        /**
+         * The instance the panel is showing right now. The system redraws a
+         * tile only when the panel opens — `requestListeningState` does
+         * nothing for one that is not declared ACTIVE_TILE — so whatever
+         * changes while the panel stays open has to be pushed through here.
+         * Touched on the main thread only.
+         */
+        private var listening: AuroraTileService? = null
+
+        private val main = Handler(Looper.getMainLooper())
+
+        /** Redraw the tile if the panel shows it; the next time it opens it redraws anyway. */
+        fun refresh() {
+            main.post { listening?.render() }
         }
     }
 }
