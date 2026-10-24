@@ -52,6 +52,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Официальный sing-box выкидывает из рукопожатия REALITY ключ
+      # X25519MLKEM768, а серверы на Xray 26.9+ без него клиента не пускают.
+      # Тот же тег собирается из исходников с патчем (scripts/sing-box-patches.mjs)
+      # поверх скачанного бинарника. Go — та версия, которой апстрим собирает 1.14.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build patched sing-box
+        run: node scripts/build-sing-box.mjs
+
       - name: Build app
         run: cargo build --release --manifest-path spike-slint/Cargo.toml
 
@@ -142,6 +154,18 @@ jobs:
         run: npm run fetch-core
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CORE_TARGET: ${{ matrix.core }}
+
+      # Как у Windows выше: sing-box с патчем REALITY поверх официального.
+      # Сборка на чистом Go, поэтому раннер arm64 собирает и darwin-x64.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build patched sing-box
+        run: node scripts/build-sing-box.mjs
+        env:
           CORE_TARGET: ${{ matrix.core }}
 
       - name: Build installer
@@ -291,15 +315,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # gomobile compiles the whole of sing-box for every ABI — ~6 minutes.
-      # The AAR only changes when the pinned version does, so cache it by key.
-      # Saved only from main (see the `schedule` trigger): a copy saved under a
-      # tag is invisible to the next tag.
+      # The AAR only changes with the pinned version or Aurora's patches on top
+      # of it, so cache it by both. Saved only from main (see the `schedule`
+      # trigger): a copy saved under a tag is invisible to the next tag.
       - name: Restore libbox
         id: libbox-cache
         uses: actions/cache/restore@v4
         with:
           path: src-tauri/gen/android/app/libs/libbox.aar
-          key: libbox-${{ env.LIBBOX_VERSION }}-api23
+          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs') }}-api23
 
       - name: Install dependencies
         run: npm ci
@@ -312,7 +336,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: src-tauri/gen/android/app/libs/libbox.aar
-          key: libbox-${{ env.LIBBOX_VERSION }}-api23
+          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs') }}-api23
 
       # Real signing when the secrets exist; the debug key otherwise, so a fork
       # without secrets still gets an installable artifact.

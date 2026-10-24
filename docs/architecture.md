@@ -48,6 +48,21 @@ To sing-box those are ordinary `socks` outbounds, so the selector, urltest and
 latency probes behave identically for both engines. Detection is automatic:
 `ServerNode::needs_xray()`.
 
+### The patched sing-box
+
+Releases do not ship the official sing-box binary but the same upstream tag
+built from source with Aurora's patches (`scripts/sing-box-patches.mjs`);
+Android's libbox gets the same ones. Today there is one: upstream strips the
+`X25519MLKEM768` key share from every REALITY Client Hello, and REALITY servers
+since Xray 26.9 (XTLS/REALITY `8cdf7bf`) reject a hello without it — the client
+lands on the camouflage site, and the node never connects, on any network.
+With the share kept, as the chrome fingerprint carries it and as Xray's own
+client sends it, both new and old servers accept the hello: the older ones
+take the plain X25519 share that follows it. Each patch is a literal
+replacement that must match once, so a tag whose code has moved fails the
+build instead of quietly shipping without the fix. The build also keeps only
+the features the config generator uses, which halves the binary.
+
 ### MASQUE and AmneziaWG
 
 **MASQUE** (RFC 9484 CONNECT-IP over HTTP/3 or HTTP/2) exists only in Xray
@@ -406,6 +421,8 @@ src-tauri/src/           Tauri build
   commands.rs            commands exposed to the UI
 
 scripts/fetch-core.mjs   downloads the sing-box and Xray binaries for the platform
+scripts/build-sing-box.mjs  builds the patched sing-box that releases ship
+scripts/sing-box-patches.mjs  Aurora's patches to upstream sing-box (desktop and libbox)
 ```
 
 ---
@@ -416,10 +433,14 @@ One step is shared by every platform — the engines:
 
 ```bash
 node scripts/fetch-core.mjs
+node scripts/build-sing-box.mjs   # needs Go 1.26; replaces the official sing-box
 ```
 
-The script puts sing-box and Xray into `src-tauri/binaries/` under a name with
-the target triple, which is how both builds pick them up.
+The scripts put sing-box and Xray into `src-tauri/binaries/` under a name with
+the target triple, which is how both builds pick them up. The second one is
+what releases ship: without it the official sing-box stays, and VLESS-REALITY
+nodes on servers running Xray 26.9+ do not connect (see «The patched
+sing-box»).
 
 ### Windows (native Slint client)
 

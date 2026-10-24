@@ -11,6 +11,9 @@
  * Requirements: git, Go ≥ 1.24, JDK ≥ 17, ANDROID_HOME + ANDROID_NDK_HOME.
  * ABIS env limits architectures (e.g. ABIS="android/arm64" for quick local
  * builds); the default builds every ABI the app ships.
+ *
+ * The checkout gets Aurora's patches (scripts/sing-box-patches.mjs) before it
+ * is built — the same ones the desktop sidecar carries.
  */
 
 import { execFileSync } from "node:child_process";
@@ -19,6 +22,8 @@ import { mkdir, rm, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { PATCH_LEVEL, patchSingBox } from "./sing-box-patches.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "src-tauri", "gen", "android", "app", "libs", "libbox.aar");
@@ -63,6 +68,7 @@ async function main() {
       "https://github.com/SagerNet/sing-box", src,
     ]);
   }
+  await patchSingBox(src);
 
   // sing-box pins a gomobile fork; installing from inside the module dir
   // resolves the exact version its go.mod asks for.
@@ -86,7 +92,7 @@ async function main() {
     "-javapkg=io.nekohasekai",
     "-libname=box",
     "-trimpath", "-buildvcs=false",
-    "-ldflags", `-X github.com/sagernet/sing-box/constant.Version=v${version} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0`,
+    "-ldflags", `-X github.com/sagernet/sing-box/constant.Version=v${version}-${PATCH_LEVEL} -X internal/godebug.defaultGODEBUG=multipathtcp=0 -s -w -buildid= -checklinkname=0`,
     "-tags", TAGS,
     "./experimental/libbox",
   ], { cwd: src, env: { ...process.env, PATH: `${path.join(gopath, "bin")}${path.delimiter}${process.env.PATH}` } });

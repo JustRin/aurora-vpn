@@ -42,6 +42,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # …and test the sing-box that ships: the release builds it from source
+      # with Aurora's patches, and its trimmed tag set must carry everything
+      # the generated documents use.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build patched sing-box
+        run: node scripts/build-sing-box.mjs
+
       - name: Typecheck frontend
         run: npm run typecheck
 
