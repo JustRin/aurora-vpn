@@ -361,6 +361,10 @@ export const ar: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "تمت إضافة WARP إلى قائمة الخوادم",
   "srv.warpFailed": "تعذّرت إضافة WARP",
   "srv.warpEndpointHint": "نقطة دخول Cloudflare هي العنوان والمنفذ أعلاه. إن كان المنفذ محجوبًا في شبكتك، جرّب 500 أو 854 أو 955 أو 4500.",
+  "srv.awgHint": "تأتي إعدادات تمويه AmneziaWG (Jc وS1–S4 وH1–H4 وI1–I5) من ملف إعداد الخادم — لتغييرها استورد ملفًا جديدًا. يتطلب نواة sing-box-lx: مع sing-box القياسية يُتخطّى هذا الخادم عند الاتصال.",
+  "srv.masqueUserLabel": "المستخدم (البريد الإلكتروني)",
+  "srv.masqueHttpLabel": "إصدار HTTP",
+  "srv.masqueHint": "يعمل HTTP/2 عبر TCP، وهذا مفيد حيث يكون UDP محجوبًا. يعمل MASQUE عبر محرك Xray غير المتوفر على Android بعد.",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "حماية إضافية عبر WARP",

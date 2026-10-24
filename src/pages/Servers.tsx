@@ -18,7 +18,7 @@ import { SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { BALANCERS, balancerMeta, onBackup } from "../lib/balancers";
-import { latencyTier, protocolLabel, transportLabel } from "../lib/format";
+import { latencyTier, masqueHttp2, protocolLabel, transportLabel } from "../lib/format";
 import { applyOrder, useReorder } from "../lib/reorder";
 import { tNow, useT } from "../lib/i18n";
 import {
@@ -38,6 +38,7 @@ const PROTOCOLS: Protocol[] = [
   "shadowsocks",
   "hysteria2",
   "tuic",
+  "masque",
 ];
 const NETWORKS: Network[] = ["tcp", "ws", "grpc", "http", "httpupgrade"];
 const SECURITIES: Security[] = ["none", "tls", "reality"];
@@ -77,6 +78,8 @@ function emptyNode(): ServerNode {
     reserved: [],
     mtu: 1280,
     keepalive: 30,
+    preSharedKey: "",
+    username: "",
     subscriptionId: null,
     rawLink: "",
   };
@@ -349,7 +352,7 @@ export function Servers() {
                       <span className="chip accent">{t("pick.nowChip")}</span>
                     )}
                     <span className="chip">{protocolLabel(node.protocol)}</span>
-                    <span>{transportLabel(node.security, node.network, node.protocol)}</span>
+                    <span>{transportLabel(node.security, node.network, node.protocol, node.alpn)}</span>
                     <span>·</span>
                     <span className="truncate">
                       {node.address}:{node.port}
@@ -559,7 +562,7 @@ function NodeEditor({
   const set = (patch: Partial<ServerNode>) => setCurrent({ ...current, ...patch });
   const isNew = current.id === "";
   const needsUuid = ["vless", "vmess", "tuic"].includes(current.protocol);
-  const needsPassword = ["trojan", "shadowsocks", "hysteria2", "tuic"].includes(
+  const needsPassword = ["trojan", "shadowsocks", "hysteria2", "tuic", "masque"].includes(
     current.protocol,
   );
   // WireGuard is its own encryption and carries no transport, so every field
@@ -567,7 +570,15 @@ function NodeEditor({
   // shown either: they belong to the Cloudflare account, which is managed from
   // the settings rather than typed in by hand.
   const isWireguard = current.protocol === "wireguard";
-  const hasTransport = !["hysteria2", "tuic", "wireguard"].includes(current.protocol);
+  // AmneziaWG likewise: keys and obfuscation come from the server's config as
+  // one set, and a hand-edited half of it only breaks the handshake.
+  const isAwg = current.protocol === "amneziawg";
+  const lockedProtocol = isWireguard || isAwg;
+  // MASQUE has a transport of its own and is always TLS.
+  const isMasque = current.protocol === "masque";
+  const hasTransport = !["hysteria2", "tuic", "wireguard", "amneziawg", "masque"].includes(
+    current.protocol,
+  );
 
   async function save() {
     try {
@@ -631,10 +642,10 @@ function NodeEditor({
           <select
             className="select"
             value={current.protocol}
-            disabled={isWireguard}
+            disabled={lockedProtocol}
             onChange={(e) => set({ protocol: e.target.value as Protocol })}
           >
-            {(isWireguard ? ["wireguard" as Protocol] : PROTOCOLS).map((p) => (
+            {(lockedProtocol ? [current.protocol] : PROTOCOLS).map((p) => (
               <option key={p} value={p}>
                 {protocolLabel(p)}
               </option>
@@ -658,13 +669,24 @@ function NodeEditor({
           />
         </Field>
 
-        {isWireguard && (
-          <Field label="MTU" hint={t("srv.warpEndpointHint")}>
+        {lockedProtocol && (
+          <Field label="MTU" hint={t(isAwg ? "srv.awgHint" : "srv.warpEndpointHint")}>
             <input
               className="input"
               type="number"
               value={current.mtu}
               onChange={(e) => set({ mtu: Number(e.target.value) || 0 })}
+            />
+          </Field>
+        )}
+
+        {isMasque && (
+          <Field label={t("srv.masqueUserLabel")}>
+            <input
+              className="input mono"
+              value={current.username}
+              onChange={(e) => set({ username: e.target.value })}
+              placeholder="client@example.com"
             />
           </Field>
         )}
@@ -805,6 +827,37 @@ function NodeEditor({
             />
           </Field>
         )}
+
+        {isMasque && (
+          <>
+            <Field label="SNI">
+              <input
+                className="input"
+                value={current.sni}
+                onChange={(e) => set({ sni: e.target.value })}
+                placeholder={current.address || "example.com"}
+              />
+            </Field>
+            <Field label={t("srv.masqueHttpLabel")} hint={t("srv.masqueHint")}>
+              <select
+                className="select"
+                value={masqueHttp2(current.alpn) ? "h2" : "h3"}
+                onChange={(e) => set({ alpn: [e.target.value] })}
+              >
+                <option value="h3">HTTP/3 (QUIC)</option>
+                <option value="h2">HTTP/2 (TCP)</option>
+              </select>
+            </Field>
+            <Field label="Path">
+              <input
+                className="input mono"
+                value={current.path}
+                onChange={(e) => set({ path: e.target.value })}
+                placeholder="/.well-known/masque/ip/{target}/{ipproto}/"
+              />
+            </Field>
+          </>
+        )}
       </div>
 
       {hasTransport && current.security === "tls" && (
@@ -839,6 +892,35 @@ function b64(text: string): string {
 
 /** Serialise a hand-edited node back into a share link for the Rust parser. */
 function buildLink(node: ServerNode): string {
+  // MASQUE has no share link at all; a one-server Xray config, the form a
+  // JSON subscription brings it in, goes through the same parser instead.
+  if (node.protocol === "masque") {
+    return JSON.stringify({
+      remarks: node.name,
+      outbounds: [
+        {
+          protocol: "masque",
+          settings: { address: node.address, port: node.port },
+          streamSettings: {
+            network: "masque",
+            security: "tls",
+            tlsSettings: {
+              serverName: node.sni || undefined,
+              alpn: node.alpn.length > 0 ? node.alpn : undefined,
+              fingerprint: node.fingerprint || undefined,
+            },
+            masqueSettings: {
+              path: node.path || undefined,
+              user: node.username || undefined,
+              pass: node.password || undefined,
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  // VMess has no query-string form: it is a base64-encoded JSON document.
   // VMess has no query-string form: it is a base64-encoded JSON document.
   if (node.protocol === "vmess") {
     return `vmess://${b64(

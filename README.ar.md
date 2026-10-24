@@ -60,11 +60,11 @@
 
 | | |
 |---|---|
-| **البروتوكولات** | VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard |
+| **البروتوكولات** | VLESS، VMess، Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard، AmneziaWG (يتطلب نواة sing-box-lx)، MASQUE (على الحاسوب، عبر Xray) |
 | **الأمان** | REALITY ببصمات uTLS، وTLS، وVLESS Encryption (ML-KEM-768) |
 | **طبقات النقل** | TCP، WebSocket، gRPC، HTTP/2، HTTPUpgrade، XHTTP |
 | **WARP** | ‏Cloudflare WARP كخادم مستقل، أو كطبقة إضافية فوق أي خادم — الموقع يرى Cloudflare، والخادم لا يرى سوى WireGuard |
-| **الاستيراد** | روابط `vless://` وأخواتها، واشتراكات 3x-ui / Marzban، وتحديث تلقائي في الخلفية |
+| **الاستيراد** | روابط `vless://` وأخواتها، وملفات `.conf` وروابط `vpn://` لـ WireGuard / AmneziaWG، واشتراكات 3x-ui / Marzban — ومنها اشتراك JSON في 3x-ui، السبيل الوحيد الذي تقدّم به اللوحة MASQUE — وتحديث تلقائي في الخلفية |
 | **رموز QR** | قراءة من الشاشة أو من صورة أو بالكاميرا — كاميرا الويب على الحاسوب، وأي من كاميرتَي الهاتف |
 | **حالة الباقة** | الأيام والبيانات المتبقية، تُقرأ مباشرة من اللوحة |
 | **أوضاع النفق** | TUN لكامل النظام، أو وكيل نظام لا يحتاج صلاحيات المسؤول |

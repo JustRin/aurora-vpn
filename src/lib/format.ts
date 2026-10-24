@@ -134,6 +134,10 @@ export function protocolLabel(protocol: string): string {
       return "Hysteria2";
     case "wireguard":
       return "WARP";
+    case "amneziawg":
+      return "AmneziaWG";
+    case "masque":
+      return "MASQUE";
     case "tuic":
       return "TUIC";
     default:
@@ -141,15 +145,25 @@ export function protocolLabel(protocol: string): string {
   }
 }
 
+/** Whether Xray speaks HTTP/2 to a MASQUE server: only for `h2` without `h3`. */
+export function masqueHttp2(alpn: string[]): boolean {
+  const has = (name: string) => alpn.some((a) => a.toLowerCase() === name);
+  return has("h2") && !has("h3");
+}
+
 /** Compact description of a node's transport, e.g. `REALITY · ws`. */
 export function transportLabel(
   security: string,
   network: string,
   protocol?: string,
+  alpn: string[] = [],
 ): string {
   // WireGuard has neither a TLS layer nor a transport to name: it is its own
   // encryption, so the pair below would describe something that is not there.
   if (protocol === "wireguard") return "WireGuard";
+  if (protocol === "amneziawg") return "WireGuard · obfs";
+  // MASQUE always runs over TLS; what tells two servers apart is HTTP.
+  if (protocol === "masque") return masqueHttp2(alpn) ? "TLS · HTTP/2" : "TLS · HTTP/3";
   const sec =
     security === "reality"
       ? "REALITY"

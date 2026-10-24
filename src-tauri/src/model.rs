@@ -14,6 +14,13 @@ pub enum Protocol {
     /// WireGuard, and with it Cloudflare WARP. Unlike every other protocol here
     /// it is not an outbound but an *endpoint* — see [`ServerNode::is_endpoint`].
     Wireguard,
+    /// AmneziaWG: WireGuard with DPI-evasion obfuscation ([`AwgParams`]). The
+    /// same `wireguard` endpoint plus fields only the sing-box-lx build reads —
+    /// see [`ServerNode::needs_awg_core`].
+    Amneziawg,
+    /// MASQUE: IP packets over HTTP/3 or HTTP/2 (RFC 9484 CONNECT-IP). Only
+    /// Xray dials it, so it always takes the loopback hand-off.
+    Masque,
 }
 
 impl Protocol {
@@ -26,7 +33,64 @@ impl Protocol {
             Protocol::Hysteria2 => "hysteria2",
             Protocol::Tuic => "tuic",
             Protocol::Wireguard => "wireguard",
+            Protocol::Amneziawg => "amneziawg",
+            Protocol::Masque => "masque",
         }
+    }
+}
+
+/// AmneziaWG obfuscation, as the server's `.conf` states it.
+///
+/// Both ends must agree on the server-side values or the handshake is silently
+/// dropped, so nothing here is normalised: ranges and tag strings travel to the
+/// core verbatim. Field names follow the `.conf` keys; the core's own names
+/// are applied in [`ServerNode::to_endpoint`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AwgParams {
+    /// Junk packets before the handshake, and their size range.
+    pub jc: u16,
+    pub jmin: u16,
+    pub jmax: u16,
+    /// Padding of the init, response, cookie-reply and data messages.
+    pub s1: u16,
+    pub s2: u16,
+    pub s3: u16,
+    pub s4: u16,
+    /// Message-type magic: one number or a `low-high` range; empty is
+    /// WireGuard's own 1–4.
+    pub h1: String,
+    pub h2: String,
+    pub h3: String,
+    pub h4: String,
+    /// Signature packets sent ahead of the handshake, in the tag format
+    /// (`<b 0x…><r 12>`).
+    pub i1: String,
+    pub i2: String,
+    pub i3: String,
+    pub i4: String,
+    pub i5: String,
+    // ---- AmneziaWG 3.x ----
+    /// The one 3.x value the server must share; base64, 32 bytes.
+    pub header_protection_key: String,
+    /// The rest are local timing and size randomisation: a number or a
+    /// `low-high` range, empty for WireGuard's default.
+    pub content_padding_addition: String,
+    pub rekey_after_time: String,
+    pub rekey_timeout: String,
+    pub reject_after_time: String,
+    pub keepalive_timeout: String,
+    pub max_handshake_attempts: String,
+    pub random_trailers: bool,
+    pub disable_cookies: bool,
+    /// `PersistentKeepalive` given as a range (`15-25`); a single number lives
+    /// in [`ServerNode::keepalive`] as it does for WireGuard.
+    pub keepalive_range: String,
+}
+
+impl AwgParams {
+    pub fn is_empty(&self) -> bool {
+        *self == AwgParams::default()
     }
 }
 
@@ -137,6 +201,18 @@ pub struct ServerNode {
     pub mtu: u16,
     /// Seconds between keepalives; 0 leaves it off.
     pub keepalive: u16,
+    /// `PresharedKey`: an optional second secret shared with the peer.
+    pub pre_shared_key: String,
+
+    // ---- amneziawg ----
+    /// Left out of the stored node when empty: only AmneziaWG nodes carry it.
+    #[serde(skip_serializing_if = "AwgParams::is_empty")]
+    pub awg: AwgParams,
+
+    // ---- masque ----
+    /// HTTP Basic user of the CONNECT-IP request — the 3x-ui client's email.
+    /// The password lives in `password`; the HTTP version is chosen by `alpn`.
+    pub username: String,
 
     /// Set when the node came from a subscription, so refreshes can replace it.
     pub subscription_id: Option<String>,
@@ -183,6 +259,9 @@ impl Default for ServerNode {
             // itself crosses networks of unknown MTU, and 1420 fragments there.
             mtu: 1280,
             keepalive: 30,
+            pre_shared_key: String::new(),
+            awg: AwgParams::default(),
+            username: String::new(),
             subscription_id: None,
             raw_link: String::new(),
         }
@@ -192,9 +271,9 @@ impl Default for ServerNode {
 impl ServerNode {
     /// Whether this node can only be carried by the Xray engine.
     ///
-    /// Two features force it: VLESS Encryption, which sing-box does not
-    /// implement at all, and the XHTTP transport, which is Xray-only. Such a
-    /// node is dialled by Xray and handed to sing-box over a loopback SOCKS
+    /// Three features force it: VLESS Encryption, which sing-box does not
+    /// implement at all, the XHTTP transport, and MASQUE, both Xray-only. Such
+    /// a node is dialled by Xray and handed to sing-box over a loopback SOCKS
     /// hop, so routing and split tunnelling keep working unchanged.
     pub fn needs_xray(&self) -> bool {
         // An endpoint has no transport and no TLS layer, so neither of the two
@@ -204,7 +283,9 @@ impl ServerNode {
         }
         let encrypted = !self.encryption.is_empty()
             && !self.encryption.eq_ignore_ascii_case("none");
-        (self.protocol == Protocol::Vless && encrypted) || self.network == Network::Xhttp
+        (self.protocol == Protocol::Vless && encrypted)
+            || self.network == Network::Xhttp
+            || self.protocol == Protocol::Masque
     }
 
     /// Whether the node renders into `endpoints` rather than `outbounds`.
@@ -214,7 +295,16 @@ impl ServerNode {
     /// still addressed by tag everywhere else, so selectors, the Clash API and
     /// the latency probes cannot tell the difference.
     pub fn is_endpoint(&self) -> bool {
-        self.protocol == Protocol::Wireguard
+        matches!(self.protocol, Protocol::Wireguard | Protocol::Amneziawg)
+    }
+
+    /// Whether the node needs the sing-box-lx build of the core.
+    ///
+    /// Upstream sing-box refuses an unknown endpoint field with the whole
+    /// document, so an AmneziaWG node handed to it would take every other
+    /// server down too; callers leave such nodes out instead.
+    pub fn needs_awg_core(&self) -> bool {
+        self.protocol == Protocol::Amneziawg
     }
 
     /// Whether the Xray-only part of this node is negotiable.
@@ -222,21 +312,30 @@ impl ServerNode {
     /// VLESS Encryption is an optional layer bolted onto classic VLESS — a
     /// server that has not enabled it still speaks the classic protocol, so
     /// the node can be retried on the sing-box engine with the layer dropped.
-    /// An XHTTP transport has no such degraded form: without it there is no
-    /// connection at all.
+    /// An XHTTP transport has no such degraded form, and neither has MASQUE:
+    /// without them there is no connection at all.
     pub fn can_fall_back_to_singbox(&self) -> bool {
-        self.needs_xray() && self.network != Network::Xhttp
+        self.needs_xray() && self.protocol == Protocol::Vless && self.network != Network::Xhttp
     }
 
     /// Stable identity of a node as advertised by the server, used to keep
     /// user edits (and latency history) attached across subscription refreshes.
     pub fn fingerprint_key(&self) -> String {
+        let credential = match self.protocol {
+            // Every client of one AmneziaWG server shares its address and port;
+            // only the client's own key tells two of them apart.
+            Protocol::Amneziawg => self.private_key.clone(),
+            // A MASQUE client is its user; the password alone may repeat.
+            Protocol::Masque => format!("{}:{}", self.username, self.password),
+            _ if self.uuid.is_empty() => self.password.clone(),
+            _ => self.uuid.clone(),
+        };
         format!(
             "{}|{}|{}|{}|{}",
             self.protocol.as_singbox(),
             self.address,
             self.port,
-            if self.uuid.is_empty() { &self.password } else { &self.uuid },
+            credential,
             self.path
         )
     }
@@ -436,7 +535,10 @@ impl ServerNode {
             }
             // Never reached: `is_endpoint` sends these nodes to `to_endpoint`
             // before an outbound is ever built for them.
-            Protocol::Wireguard => {}
+            Protocol::Wireguard | Protocol::Amneziawg => {}
+            // Never reached either: `needs_xray` hands MASQUE to the Xray
+            // engine, and sing-box only sees its loopback SOCKS port.
+            Protocol::Masque => {}
         }
 
         if let Some(tls) = self.tls_block() {
@@ -501,13 +603,26 @@ impl ServerNode {
         // Everything goes through the tunnel: this endpoint is either the exit
         // itself or the layer wrapped around one.
         peer.insert("allowed_ips".into(), json!(["0.0.0.0/0", "::/0"]));
+        if !self.pre_shared_key.is_empty() {
+            peer.insert("pre_shared_key".into(), json!(self.pre_shared_key));
+        }
         if !self.reserved.is_empty() {
             peer.insert("reserved".into(), json!(self.reserved));
         }
-        if self.keepalive > 0 {
+        let awg = self.needs_awg_core();
+        if awg && !self.awg.keepalive_range.is_empty() {
+            peer.insert(
+                "persistent_keepalive_interval".into(),
+                awg_value(&self.awg.keepalive_range),
+            );
+        } else if self.keepalive > 0 {
             peer.insert("persistent_keepalive_interval".into(), json!(self.keepalive));
         }
         e.insert("peers".into(), json!([Value::Object(peer)]));
+
+        if awg {
+            self.insert_awg_fields(&mut e);
+        }
 
         if let Some(tag) = detour {
             e.insert("detour".into(), json!(tag));
@@ -517,6 +632,73 @@ impl ServerNode {
         }
 
         Value::Object(e)
+    }
+
+    /// The AmneziaWG fields, on the endpoint root where sing-box-lx reads them
+    /// (none of them belongs to a peer). Unset values are left out rather than
+    /// written as zeros: absent is what the core takes for "WireGuard's own".
+    fn insert_awg_fields(&self, e: &mut Map<String, Value>) {
+        let a = &self.awg;
+        for (key, value) in [
+            ("jc", a.jc),
+            ("jmin", a.jmin),
+            ("jmax", a.jmax),
+            ("s1", a.s1),
+            ("s2", a.s2),
+            ("s3", a.s3),
+            ("s4", a.s4),
+        ] {
+            if value > 0 {
+                e.insert(key.into(), json!(value));
+            }
+        }
+        // Numbers or `low-high` ranges: a range has to stay a string, a single
+        // value goes back to being a number, as the core marshals it itself.
+        for (key, value) in [
+            ("h1", &a.h1),
+            ("h2", &a.h2),
+            ("h3", &a.h3),
+            ("h4", &a.h4),
+            ("content_padding_addition", &a.content_padding_addition),
+            ("rekey_after_time", &a.rekey_after_time),
+            ("rekey_timeout", &a.rekey_timeout),
+            ("reject_after_time", &a.reject_after_time),
+            ("keepalive_timeout", &a.keepalive_timeout),
+            ("max_handshake_attempts", &a.max_handshake_attempts),
+        ] {
+            if !value.trim().is_empty() {
+                e.insert(key.into(), awg_value(value));
+            }
+        }
+        // Tag strings and the key are case-sensitive and go through untouched.
+        for (key, value) in [
+            ("i1", &a.i1),
+            ("i2", &a.i2),
+            ("i3", &a.i3),
+            ("i4", &a.i4),
+            ("i5", &a.i5),
+            ("header_protection_key", &a.header_protection_key),
+        ] {
+            if !value.is_empty() {
+                e.insert(key.into(), json!(value));
+            }
+        }
+        if a.random_trailers {
+            e.insert("random_trailers".into(), json!(true));
+        }
+        if a.disable_cookies {
+            e.insert("disable_cookies".into(), json!(true));
+        }
+    }
+}
+
+/// `"25"` → `25`, `"15-25"` → `"15-25"`: the shape sing-box-lx expects for a
+/// value that may be either a number or a range.
+fn awg_value(raw: &str) -> Value {
+    let raw = raw.trim();
+    match raw.parse::<u64>() {
+        Ok(number) => json!(number),
+        Err(_) => json!(raw),
     }
 }
 
@@ -714,6 +896,135 @@ mod tests {
     fn an_address_that_already_has_a_prefix_is_left_alone() {
         assert_eq!(with_prefix("172.16.0.2", 32), "172.16.0.2/32");
         assert_eq!(with_prefix("172.16.0.2/30", 32), "172.16.0.2/30");
+    }
+
+    fn awg_node() -> ServerNode {
+        ServerNode {
+            protocol: Protocol::Amneziawg,
+            address: "203.0.113.9".into(),
+            port: 51820,
+            private_key: "priv".into(),
+            peer_public_key: "peer".into(),
+            pre_shared_key: "psk".into(),
+            local_v4: "10.8.1.2".into(),
+            mtu: 1376,
+            keepalive: 25,
+            awg: AwgParams {
+                jc: 4,
+                jmin: 65,
+                jmax: 220,
+                s1: 87,
+                s2: 44,
+                s3: 21,
+                s4: 12,
+                h1: "463065432".into(),
+                h2: "912345678".into(),
+                h3: "1345678901-1345679901".into(),
+                h4: "1987654321".into(),
+                i1: "<r 148>".into(),
+                header_protection_key: "8Iu83eHDA3fMKKSGaEsVW9Ycd2lYYzc0MYlk1jJTvE4=".into(),
+                content_padding_addition: "17-49".into(),
+                rekey_after_time: "111-139".into(),
+                max_handshake_attempts: "19-36".into(),
+                random_trailers: true,
+                disable_cookies: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_amneziawg_endpoint_carries_its_obfuscation_on_the_root() {
+        let out = awg_node().to_endpoint("awg", "dns-direct", None);
+
+        // Тот же endpoint WireGuard: sing-box-lx читает поля AWG поверх него.
+        assert_eq!(out["type"], json!("wireguard"));
+        assert_eq!(out["mtu"], json!(1376));
+        assert_eq!(out["jc"], json!(4));
+        assert_eq!(out["s4"], json!(12));
+        // Одиночное значение — число, диапазон — строка, как их пишет само ядро.
+        assert_eq!(out["h1"], json!(463065432));
+        assert_eq!(out["h3"], json!("1345678901-1345679901"));
+        assert_eq!(out["i1"], json!("<r 148>"));
+        assert_eq!(out["header_protection_key"], json!("8Iu83eHDA3fMKKSGaEsVW9Ycd2lYYzc0MYlk1jJTvE4="));
+        assert_eq!(out["content_padding_addition"], json!("17-49"));
+        assert_eq!(out["random_trailers"], json!(true));
+        assert_eq!(out["disable_cookies"], json!(true));
+        // Незаданное не пишется нулём: отсутствие и значит «как у WireGuard».
+        assert!(out.get("i2").is_none());
+        assert!(out.get("rekey_timeout").is_none());
+
+        let peer = &out["peers"][0];
+        assert_eq!(peer["pre_shared_key"], json!("psk"));
+        assert_eq!(peer["persistent_keepalive_interval"], json!(25));
+        // Ни одного поля AWG на пире — все они живут в корне.
+        assert!(peer.get("jc").is_none());
+    }
+
+    #[test]
+    fn an_amneziawg_keepalive_range_reaches_the_peer_as_a_range() {
+        let mut node = awg_node();
+        node.awg.keepalive_range = "15-25".into();
+        let out = node.to_endpoint("awg", "", None);
+        assert_eq!(out["peers"][0]["persistent_keepalive_interval"], json!("15-25"));
+    }
+
+    #[test]
+    fn a_plain_wireguard_endpoint_never_grows_amneziawg_fields() {
+        // Апстримный sing-box отвергает незнакомое поле вместе со всем
+        // документом, так что у обычного WireGuard их не бывает ни при каких
+        // данных в файле.
+        let mut node = awg_node();
+        node.protocol = Protocol::Wireguard;
+        let out = node.to_endpoint("wg", "", None);
+        for key in ["jc", "h1", "i1", "header_protection_key", "random_trailers"] {
+            assert!(out.get(key).is_none(), "{key}");
+        }
+        assert!(!node.needs_awg_core());
+    }
+
+    #[test]
+    fn masque_always_goes_to_xray_and_has_nothing_to_fall_back_to() {
+        let node = ServerNode {
+            protocol: Protocol::Masque,
+            username: "ivy@example.test".into(),
+            password: "pw".into(),
+            ..Default::default()
+        };
+        assert!(node.needs_xray());
+        assert!(!node.can_fall_back_to_singbox());
+        assert!(!node.is_endpoint());
+    }
+
+    #[test]
+    fn clients_of_one_server_keep_distinct_identities() {
+        // Адрес и порт у всех клиентов сервера общие: без ключа или
+        // пользователя в отпечатке второй клиент считался бы дубликатом.
+        let a = awg_node();
+        let b = ServerNode { private_key: "other".into(), ..awg_node() };
+        assert_ne!(a.fingerprint_key(), b.fingerprint_key());
+
+        let ivy = ServerNode {
+            protocol: Protocol::Masque,
+            address: "h".into(),
+            username: "ivy".into(),
+            password: "same".into(),
+            ..Default::default()
+        };
+        let joe = ServerNode { username: "joe".into(), ..ivy.clone() };
+        assert_ne!(ivy.fingerprint_key(), joe.fingerprint_key());
+    }
+
+    #[test]
+    fn amneziawg_params_stay_out_of_other_nodes_on_disk() {
+        let plain = serde_json::to_value(ServerNode::default()).unwrap();
+        assert!(plain.get("awg").is_none());
+        let awg = serde_json::to_value(awg_node()).unwrap();
+        assert_eq!(awg["awg"]["h3"], json!("1345678901-1345679901"));
+        // И обратно: узел переживает сохранение целиком.
+        let back: ServerNode = serde_json::from_value(awg).unwrap();
+        assert_eq!(back.awg, awg_node().awg);
     }
 
     #[test]

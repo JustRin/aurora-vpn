@@ -9,7 +9,44 @@ export type Protocol =
   | "tuic"
   /** Cloudflare WARP and plain WireGuard. Rendered as a sing-box *endpoint*
    *  rather than an outbound; everything else treats it like any other node. */
-  | "wireguard";
+  | "wireguard"
+  /** WireGuard with DPI-evasion obfuscation (`awg`). Needs the sing-box-lx
+   *  core; on any other one the node is skipped at connect. */
+  | "amneziawg"
+  /** CONNECT-IP over HTTP/3 or HTTP/2 (RFC 9484). Dialled by Xray only. */
+  | "masque";
+
+/** AmneziaWG obfuscation, verbatim from the server's `.conf`. */
+export interface AwgParams {
+  jc: number;
+  jmin: number;
+  jmax: number;
+  s1: number;
+  s2: number;
+  s3: number;
+  s4: number;
+  /** One number or a `low-high` range; empty is WireGuard's own 1–4. */
+  h1: string;
+  h2: string;
+  h3: string;
+  h4: string;
+  i1: string;
+  i2: string;
+  i3: string;
+  i4: string;
+  i5: string;
+  /** AmneziaWG 3.x. */
+  headerProtectionKey: string;
+  contentPaddingAddition: string;
+  rekeyAfterTime: string;
+  rekeyTimeout: string;
+  rejectAfterTime: string;
+  keepaliveTimeout: string;
+  maxHandshakeAttempts: string;
+  randomTrailers: boolean;
+  disableCookies: boolean;
+  keepaliveRange: string;
+}
 
 export type Network = "tcp" | "ws" | "grpc" | "http" | "httpupgrade";
 export type Security = "none" | "tls" | "reality";
@@ -54,6 +91,13 @@ export interface ServerNode {
   mtu: number;
   /** Секунды между keepalive; 0 — без них. */
   keepalive: number;
+  /** wireguard/amneziawg: необязательный общий с сервером ключ. */
+  preSharedKey: string;
+  /** amneziawg: обфускация; у прочих узлов поля нет вовсе. */
+  awg?: AwgParams;
+  /** masque: пользователь Basic-авторизации — email клиента в 3x-ui. Версию
+   *  HTTP выбирает `alpn`: HTTP/2 только при `h2` без `h3`. */
+  username: string;
   subscriptionId: string | null;
   rawLink: string;
 }

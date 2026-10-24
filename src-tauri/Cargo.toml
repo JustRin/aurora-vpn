@@ -48,6 +48,9 @@ percent-encoding = "2"
 # cross-compiles to the NDK without an OpenSSL of its own.
 x25519-dalek = { version = "2", features = ["static_secrets", "getrandom"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# The Amnezia apps' `vpn://` links carry a Qt-compressed (zlib) profile.
+# Already in the tree through `image`'s PNG decoder.
+flate2 = "1"
 
 # QR codes as an import source. `rqrr` finds and reads the code, `image` turns
 # whatever the user picked — a screenshot from the gallery, a photo, a saved

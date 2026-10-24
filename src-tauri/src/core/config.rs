@@ -278,18 +278,36 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         return Err(AppError::msg("не добавлено ни одного сервера"));
     }
 
+    // MASQUE has no sing-box form at all: without the Xray engine (Android has
+    // none) the node is left out, not rendered into a type the core would
+    // refuse along with the whole document.
+    let runnable: Vec<&ServerNode> = nodes
+        .iter()
+        .filter(|n| n.protocol != crate::model::Protocol::Masque || xray_ports.contains_key(&n.id))
+        .collect();
+    if runnable.is_empty() {
+        return Err(AppError::msg(
+            "ни один из серверов не может работать здесь: MASQUE требует движка Xray",
+        ));
+    }
+
     // ---------------------------------------------------------------- outbounds
     // The layer wraps whatever the selector points at, so a WARP node left
     // *inside* the selector would open a second live session of the same
     // Cloudflare account — and Cloudflare keeps exactly one per key, the two
     // knocking each other out. With the layer on, such nodes step aside. If
     // nothing else is left there is nothing to wrap: the layer stands down and
-    // the nodes stay, which beats a tunnel with no servers in it.
-    let selectable: Vec<&ServerNode> = nodes.iter().filter(|n| !n.is_endpoint()).collect();
+    // the nodes stay, which beats a tunnel with no servers in it. AmneziaWG is
+    // an endpoint too, but its own server's, not Cloudflare's: it stays.
+    let selectable: Vec<&ServerNode> = runnable
+        .iter()
+        .copied()
+        .filter(|n| n.protocol != crate::model::Protocol::Wireguard)
+        .collect();
     let warp_chain = warp_chain.filter(|_| !selectable.is_empty());
     let nodes: Vec<&ServerNode> = match warp_chain {
         Some(_) => selectable,
-        None => nodes.iter().collect(),
+        None => runnable,
     };
 
     let mut outbounds: Vec<Value> = Vec::new();
@@ -340,7 +358,8 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         .filter(|(node, _)| {
             let ws_vmess = node.protocol == crate::model::Protocol::Vmess
                 && node.network == crate::model::Network::Ws;
-            (!ws_vmess || xray_ports.contains_key(&node.id)) && !node.is_endpoint()
+            let warp = node.protocol == crate::model::Protocol::Wireguard;
+            (!ws_vmess || xray_ports.contains_key(&node.id)) && !warp
         })
         .map(|(_, tag)| tag.clone())
         .collect();
@@ -1436,6 +1455,109 @@ mod tests {
         let endpoints = cfg["endpoints"].as_array().unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0]["tag"], json!(TAG_WARP));
+    }
+
+    // ------------------------------------------------------------ amneziawg / masque
+
+    fn awg_node(name: &str, id: &str) -> ServerNode {
+        ServerNode {
+            protocol: Protocol::Amneziawg,
+            awg: crate::model::AwgParams {
+                jc: 4,
+                jmin: 40,
+                jmax: 70,
+                h3: "100-200".into(),
+                ..Default::default()
+            },
+            ..warp_node(name, id)
+        }
+    }
+
+    fn masque_node(name: &str, id: &str) -> ServerNode {
+        ServerNode {
+            id: id.into(),
+            name: name.into(),
+            protocol: Protocol::Masque,
+            address: "203.0.113.9".into(),
+            port: 8443,
+            security: Security::Tls,
+            username: "ivy@example.test".into(),
+            password: "pw".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_amneziawg_node_is_an_endpoint_that_the_balancer_may_probe() {
+        let cfg = build_with_warp(vec![awg_node("AWG", "a"), node("Berlin", "b")], None);
+
+        let endpoint = tagged(&cfg, "endpoints", "0-AWG").expect("AWG — endpoint");
+        assert_eq!(endpoint["type"], json!("wireguard"));
+        assert_eq!(endpoint["jc"], json!(4));
+        assert_eq!(endpoint["h3"], json!("100-200"));
+
+        // Не WARP: одна живая сессия на ключ — это про Cloudflare, а свой
+        // сервер AmneziaWG мерить можно, как любой другой.
+        let auto = tagged(&cfg, "outbounds", TAG_AUTO).unwrap();
+        assert_eq!(auto["outbounds"], json!(["0-AWG", "1-Berlin"]));
+    }
+
+    #[test]
+    fn the_warp_layer_leaves_amneziawg_nodes_in_the_selector() {
+        let nodes = vec![node("Berlin", "a"), awg_node("AWG", "b"), warp_node("WARP", "c")];
+        let cfg = build_with_warp(nodes, Some(warp_node("layer", "w")));
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert_eq!(selector["outbounds"], json!([TAG_AUTO, "0-Berlin", "1-AWG"]));
+        assert!(tagged(&cfg, "endpoints", "1-AWG").is_some());
+    }
+
+    #[test]
+    fn masque_rides_the_xray_hand_off() {
+        let nodes = vec![masque_node("MASQUE", "m"), node("Berlin", "b")];
+        let ports = HashMap::from([("m".to_string(), 24150u16)]);
+        let cfg = build_for_nodes(nodes, ports);
+
+        let out = tagged(&cfg, "outbounds", "0-MASQUE").unwrap();
+        assert_eq!(out["type"], json!("socks"));
+        assert_eq!(out["server_port"], json!(24150));
+        // Его сервер дозванивается Xray: адрес обходит туннель, как у прочих.
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| r["ip_cidr"] == json!(["203.0.113.9/32"])));
+    }
+
+    #[test]
+    fn masque_without_the_xray_engine_is_left_out_not_mangled() {
+        // Android: второго движка нет. Тип `masque` sing-box не знает и
+        // отверг бы с ним весь документ — узел просто пропускается.
+        let nodes = vec![masque_node("MASQUE", "m"), node("Berlin", "b")];
+        let cfg = build_for_nodes(nodes, HashMap::new());
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        assert!(outbounds.iter().all(|o| o["type"] != json!("masque")));
+        assert!(tagged(&cfg, "outbounds", "0-MASQUE").is_none());
+        let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
+        assert_eq!(selector["outbounds"], json!([TAG_AUTO, "0-Berlin"]));
+    }
+
+    #[test]
+    fn a_list_of_only_masque_without_xray_is_an_error_not_an_empty_tunnel() {
+        let nodes = vec![masque_node("MASQUE", "m")];
+        let settings = Settings::default();
+        let split = SplitConfig::default();
+        let err = build(&BuildInput {
+            nodes: &nodes,
+            active_id: "m",
+            settings: &settings,
+            split: &split,
+            clash_secret: "s",
+            cache_path: &PathBuf::from("c.db"),
+            xray_ports: &HashMap::new(),
+            xray_exe: None,
+            rule_sets: &HashSet::new(),
+            rule_set_dir: &PathBuf::from("rules"),
+            warp_chain: None,
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("Xray"), "{err}");
     }
 
     #[test]

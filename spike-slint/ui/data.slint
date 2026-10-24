@@ -385,9 +385,14 @@ export global Draft {
     in-out property <string> flow;
     in-out property <bool> allow-insecure;
     in-out property <bool> mux;
+    in-out property <string> username;  // MASQUE: email клиента в 3x-ui
+    in-out property <int> masque-http;  // 0 HTTP/3, 1 HTTP/2
 
     // Протоколы с UUID / с паролем и те, у кого вообще есть транспорт.
+    // 6 — MASQUE: свой транспорт, всегда TLS. 7 и 8 — AmneziaWG и WARP: их
+    // ключи и обфускация приходят набором, протокол не сменить.
     out property <bool> needs-uuid: protocol == 0 || protocol == 1 || protocol == 5;
-    out property <bool> needs-password: protocol == 2 || protocol == 3 || protocol == 4 || protocol == 5;
-    out property <bool> has-transport: protocol != 4 && protocol != 5;
+    out property <bool> needs-password: protocol >= 2 && protocol <= 6;
+    out property <bool> has-transport: protocol <= 3;
+    out property <bool> locked-protocol: protocol >= 7;
 }

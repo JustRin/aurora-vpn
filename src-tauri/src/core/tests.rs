@@ -45,6 +45,19 @@ fn core_binary() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+fn xray_binary() -> Option<PathBuf> {
+    let triple = env!("TARGET_TRIPLE");
+    let name = if cfg!(windows) {
+        format!("xray-{triple}.exe")
+    } else {
+        format!("xray-{triple}")
+    };
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(name);
+    path.is_file().then_some(path)
+}
+
 fn sample_nodes() -> Vec<ServerNode> {
     // The endpoints are never dialled: sing-box connects lazily, so an
     // unreachable server still exercises the full start-up path.
@@ -398,4 +411,173 @@ async fn the_warp_layer_and_a_warp_node_are_accepted_by_the_core() {
     }
 
     let _ = std::fs::remove_dir_all(&work);
+}
+
+/// The AmneziaWG fields only the sing-box-lx build reads, straight from an
+/// imported 3x-ui `.conf`: the parser's output must be what the real core
+/// accepts, ranges and 3.x keys included. The peer is a refused loopback port
+/// for the same reason as in the WARP test above.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_imported_amneziawg_conf_is_accepted_by_the_lx_core() {
+    let Some(exe) = core_binary() else {
+        eprintln!("пропуск: бинарник sing-box не найден (запустите npm run fetch-core)");
+        return;
+    };
+    let work = std::env::temp_dir().join("aurora-core-awg");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    let mut core = CoreSupervisor::new(Engine::SingBox, exe, work.clone());
+    let version = core.version().unwrap_or_default();
+    if !version.contains("-lx") {
+        eprintln!("пропуск: ядро «{version}» — не sing-box-lx, AmneziaWG ему не по силам");
+        return;
+    }
+
+    let conf = "[Interface]
+PrivateKey = YPxqmCyjmwV8MU2IZ4dSAlhmDHW/+9M2uXn9fq6Kb3c=
+Address = 10.8.1.2/32
+MTU = 1376
+Jc = 4
+Jmin = 65
+Jmax = 220
+S1 = 87
+S2 = 44
+S3 = 21
+S4 = 12
+H1 = 463065432
+H2 = 912345678
+H3 = 1345678901-1345679901
+H4 = 1987654321
+I1 = <r 148>
+HeaderProtectionKey = 8Iu83eHDA3fMKKSGaEsVW9Ycd2lYYzc0MYlk1jJTvE4=
+ContentPaddingAddition = 17-49
+RekeyAfterTime = 111-139
+RekeyTimeout = 4-7
+RejectAfterTime = 187-251
+KeepaliveTimeout = 9-14
+MaxHandshakeAttempts = 19-36
+RandomTrailers = on
+DisableCookies = on
+
+# awg-test
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+PresharedKey = FpCyhws9cxwWoV4xELtfJvjJN+zQVRPISllRWgeopVE=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 127.0.0.1:1
+PersistentKeepalive = 15-25
+";
+    let report = crate::link::parse_subscription(conf);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let nodes = report.nodes;
+    assert_eq!(nodes[0].protocol, Protocol::Amneziawg);
+
+    let settings = Settings {
+        tunnel_mode: TunnelMode::SystemProxy,
+        clash_port: CLASH_PORT + 3,
+        mixed_port: MIXED_PORT + 3,
+        ..Default::default()
+    };
+    let split = SplitConfig::default();
+    let built = config::build(&BuildInput {
+        nodes: &nodes,
+        active_id: &nodes[0].id,
+        settings: &settings,
+        split: &split,
+        clash_secret: "s",
+        cache_path: &work.join("cache.db"),
+        xray_ports: &no_xray(),
+        xray_exe: None,
+        rule_sets: &no_sets(),
+        rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
+    })
+    .expect("конфигурация с AmneziaWG должна собираться");
+
+    let config_path = work.join("awg.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+    core.check_config(&config_path)
+        .expect("sing-box-lx должен принять endpoint AmneziaWG 3.1");
+
+    // `check` only parses; the device itself validates the obfuscation set
+    // (overlapping headers, a header key with short padding) when it is built.
+    let captured: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
+    let sink = Arc::clone(&captured);
+    core.start(&config_path, move |line| {
+        sink.lock().push(format!("[{}] {}", line.level, line.text));
+    })
+    .expect("ядро должно запуститься");
+    let api = ClashApi::new(settings.clash_port, "s");
+    let ready = api.wait_ready(Duration::from_secs(20)).await;
+    core.stop();
+
+    if let Err(e) = ready {
+        panic!(
+            "ядро не поднялось с AmneziaWG: {e}\n--- журнал ядра ---\n{}",
+            captured.lock().join("\n")
+        );
+    }
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+/// A MASQUE outbound as 3x-ui puts it into a JSON subscription, imported and
+/// re-rendered for the second engine: the real Xray parser has the last word
+/// on the transport and TLS shape.
+#[test]
+fn an_imported_masque_outbound_is_accepted_by_xray() {
+    let Some(exe) = xray_binary() else {
+        eprintln!("пропуск: бинарник Xray не найден (запустите npm run fetch-core)");
+        return;
+    };
+    let work = std::env::temp_dir().join("aurora-xray-masque");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    let body = serde_json::json!([{
+        "remarks": "masque-test",
+        "outbounds": [{
+            "protocol": "masque",
+            "tag": "proxy",
+            "settings": { "address": "192.0.2.12", "port": 8443 },
+            "streamSettings": {
+                "network": "masque",
+                "security": "tls",
+                "tlsSettings": { "serverName": "masque.example.test", "alpn": ["h2"] },
+                "masqueSettings": {
+                    "path": "/.well-known/masque/ip/*/*/",
+                    "user": "ivy@example.test",
+                    "pass": "pw-ivy"
+                }
+            }
+        }]
+    }])
+    .to_string();
+    let report = crate::link::parse_subscription(&body);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    let built = crate::core::xray::build(&report.nodes, 24_150, "warning")
+        .unwrap()
+        .expect("MASQUE всегда уходит в Xray");
+    let config_path = work.join("xray.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+
+    let core = CoreSupervisor::new(Engine::Xray, exe, work.clone());
+    // «Xray 26.10.21 (Xray, Penetrates Everything.) …»
+    let version = core.version().unwrap_or_default();
+    let release: Vec<u32> = version
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .split('.')
+        .filter_map(|part| part.parse().ok())
+        .collect();
+    // MASQUE появился в Xray v26.10.10; старый бинарник честно не знает протокола.
+    if release < vec![26, 10, 10] {
+        eprintln!("пропуск: «{version}» старше v26.10.10 — MASQUE ему неизвестен");
+        return;
+    }
+    let result = core.check_config(&config_path);
+    let _ = std::fs::remove_dir_all(&work);
+    result.expect("Xray должен принять MASQUE из JSON-подписки");
 }

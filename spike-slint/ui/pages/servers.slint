@@ -507,9 +507,15 @@ export component NodeEditorModal inherits ModalShell {
             Field {
                 label: Str.srv-protocol-label;
                 horizontal-stretch: 1;
-                Select {
-                    options: ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC"];
+                // Порядок — PROTOCOLS из bind.rs. AmneziaWG и WARP сменить
+                // нельзя: у них единственный пункт, свой.
+                if !Draft.locked-protocol: Select {
+                    options: ["VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "TUIC", "MASQUE"];
                     current <=> Draft.protocol;
+                }
+                if Draft.locked-protocol: Select {
+                    options: [Draft.protocol == 7 ? "AmneziaWG" : "WARP"];
+                    current: 0;
                 }
             }
         }
@@ -531,8 +537,24 @@ export component NodeEditorModal inherits ModalShell {
             }
         }
 
+        if Draft.protocol == 7: Text {
+            text: Str.srv-awg-hint;
+            color: Theme.text-muted;
+            font-size: 12px * Theme.text-scale;
+            wrap: word-wrap;
+        }
+
         if Draft.needs-uuid || Draft.needs-password: HorizontalLayout {
             spacing: 14px;
+            if Draft.protocol == 6: Field {
+                label: Str.srv-masque-user-label;
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.username;
+                    mono: true;
+                    placeholder: "client@example.com";
+                }
+            }
             if Draft.needs-uuid: Field {
                 label: "UUID";
                 horizontal-stretch: 1;
@@ -550,8 +572,30 @@ export component NodeEditorModal inherits ModalShell {
                 }
             }
             // Одинокое поле остаётся в половину ширины, как ячейка grid-2.
-            if !(Draft.needs-uuid && Draft.needs-password): Rectangle {
+            if !(Draft.needs-uuid && Draft.needs-password) && Draft.protocol != 6: Rectangle {
                 horizontal-stretch: 1;
+            }
+        }
+
+        if Draft.protocol == 6: HorizontalLayout {
+            spacing: 14px;
+            Field {
+                label: Str.srv-masque-http-label;
+                hint: Str.srv-masque-hint;
+                horizontal-stretch: 1;
+                Select {
+                    options: ["HTTP/3 (QUIC)", "HTTP/2 (TCP)"];
+                    current <=> Draft.masque-http;
+                }
+            }
+            Field {
+                label: "Path";
+                horizontal-stretch: 1;
+                Input {
+                    text <=> Draft.path;
+                    mono: true;
+                    placeholder: "/.well-known/masque/ip/{target}/{ipproto}/";
+                }
             }
         }
 
@@ -616,7 +660,7 @@ export component NodeEditorModal inherits ModalShell {
             Rectangle { horizontal-stretch: 1; }
         }
 
-        if Draft.security != 0: HorizontalLayout {
+        if Draft.security != 0 || Draft.protocol == 6: HorizontalLayout {
             spacing: 14px;
             Field {
                 label: "SNI";
@@ -633,7 +677,7 @@ export component NodeEditorModal inherits ModalShell {
             }
         }
 
-        if Draft.security == 2: HorizontalLayout {
+        if Draft.security == 2 && Draft.protocol != 6: HorizontalLayout {
             spacing: 14px;
             Field {
                 label: "Public key (pbk)";
@@ -667,7 +711,8 @@ export component NodeEditorModal inherits ModalShell {
             Rectangle { horizontal-stretch: 1; }
         }
 
-        if Draft.security == 1: HorizontalLayout {
+        // MASQUE — без пропуска проверки: Xray 26.10 убрал allowInsecure.
+        if Draft.security == 1 && Draft.protocol != 6: HorizontalLayout {
             spacing: 16px;
             padding-top: 4px;
             VerticalLayout {

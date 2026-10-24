@@ -48,6 +48,26 @@ To sing-box those are ordinary `socks` outbounds, so the selector, urltest and
 latency probes behave identically for both engines. Detection is automatic:
 `ServerNode::needs_xray()`.
 
+### MASQUE and AmneziaWG
+
+**MASQUE** (RFC 9484 CONNECT-IP over HTTP/3 or HTTP/2) exists only in Xray
+(v26.10.10+), so it always takes the hand-off above. 3x-ui has no share link
+for it and hands it out only in its JSON subscription — whole Xray configs,
+from which the importer takes the `masque` outbounds and nothing else (every
+other protocol there comes through the regular subscription too). The HTTP
+version is not a field of its own: Xray speaks HTTP/2 when `alpn` names `h2`
+and not `h3`.
+
+**AmneziaWG** is the same `wireguard` endpoint with obfuscation fields on top
+(`jc`…`i5` and the 3.x set). Upstream sing-box does not have them and refuses
+the whole document over an unknown field; the
+[sing-box-lx](https://github.com/Leadaxe/sing-box-lx) build reads them. The app
+asks the core for its version and leaves AmneziaWG nodes out — with a line in
+the log — unless it says `-lx`, so a stock core never loses the other servers
+over them. Imports: a `.conf` pasted as is, and `vpn://` both as 3x-ui writes
+it (base64 of the `.conf`) and as the Amnezia apps do (a Qt-compressed JSON
+profile around the same text).
+
 ### The second engine must bypass the tunnel
 
 `auto_detect_interface` keeps only sing-box itself out of its own TUN. Xray is a
@@ -330,7 +350,9 @@ must be given to the engine inside the app's own process. So:
   (`include_package`/`exclude_package` in the tun inbound), and `PackageManager`
   provides the app list in place of a process list;
 - Xray nodes are not supported: VLESS Encryption nodes fall back to classic VLESS
-  automatically, and XHTTP nodes state the reason in the log. Building libxray is
+  automatically, and XHTTP nodes state the reason in the log. MASQUE nodes,
+  which have no sing-box form at all, are left out of the document, and so are
+  AmneziaWG ones — libbox is built from upstream sing-box. Building libxray is
   a separate task.
 
 ---

@@ -360,6 +360,10 @@ export const ja: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "WARP をサーバー一覧に追加しました",
   "srv.warpFailed": "WARP を追加できませんでした",
   "srv.warpEndpointHint": "Cloudflare の接続先は上のアドレスとポートです。そのポートが塞がれている場合は 500、854、955、4500 を試してください。",
+  "srv.awgHint": "AmneziaWG の難読化（Jc、S1–S4、H1–H4、I1–I5）はサーバーの設定から取り込まれます。変更するには新しい設定をインポートしてください。sing-box-lx コアが必要です。標準の sing-box では接続時にこのサーバーはスキップされます。",
+  "srv.masqueUserLabel": "ユーザー（メール）",
+  "srv.masqueHttpLabel": "HTTP バージョン",
+  "srv.masqueHint": "HTTP/2 は TCP を使うため、UDP が塞がれたネットワークで役立ちます。MASQUE は Xray エンジンで動作し、Android ではまだ使えません。",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "WARP による追加の保護",

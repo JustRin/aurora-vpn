@@ -54,11 +54,11 @@
 
 | | |
 |---|---|
-| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard |
+| **Протоколы** | VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard, AmneziaWG (нужно ядро sing-box-lx), MASQUE (на компьютере, через Xray) |
 | **Шифрование** | REALITY с uTLS-отпечатком, TLS, VLESS Encryption (ML-KEM-768) |
 | **Транспорты** | TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade, XHTTP |
 | **WARP** | Cloudflare WARP отдельным сервером или дополнительным слоем поверх любого сервера — сайт видит Cloudflare, сервер видит только WireGuard |
-| **Импорт** | ссылки `vless://` и другие, подписки 3x-ui / Marzban, фоновое автообновление |
+| **Импорт** | ссылки `vless://` и другие, `.conf` и `vpn://` WireGuard / AmneziaWG, подписки 3x-ui / Marzban — и JSON-подписка 3x-ui, единственный путь, которым панель отдаёт MASQUE, — фоновое автообновление |
 | **QR-коды** | чтение с экрана, из картинки и с камеры — на компьютере веб-камера, на телефоне любая из двух |
 | **Статус тарифа** | остаток дней и трафика прямо с панели |
 | **Режимы туннеля** | TUN на всю систему или системный прокси — без прав администратора |

@@ -26,13 +26,20 @@ use crate::view;
 use crate::{AppWindow, Conf, Data, Draft, Ui};
 
 /// Порядок вариантов в списках разметки — он же в PROTOCOLS/NETWORKS редактора.
-const PROTOCOLS: [Protocol; 6] = [
+/// Последние два новому серверу не выбрать (Draft.locked-protocol): ключи
+/// WARP принадлежат аккаунту, а обфускация AmneziaWG приходит из конфигурации
+/// сервера одним набором. Но в списке они быть должны — иначе узел, которого
+/// в нём нет, сохранялся бы из редактора как VLESS.
+const PROTOCOLS: [Protocol; 9] = [
     Protocol::Vless,
     Protocol::Vmess,
     Protocol::Trojan,
     Protocol::Shadowsocks,
     Protocol::Hysteria2,
     Protocol::Tuic,
+    Protocol::Masque,
+    Protocol::Amneziawg,
+    Protocol::Wireguard,
 ];
 const NETWORKS: [Network; 5] = [
     Network::Tcp,
@@ -1510,6 +1517,10 @@ fn write_draft(ui: &AppWindow, node: &ServerNode, is_new: bool) {
     draft.set_flow(node.flow.as_str().into());
     draft.set_allow_insecure(node.allow_insecure);
     draft.set_mux(node.mux);
+    draft.set_username(node.username.as_str().into());
+    // HTTP/2 Xray берёт, только если в alpn есть h2 и нет h3.
+    let has = |name: &str| node.alpn.iter().any(|a| a.eq_ignore_ascii_case(name));
+    draft.set_masque_http(i32::from(has("h2") && !has("h3")));
 }
 
 /// Правки формы поверх исходного узла: поля, которых в форме нет (alpn,
@@ -1556,6 +1567,12 @@ fn read_draft(ui: &AppWindow, base: Option<ServerNode>) -> ServerNode {
     node.flow = draft.get_flow().to_string();
     node.allow_insecure = draft.get_allow_insecure();
     node.mux = draft.get_mux();
+    if node.protocol == Protocol::Masque {
+        node.username = draft.get_username().to_string();
+        // MASQUE всегда поверх TLS, а версию HTTP задаёт alpn.
+        node.security = Security::Tls;
+        node.alpn = vec![if draft.get_masque_http() == 1 { "h2" } else { "h3" }.to_string()];
+    }
     node
 }
 

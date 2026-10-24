@@ -616,6 +616,436 @@ fn parse_reserved(raw: &str) -> Vec<u8> {
     b64_decode(raw).filter(|bytes| bytes.len() == 3).unwrap_or_default()
 }
 
+/// Whether the text is a WireGuard-style `.conf` rather than a list of links.
+fn is_wg_conf(text: &str) -> bool {
+    text.lines().any(|line| line.trim().eq_ignore_ascii_case("[interface]"))
+}
+
+fn conf_number(key: &str, value: &str) -> Result<u16> {
+    value
+        .parse::<u16>()
+        .map_err(|_| AppError::msg(format!("некорректное значение {key} = {value}")))
+}
+
+/// `on`, `true`, `1` — wg-quick's spellings of a switch.
+fn conf_flag(value: &str) -> bool {
+    matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes")
+}
+
+/// A WireGuard or AmneziaWG `.conf` — what `awg-quick`, the Amnezia apps and
+/// 3x-ui hand out. The obfuscation keys decide which of the two it is: a file
+/// without any is plain WireGuard and runs on the stock core.
+///
+/// The name comes from the first comment, where 3x-ui and the Amnezia apps put
+/// the client's; it is left empty when there is none, for the caller to fill.
+/// `DNS`, `AllowedIPs`, `ListenPort` and the hook scripts are dropped: the app
+/// keeps its own resolvers and always routes the whole tunnel.
+fn wg_conf_node(text: &str) -> Result<ServerNode> {
+    #[derive(PartialEq)]
+    enum Section {
+        Preamble,
+        Interface,
+        Peer,
+        Other,
+    }
+
+    let mut node = ServerNode {
+        id: new_id(),
+        protocol: Protocol::Wireguard,
+        ..Default::default()
+    };
+    let mut section = Section::Preamble;
+    let mut peers = 0;
+    let mut endpoint = String::new();
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(comment) = line.strip_prefix('#').or_else(|| line.strip_prefix(';')) {
+            // A commented-out setting is not a name.
+            let comment = comment.trim();
+            if node.name.is_empty() && !comment.contains('=') {
+                node.name = comment.to_string();
+            }
+            continue;
+        }
+        if line.starts_with('[') {
+            section = match line.to_ascii_lowercase().as_str() {
+                "[interface]" => Section::Interface,
+                "[peer]" => {
+                    peers += 1;
+                    Section::Peer
+                }
+                _ => Section::Other,
+            };
+            continue;
+        }
+        // Split on the first '=': base64 keys end in padding of their own.
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let original_key = key.trim();
+        let key = original_key.to_ascii_lowercase();
+        let value = value.trim();
+        let awg = &mut node.awg;
+
+        match section {
+            Section::Interface => match key.as_str() {
+                "privatekey" => node.private_key = value.to_string(),
+                "address" => {
+                    for address in value.split(',') {
+                        let address = address.trim().split('/').next().unwrap_or("").trim();
+                        if address.contains(':') {
+                            if node.local_v6.is_empty() {
+                                node.local_v6 = address.to_string();
+                            }
+                        } else if !address.is_empty() && node.local_v4.is_empty() {
+                            node.local_v4 = address.to_string();
+                        }
+                    }
+                }
+                "mtu" => node.mtu = conf_number(original_key, value)?,
+                "jc" => awg.jc = conf_number(original_key, value)?,
+                "jmin" => awg.jmin = conf_number(original_key, value)?,
+                "jmax" => awg.jmax = conf_number(original_key, value)?,
+                "s1" => awg.s1 = conf_number(original_key, value)?,
+                "s2" => awg.s2 = conf_number(original_key, value)?,
+                "s3" => awg.s3 = conf_number(original_key, value)?,
+                "s4" => awg.s4 = conf_number(original_key, value)?,
+                "h1" => awg.h1 = value.to_string(),
+                "h2" => awg.h2 = value.to_string(),
+                "h3" => awg.h3 = value.to_string(),
+                "h4" => awg.h4 = value.to_string(),
+                "i1" => awg.i1 = value.to_string(),
+                "i2" => awg.i2 = value.to_string(),
+                "i3" => awg.i3 = value.to_string(),
+                "i4" => awg.i4 = value.to_string(),
+                "i5" => awg.i5 = value.to_string(),
+                "headerprotectionkey" => awg.header_protection_key = value.to_string(),
+                "contentpaddingaddition" => awg.content_padding_addition = value.to_string(),
+                "rekeyaftertime" => awg.rekey_after_time = value.to_string(),
+                "rekeytimeout" => awg.rekey_timeout = value.to_string(),
+                "rejectaftertime" => awg.reject_after_time = value.to_string(),
+                "keepalivetimeout" => awg.keepalive_timeout = value.to_string(),
+                "maxhandshakeattempts" => awg.max_handshake_attempts = value.to_string(),
+                "randomtrailers" => awg.random_trailers = conf_flag(value),
+                "disablecookies" => awg.disable_cookies = conf_flag(value),
+                _ => {}
+            },
+            // A client tunnel has one peer; any further ones would be routes
+            // the app does not model.
+            Section::Peer if peers == 1 => match key.as_str() {
+                "publickey" => node.peer_public_key = value.to_string(),
+                "presharedkey" => node.pre_shared_key = value.to_string(),
+                "endpoint" => endpoint = value.to_string(),
+                "persistentkeepalive" => {
+                    if value.eq_ignore_ascii_case("off") {
+                        node.keepalive = 0;
+                    } else if let Ok(seconds) = value.parse::<u16>() {
+                        node.keepalive = seconds;
+                    } else if value.contains('-') {
+                        // AmneziaWG 3.x re-picks the interval from a range;
+                        // its low end serves wherever one number is needed.
+                        node.awg.keepalive_range = value.to_string();
+                        let low = value.split('-').next().unwrap_or("").trim();
+                        node.keepalive = low.parse().unwrap_or(0);
+                    } else {
+                        return Err(AppError::msg(format!(
+                            "некорректное значение PersistentKeepalive = {value}"
+                        )));
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    if node.private_key.is_empty() {
+        return Err(AppError::msg("в конфигурации нет приватного ключа (PrivateKey)"));
+    }
+    if node.peer_public_key.is_empty() {
+        return Err(AppError::msg("в конфигурации нет публичного ключа сервера (PublicKey)"));
+    }
+    if endpoint.is_empty() {
+        return Err(AppError::msg("в конфигурации нет адреса сервера (Endpoint)"));
+    }
+    if node.local_v4.is_empty() && node.local_v6.is_empty() {
+        return Err(AppError::msg("в конфигурации нет адреса интерфейса (Address)"));
+    }
+    let (host, port) = split_host_port(&endpoint)?;
+    node.address = host;
+    node.port = port;
+
+    if !node.awg.is_empty() {
+        node.protocol = Protocol::Amneziawg;
+    }
+    Ok(node)
+}
+
+/// Every `.conf` in the text, each starting at its own `[Interface]`.
+fn parse_wg_confs(text: &str) -> ParseReport {
+    let mut documents: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        let opens = line.trim().eq_ignore_ascii_case("[interface]");
+        if opens && current.to_ascii_lowercase().contains("[interface]") {
+            documents.push(std::mem::take(&mut current));
+        }
+        current.push_str(line);
+        current.push('\n');
+    }
+    documents.push(current);
+
+    let mut nodes = Vec::new();
+    let mut errors = Vec::new();
+    for document in documents {
+        let document = document.trim();
+        match wg_conf_node(document) {
+            Ok(mut node) => {
+                if node.name.is_empty() {
+                    node.name = fallback_name(&node);
+                }
+                node.raw_link = document.to_string();
+                nodes.push(node);
+            }
+            Err(e) => errors.push((truncate(document.lines().next().unwrap_or(""), 90), e.to_string())),
+        }
+    }
+    ParseReport { nodes, errors }
+}
+
+/// Undo Qt's `qCompress`: a four-byte big-endian length, then a zlib stream.
+fn q_uncompress(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let stream = bytes.get(4..)?;
+    let mut out = Vec::new();
+    flate2::read::ZlibDecoder::new(stream).read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+/// The `.conf` text inside an Amnezia profile, and the profile's own title.
+///
+/// The profile lists one container per protocol the server runs; the
+/// AmneziaWG one (or plain WireGuard) keeps the client config as a JSON
+/// string in `last_config`, whose `config` is the `.conf` text itself.
+fn amnezia_profile_conf(profile: &Value) -> Result<(String, String)> {
+    let title = profile["description"].as_str().unwrap_or("").trim().to_string();
+    let containers = profile["containers"].as_array().cloned().unwrap_or_default();
+    for container in &containers {
+        for key in ["awg", "wireguard"] {
+            let Some(last) = container[key]["last_config"].as_str() else {
+                continue;
+            };
+            let Ok(last) = serde_json::from_str::<Value>(last) else {
+                continue;
+            };
+            if let Some(conf) = last["config"].as_str().filter(|c| is_wg_conf(c)) {
+                return Ok((conf.to_string(), title));
+            }
+        }
+    }
+    Err(AppError::msg(
+        "в профиле Amnezia нет AmneziaWG — поддерживаются только AmneziaWG и WireGuard",
+    ))
+}
+
+/// `vpn://…` — AmneziaWG as 3x-ui and the Amnezia apps share it.
+///
+/// Two payloads hide behind the one scheme: 3x-ui encodes the `.conf` text
+/// itself, the Amnezia apps a Qt-compressed JSON profile that carries the same
+/// text inside. Either way the `.conf` is what gets parsed.
+fn parse_amnezia_link(rest: &str) -> Result<ServerNode> {
+    let (payload, fragment) = match rest.split_once('#') {
+        Some((head, tail)) => (head, pct(tail)),
+        None => (rest, String::new()),
+    };
+    let bytes = b64_decode(payload.trim_end_matches('/'))
+        .ok_or_else(|| AppError::msg("не удалось декодировать base64 в vpn://"))?;
+
+    let text = String::from_utf8_lossy(&bytes);
+    let (conf, title) = if is_wg_conf(&text) {
+        (text.into_owned(), String::new())
+    } else {
+        let json = q_uncompress(&bytes).unwrap_or_else(|| bytes.clone());
+        let profile: Value = serde_json::from_slice(&json).map_err(|_| {
+            AppError::msg("в ссылке vpn:// нет ни конфигурации, ни профиля Amnezia")
+        })?;
+        amnezia_profile_conf(&profile)?
+    };
+
+    let mut node = wg_conf_node(&conf)?;
+    if !fragment.is_empty() {
+        node.name = fragment;
+    } else if node.name.is_empty() {
+        node.name = title;
+    }
+    if node.name.is_empty() {
+        node.name = fallback_name(&node);
+    }
+    Ok(node)
+}
+
+/// A port written as a number or as a string, the way panels disagree on it.
+fn json_port(value: &Value) -> Option<u16> {
+    match value {
+        Value::Number(n) => n.as_u64().and_then(|p| u16::try_from(p).ok()),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// `alpn` as Xray accepts it: a list, or one comma-separated string.
+fn json_alpn(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Value::String(s) => alpn_list(s),
+        _ => Vec::new(),
+    }
+}
+
+/// An Xray `masque` outbound, as 3x-ui writes it into a JSON subscription:
+///
+/// ```text
+/// { "protocol": "masque", "settings": { "address": …, "port": … },
+///   "streamSettings": { "network": "masque", "security": "tls",
+///     "tlsSettings": { "serverName": …, "alpn": ["h3"] },
+///     "masqueSettings": { "path": …, "user": <email>, "pass": … } } }
+/// ```
+fn parse_masque_outbound(outbound: &Value, name: &str) -> Result<ServerNode> {
+    let settings = &outbound["settings"];
+    let address = settings["address"].as_str().unwrap_or("").trim().to_string();
+    if address.is_empty() {
+        return Err(AppError::msg("в outbound MASQUE нет адреса сервера"));
+    }
+    let port = json_port(&settings["port"])
+        .ok_or_else(|| AppError::msg("в outbound MASQUE нет порта"))?;
+
+    let stream = &outbound["streamSettings"];
+    // Xray's docs name the selector `method`, 3x-ui writes `network`; the
+    // transport is the protocol's own either way.
+    let transport = stream["network"]
+        .as_str()
+        .or_else(|| stream["method"].as_str())
+        .unwrap_or("masque");
+    if !transport.eq_ignore_ascii_case("masque") {
+        return Err(AppError::msg(format!(
+            "MASQUE ходит только своим транспортом, а не «{transport}»"
+        )));
+    }
+    if stream["security"].as_str() == Some("reality") {
+        return Err(AppError::msg("MASQUE не работает поверх REALITY — только TLS"));
+    }
+
+    let tls = &stream["tlsSettings"];
+    let masque = &stream["masqueSettings"];
+    let text = |value: &Value| value.as_str().unwrap_or("").trim().to_string();
+
+    let mut username = text(&masque["user"]);
+    let mut password = text(&masque["pass"]);
+    // The same credentials may come as a ready header instead.
+    if username.is_empty() && password.is_empty() {
+        let header = text(&masque["headers"]["Authorization"]);
+        if let Some(encoded) = header.strip_prefix("Basic ") {
+            if let Some(decoded) = b64_decode(encoded) {
+                let decoded = String::from_utf8_lossy(&decoded).into_owned();
+                if let Some((user, pass)) = decoded.split_once(':') {
+                    username = user.to_string();
+                    password = pass.to_string();
+                }
+            }
+        }
+    }
+
+    let mut node = ServerNode {
+        id: new_id(),
+        name: name.trim().to_string(),
+        protocol: Protocol::Masque,
+        address,
+        port,
+        username,
+        password,
+        security: Security::Tls,
+        sni: text(&tls["serverName"]),
+        alpn: json_alpn(&tls["alpn"]),
+        fingerprint: text(&tls["fingerprint"]),
+        path: text(&masque["path"]),
+        host: text(&masque["host"]),
+        ..Default::default()
+    };
+    if node.name.is_empty() {
+        node.name = fallback_name(&node);
+    }
+    // No share-link format exists for MASQUE; the outbound itself, wrapped as
+    // a one-server config, is what pasting back into the app understands.
+    node.raw_link = serde_json::json!({ "remarks": node.name, "outbounds": [outbound] }).to_string();
+    Ok(node)
+}
+
+/// A JSON subscription: one complete Xray config per server, each with its
+/// `remarks` — 3x-ui's `/json/` endpoint, which is the only way it hands out
+/// MASQUE at all.
+///
+/// Only MASQUE is taken from it. Every other protocol 3x-ui has a share link
+/// for, and its regular subscription already brings those; importing them
+/// here as well would give each such server twice.
+fn parse_xray_json(root: &Value) -> ParseReport {
+    let configs: Vec<&Value> = match root {
+        Value::Array(items) => items.iter().collect(),
+        other => vec![other],
+    };
+
+    let mut nodes = Vec::new();
+    let mut errors = Vec::new();
+    let mut others: Vec<String> = Vec::new();
+
+    for config in configs {
+        let remarks = config["remarks"].as_str().unwrap_or("");
+        let outbounds: Vec<&Value> = match &config["outbounds"] {
+            Value::Array(list) => list.iter().collect(),
+            // A bare outbound: what a MASQUE node keeps as its own link.
+            _ if config.get("protocol").is_some() => vec![config],
+            _ => Vec::new(),
+        };
+        for outbound in outbounds {
+            match outbound["protocol"].as_str().unwrap_or("") {
+                "masque" => match parse_masque_outbound(outbound, remarks) {
+                    Ok(node) => nodes.push(node),
+                    Err(e) => errors.push((format!("masque «{remarks}»"), e.to_string())),
+                },
+                // The plumbing every config carries next to its proxy.
+                "" | "freedom" | "blackhole" | "dns" | "loopback" => {}
+                other => {
+                    if !others.iter().any(|o| o == other) {
+                        others.push(other.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Silence would read as "the subscription is empty", which it is not.
+    if nodes.is_empty() && errors.is_empty() {
+        let reason = if others.is_empty() {
+            "в JSON нет ни одного outbound сервера".to_string()
+        } else {
+            format!(
+                "в JSON-подписке нет серверов MASQUE, а {} из неё не берутся — их приносит обычная подписка панели",
+                others.join(", ")
+            )
+        };
+        errors.push(("JSON".to_string(), reason));
+    }
+    ParseReport { nodes, errors }
+}
+
 /// Parse a single share link into a node.
 pub fn parse_link(raw: &str) -> Result<ServerNode> {
     let link = raw.trim();
@@ -632,6 +1062,7 @@ pub fn parse_link(raw: &str) -> Result<ServerNode> {
         "tuic" => parse_tuic(rest),
         "warp" => parse_warp(rest),
         "wireguard" | "wg" => parse_wireguard(rest),
+        "vpn" => parse_amnezia_link(rest),
         other => Err(AppError::msg(format!("протокол «{other}» не поддерживается"))),
     }?;
 
@@ -705,7 +1136,21 @@ pub struct ParseReport {
 /// Subscription servers usually return the whole list base64-encoded; some return
 /// it verbatim. Try to decode first and keep the result only if it actually looks
 /// like a list of links.
+///
+/// Two whole-document formats are recognised first, since neither is a list of
+/// links and splitting one into lines would report every line as broken: a
+/// JSON subscription of Xray configs, and WireGuard/AmneziaWG `.conf` text.
 pub fn parse_subscription(body: &str) -> ParseReport {
+    let document = body.trim_start_matches('\u{feff}').trim();
+    if document.starts_with(['{', '[']) {
+        if let Ok(root) = serde_json::from_str::<Value>(document) {
+            return parse_xray_json(&root);
+        }
+    }
+    if is_wg_conf(document) {
+        return parse_wg_confs(document);
+    }
+
     let text = match b64_decode(body) {
         Some(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
@@ -1043,6 +1488,269 @@ mod tests {
         ] {
             assert!(parse_link(link).is_err(), "{link}");
         }
+    }
+
+    /// A client `.conf` exactly as 3x-ui v3.10 renders one for an AmneziaWG
+    /// 3.1 inbound (docs/content/docs/en/config/amneziawg.mdx).
+    const AWG_CONF: &str = "[Interface]
+PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+Address = 10.8.1.2/32, fd42::2/128
+DNS = 8.8.8.8, 8.8.4.4
+MTU = 1376
+Jc = 4
+Jmin = 65
+Jmax = 220
+S1 = 87
+S2 = 44
+S3 = 21
+S4 = 12
+H1 = 463065432
+H2 = 912345678
+H3 = 1345678901-1345679901
+H4 = 1987654321
+I1 = <r 148>
+HeaderProtectionKey = 8Iu83eHDA3fMKKSGaEsVW9Ycd2lYYzc0MYlk1jJTvE4=
+ContentPaddingAddition = 17-49
+RekeyAfterTime = 111-139
+RekeyTimeout = 4-7
+RejectAfterTime = 187-251
+KeepaliveTimeout = 9-14
+MaxHandshakeAttempts = 19-36
+RandomTrailers = on
+DisableCookies = on
+
+# nl-awg - ivy
+[Peer]
+PublicKey = HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw=
+PresharedKey = FpCyhws9cxwWoV4xELtfJvjJN+zQVRPISllRWgeopVE=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = nl.example.com:51820
+PersistentKeepalive = 15-25
+";
+
+    #[test]
+    fn an_amneziawg_conf_keeps_every_obfuscation_value_verbatim() {
+        let report = parse_subscription(AWG_CONF);
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        let n = &report.nodes[0];
+
+        assert_eq!(n.protocol, Protocol::Amneziawg);
+        assert_eq!(n.name, "nl-awg - ivy");
+        assert_eq!(n.address, "nl.example.com");
+        assert_eq!(n.port, 51820);
+        assert_eq!(n.private_key, "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=");
+        assert_eq!(n.peer_public_key, "HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw=");
+        assert_eq!(n.pre_shared_key, "FpCyhws9cxwWoV4xELtfJvjJN+zQVRPISllRWgeopVE=");
+        assert_eq!(n.local_v4, "10.8.1.2");
+        assert_eq!(n.local_v6, "fd42::2");
+        assert_eq!(n.mtu, 1376);
+
+        let a = &n.awg;
+        assert_eq!((a.jc, a.jmin, a.jmax), (4, 65, 220));
+        assert_eq!((a.s1, a.s2, a.s3, a.s4), (87, 44, 21, 12));
+        assert_eq!(a.h1, "463065432");
+        // Диапазон не схлопывается в число: сервер ждёт ровно его.
+        assert_eq!(a.h3, "1345678901-1345679901");
+        assert_eq!(a.i1, "<r 148>");
+        assert_eq!(a.header_protection_key, "8Iu83eHDA3fMKKSGaEsVW9Ycd2lYYzc0MYlk1jJTvE4=");
+        assert_eq!(a.content_padding_addition, "17-49");
+        assert_eq!(a.reject_after_time, "187-251");
+        assert_eq!(a.max_handshake_attempts, "19-36");
+        assert!(a.random_trailers && a.disable_cookies);
+        // Диапазон keepalive живёт в AWG, нижняя граница — в обычном поле.
+        assert_eq!(a.keepalive_range, "15-25");
+        assert_eq!(n.keepalive, 15);
+        // Ссылкой узла служит сам файл: его можно скопировать и вставить снова.
+        assert!(n.raw_link.starts_with("[Interface]"));
+    }
+
+    #[test]
+    fn a_conf_without_obfuscation_is_plain_wireguard() {
+        let conf = "[Interface]\nPrivateKey = priv\nAddress = 10.7.0.2/32\n\n\
+                    [Peer]\nPublicKey = pub\nEndpoint = [2001:db8::1]:51820\n";
+        let n = &parse_subscription(conf).nodes[0];
+        assert_eq!(n.protocol, Protocol::Wireguard);
+        assert!(n.awg.is_empty());
+        assert_eq!(n.address, "2001:db8::1");
+        // Без комментария имя берётся из адреса, как у ссылок без фрагмента.
+        assert_eq!(n.name, "2001:db8::1:51820");
+    }
+
+    #[test]
+    fn a_conf_missing_what_the_tunnel_needs_is_refused() {
+        for (missing, conf) in [
+            ("Endpoint", "[Interface]\nPrivateKey = p\nAddress = 10.0.0.2\n[Peer]\nPublicKey = k\n"),
+            ("PublicKey", "[Interface]\nPrivateKey = p\nAddress = 10.0.0.2\n[Peer]\nEndpoint = h:1\n"),
+            ("Address", "[Interface]\nPrivateKey = p\n[Peer]\nPublicKey = k\nEndpoint = h:1\n"),
+        ] {
+            let report = parse_subscription(conf);
+            assert!(report.nodes.is_empty(), "{missing}");
+            assert!(report.errors[0].1.contains(missing), "{:?}", report.errors);
+        }
+        let bad = parse_subscription(&AWG_CONF.replace("Jc = 4", "Jc = four"));
+        assert!(bad.errors[0].1.contains("Jc"), "{:?}", bad.errors);
+    }
+
+    #[test]
+    fn several_confs_pasted_together_become_several_servers() {
+        let second = AWG_CONF.replace("ivy", "joe").replace("yAnz5", "zBoa6");
+        let report = parse_subscription(&format!("{AWG_CONF}\n{second}"));
+        assert_eq!(report.nodes.len(), 2, "{:?}", report.errors);
+        assert_eq!(report.nodes[1].name, "nl-awg - joe");
+        assert_ne!(report.nodes[0].fingerprint_key(), report.nodes[1].fingerprint_key());
+    }
+
+    #[test]
+    fn a_3x_ui_vpn_link_is_the_conf_in_base64url() {
+        // Так 3x-ui кладёт AmneziaWG в обычную подписку (internal/sub/service.go).
+        let link = format!("vpn://{}", URL_SAFE_NO_PAD.encode(AWG_CONF));
+        let report = parse_subscription(&format!("vless://u@a.com:443?type=tcp#v\n{link}"));
+        assert_eq!(report.nodes.len(), 2, "{:?}", report.errors);
+        let n = &report.nodes[1];
+        assert_eq!(n.protocol, Protocol::Amneziawg);
+        assert_eq!(n.name, "nl-awg - ivy");
+        assert_eq!(n.raw_link, link);
+    }
+
+    #[test]
+    fn an_amnezia_app_vpn_link_carries_a_compressed_profile() {
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+
+        let last_config = serde_json::json!({ "config": AWG_CONF, "H1": "463065432" }).to_string();
+        let profile = serde_json::json!({
+            "description": "Amsterdam",
+            "containers": [
+                { "container": "amnezia-xray", "xray": { "last_config": "{}" } },
+                { "container": "amnezia-awg", "awg": { "last_config": last_config } }
+            ]
+        })
+        .to_string();
+        // qCompress: длина несжатых данных big-endian, за ней поток zlib.
+        let mut packed = (profile.len() as u32).to_be_bytes().to_vec();
+        let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(profile.as_bytes()).unwrap();
+        packed.extend(encoder.finish().unwrap());
+
+        let n = parse_link(&format!("vpn://{}", URL_SAFE_NO_PAD.encode(&packed))).unwrap();
+        assert_eq!(n.protocol, Protocol::Amneziawg);
+        assert_eq!(n.awg.h3, "1345678901-1345679901");
+        // Комментарий в самом файле точнее названия профиля: он про клиента.
+        assert_eq!(n.name, "nl-awg - ivy");
+
+        let without_awg = serde_json::json!({ "containers": [{ "xray": {} }] }).to_string();
+        let err = parse_link(&format!("vpn://{}", URL_SAFE_NO_PAD.encode(without_awg))).unwrap_err();
+        assert!(err.to_string().contains("AmneziaWG"), "{err}");
+    }
+
+    /// A 3x-ui v3.10 JSON subscription: one config per inbound, MASQUE next to
+    /// a VLESS one (shape of internal/sub/json_service.go `getConfig`).
+    fn json_subscription() -> String {
+        serde_json::json!([
+            {
+                "remarks": "nl-vless-ivy",
+                "outbounds": [
+                    { "protocol": "vless", "tag": "proxy", "settings": { "vnext": [] } },
+                    { "protocol": "freedom", "tag": "direct" },
+                    { "protocol": "blackhole", "tag": "block" }
+                ]
+            },
+            {
+                "remarks": "nl-masque-ivy",
+                "outbounds": [
+                    {
+                        "protocol": "masque",
+                        "tag": "proxy",
+                        "settings": { "address": "203.0.113.9", "port": 8443 },
+                        "streamSettings": {
+                            "network": "masque",
+                            "security": "tls",
+                            "tlsSettings": {
+                                "serverName": "masque.example.test",
+                                "alpn": ["h2"],
+                                "fingerprint": "chrome"
+                            },
+                            "masqueSettings": {
+                                "path": "/.well-known/masque/ip/*/*/",
+                                "user": "ivy@example.test",
+                                "pass": "pw-ivy"
+                            }
+                        }
+                    },
+                    { "protocol": "freedom", "tag": "direct" }
+                ]
+            }
+        ])
+        .to_string()
+    }
+
+    #[test]
+    fn a_json_subscription_brings_its_masque_servers() {
+        let report = parse_subscription(&json_subscription());
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        // VLESS из JSON не берётся: его приносит обычная подписка, иначе
+        // каждый такой сервер появился бы дважды.
+        assert_eq!(report.nodes.len(), 1);
+
+        let n = &report.nodes[0];
+        assert_eq!(n.protocol, Protocol::Masque);
+        assert_eq!(n.name, "nl-masque-ivy");
+        assert_eq!(n.address, "203.0.113.9");
+        assert_eq!(n.port, 8443);
+        assert_eq!(n.sni, "masque.example.test");
+        assert_eq!(n.alpn, vec!["h2".to_string()]);
+        assert_eq!(n.username, "ivy@example.test");
+        assert_eq!(n.password, "pw-ivy");
+        assert_eq!(n.path, "/.well-known/masque/ip/*/*/");
+        assert_eq!(n.security, Security::Tls);
+        assert!(n.needs_xray());
+
+        // Ссылка узла — он сам одним конфигом: вставка возвращает тот же сервер.
+        let again = parse_subscription(&n.raw_link);
+        assert_eq!(again.nodes.len(), 1, "{:?}", again.errors);
+        assert_eq!(again.nodes[0].fingerprint_key(), n.fingerprint_key());
+    }
+
+    #[test]
+    fn masque_credentials_may_come_as_a_basic_header() {
+        let body = serde_json::json!({
+            "outbounds": [{
+                "protocol": "masque",
+                "settings": { "address": "h.example", "port": "443" },
+                "streamSettings": {
+                    "method": "masque",
+                    "masqueSettings": {
+                        "headers": { "Authorization": format!("Basic {}", STANDARD_NO_PAD.encode("ivy:pw")) }
+                    }
+                }
+            }]
+        })
+        .to_string();
+        let n = &parse_subscription(&body).nodes[0];
+        assert_eq!((n.username.as_str(), n.password.as_str()), ("ivy", "pw"));
+        assert_eq!(n.port, 443);
+        assert_eq!(n.name, "h.example:443");
+    }
+
+    #[test]
+    fn a_json_subscription_without_masque_says_why_nothing_came() {
+        let body = serde_json::json!([{
+            "remarks": "v",
+            "outbounds": [{ "protocol": "vless" }, { "protocol": "trojan" }, { "protocol": "freedom" }]
+        }])
+        .to_string();
+        let report = parse_subscription(&body);
+        assert!(report.nodes.is_empty());
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].1.contains("vless, trojan"), "{:?}", report.errors);
+    }
+
+    #[test]
+    fn a_masque_outbound_over_reality_is_refused() {
+        let body = json_subscription().replace("\"security\":\"tls\"", "\"security\":\"reality\"");
+        let report = parse_subscription(&body);
+        assert!(report.nodes.is_empty());
+        assert!(report.errors[0].1.contains("REALITY"), "{:?}", report.errors);
     }
 
     #[test]

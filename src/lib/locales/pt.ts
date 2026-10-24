@@ -365,6 +365,10 @@ export const pt: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "WARP adicionado à lista de servidores",
   "srv.warpFailed": "Não foi possível adicionar o WARP",
   "srv.warpEndpointHint": "O ponto de entrada da Cloudflare é o endereço e a porta acima. Se essa porta estiver bloqueada na sua rede, tente 500, 854, 955 ou 4500.",
+  "srv.awgHint": "A ofuscação do AmneziaWG (Jc, S1–S4, H1–H4, I1–I5) vem da configuração do servidor — importe uma nova para alterá-la. Requer o núcleo sing-box-lx: com o sing-box padrão este servidor é ignorado ao conectar.",
+  "srv.masqueUserLabel": "Usuário (e-mail)",
+  "srv.masqueHttpLabel": "Versão do HTTP",
+  "srv.masqueHint": "O HTTP/2 usa TCP, o que ajuda onde o UDP está bloqueado. O MASQUE roda no motor Xray, que o Android ainda não tem.",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "Proteção extra pelo WARP",

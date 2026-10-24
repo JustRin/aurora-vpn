@@ -23,7 +23,7 @@ use crate::core::process::{CoreSupervisor, Engine};
 use crate::core::xray;
 use crate::error::{AppError, Result};
 use crate::link;
-use crate::model::ServerNode;
+use crate::model::{Protocol, ServerNode};
 use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
 use crate::state::{AppState, ConnState, Link, Status, Traffic};
 use crate::warp::WarpAccount;
@@ -164,6 +164,56 @@ fn effective_nodes(state: &AppState) -> Vec<ServerNode> {
         .collect()
 }
 
+/// Whether the core is the sing-box-lx build, the one that reads AmneziaWG.
+///
+/// Asked only when an AmneziaWG node exists, since on the desktop it costs a
+/// run of the binary.
+fn core_runs_awg(state: &AppState) -> bool {
+    let version = state.core.lock().version().unwrap_or_default();
+    version.contains("-lx")
+}
+
+#[cfg(not(target_os = "android"))]
+const AWG_CORE_MISSING: &str = "серверам AmneziaWG нужно ядро sing-box-lx — \
+     стандартный sing-box их не принимает";
+#[cfg(target_os = "android")]
+const AWG_CORE_MISSING: &str = "AmneziaWG на Android пока не поддерживается";
+
+/// [`effective_nodes`], minus what the running core cannot carry.
+///
+/// Upstream sing-box — and Android's libbox — refuses AmneziaWG fields along
+/// with the whole document, so on such a core those nodes stay out and every
+/// other server still connects. Only a list of nothing else is an error.
+fn nodes_for_core(state: &AppState) -> Result<Vec<ServerNode>> {
+    let mut nodes = effective_nodes(state);
+    if nodes.iter().any(ServerNode::needs_awg_core) && !core_runs_awg(state) {
+        nodes.retain(|n| !n.needs_awg_core());
+        if nodes.is_empty() {
+            return Err(AppError::msg(AWG_CORE_MISSING));
+        }
+    }
+    Ok(nodes)
+}
+
+/// Say which AmneziaWG nodes [`nodes_for_core`] is about to leave out.
+fn warn_about_awg_core(app: &AppHandle) {
+    let state = app.state();
+    let names: Vec<String> = state
+        .nodes
+        .read()
+        .iter()
+        .filter(|n| n.needs_awg_core())
+        .map(|n| format!("«{}»", n.name))
+        .collect();
+    if !names.is_empty() && !core_runs_awg(state) {
+        log_line(
+            app,
+            "warn",
+            format!("пропущены узлы {}: {AWG_CORE_MISSING}", names.join(", ")),
+        );
+    }
+}
+
 /// No second engine on Android: nodes that need Xray are carried by sing-box
 /// with the extra layer dropped (`can_fall_back_to_singbox`), the rest fail
 /// with a readable log line. Building libxray is tracked separately.
@@ -267,7 +317,7 @@ fn build_and_write(
     xray_ports: &HashMap<String, u16>,
     rule_sets: &HashSet<String>,
 ) -> Result<Value> {
-    let nodes = effective_nodes(state);
+    let nodes = nodes_for_core(state)?;
     let settings = state.settings.read().clone();
     let split = state.split.read().clone();
     let active_id = state.resolve_active_id();
@@ -571,11 +621,12 @@ fn spawn_engine_probe(app: AppHandle, session: u64) {
             if node.can_fall_back_to_singbox() {
                 demoted.push((id.clone(), node.encryption.clone(), node.name.clone()));
             } else {
+                let why = if node.protocol == Protocol::Masque { "MASQUE" } else { "XHTTP" };
                 let _ = app.emit(Event::Log(LogLine {
                         seq: 0,
                         level: "warn".into(),
                         text: format!(
-                            "узел «{}» не отвечает через Xray, а замена движка для него невозможна (XHTTP)",
+                            "узел «{}» не отвечает через Xray, а замена движка для него невозможна ({why})",
                             node.name
                         ),
                     }));
@@ -1134,6 +1185,7 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
                 text: format!("гео-набор {failure}"),
             }));
     }
+    warn_about_awg_core(&app);
 
     // ---- generate + validate + spawn -------------------------------------
     let start_result: Result<u32> = (|| {
@@ -1647,7 +1699,7 @@ async fn ensure_warp_account(app: &AppHandle) -> Result<WarpAccount> {
 /// A WARP node still waiting for the account behind it — what a `warp://` link
 /// parses into, since such a link carries no keys of its own.
 fn needs_warp_account(node: &ServerNode) -> bool {
-    node.is_endpoint() && node.private_key.is_empty()
+    node.protocol == Protocol::Wireguard && node.private_key.is_empty()
 }
 
 /// Copy an account's credentials onto a WARP node.
@@ -1673,7 +1725,7 @@ fn apply_warp_account(node: &mut ServerNode, account: &WarpAccount) {
 fn rekey_warp_nodes(state: &AppState, account: &WarpAccount) -> bool {
     let mut nodes = state.nodes.write();
     let mut touched = false;
-    for node in nodes.iter_mut().filter(|n| n.is_endpoint()) {
+    for node in nodes.iter_mut().filter(|n| n.protocol == Protocol::Wireguard) {
         apply_warp_account(node, account);
         touched = true;
     }
@@ -2363,7 +2415,8 @@ async fn probe_delays(
 ) -> Option<HashMap<String, Option<u32>>> {
     let (nodes, active_id, settings, exe, work_dir, rule_set_dir) = {
         let state = app.state();
-        let nodes = effective_nodes(state);
+        // Один узел, который ядро не примет, сорвал бы замер для всех.
+        let nodes = nodes_for_core(state).ok()?;
         if nodes.is_empty() {
             return None;
         }
@@ -2651,7 +2704,7 @@ pub async fn clear_logs(app: AppHandle) -> Result<()> {
 /// Render the document that *would* be used, for inspection and bug reports.
 pub async fn preview_config(app: AppHandle) -> Result<String> {
     let state = app.state();
-    let nodes = effective_nodes(&state);
+    let nodes = nodes_for_core(state)?;
     let settings = state.settings.read().clone();
     let split = state.split.read().clone();
     let active_id = state.resolve_active_id();

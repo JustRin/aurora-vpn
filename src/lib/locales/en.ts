@@ -363,6 +363,10 @@ export const en: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "WARP added to the server list",
   "srv.warpFailed": "Could not add WARP",
   "srv.warpEndpointHint": "Cloudflare's entry point is the address and port above. If that port is blocked on your network, try 500, 854, 955 or 4500.",
+  "srv.awgHint": "The AmneziaWG obfuscation (Jc, S1–S4, H1–H4, I1–I5) comes from the server's config — import a fresh one to change it. Needs the sing-box-lx core: with stock sing-box this server is skipped on connect.",
+  "srv.masqueUserLabel": "User (email)",
+  "srv.masqueHttpLabel": "HTTP version",
+  "srv.masqueHint": "HTTP/2 runs over TCP, which helps where UDP is blocked. MASQUE runs on the Xray engine, which Android does not have yet.",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "Extra security by WARP",

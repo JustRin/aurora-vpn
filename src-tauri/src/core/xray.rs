@@ -127,10 +127,63 @@ fn stream_settings(node: &ServerNode) -> Value {
     Value::Object(stream)
 }
 
+/// MASQUE has a transport of its own and always runs over TLS — REALITY is
+/// not supported by the protocol — so it bypasses [`stream_settings`].
+///
+/// The HTTP version is not a field: Xray takes HTTP/2 only when `alpn` names
+/// `h2` and not `h3`, and HTTP/3 otherwise, so the node's `alpn` goes through
+/// as the link gave it.
+fn masque_outbound(node: &ServerNode, tag: &str) -> Value {
+    let mut tls = Map::new();
+    let sni = if !node.sni.is_empty() {
+        node.sni.clone()
+    } else if !node.host.is_empty() {
+        node.host.clone()
+    } else {
+        node.address.clone()
+    };
+    tls.insert("serverName".into(), json!(sni));
+    if !node.alpn.is_empty() {
+        tls.insert("alpn".into(), json!(node.alpn));
+    }
+    if !node.fingerprint.is_empty() {
+        tls.insert("fingerprint".into(), json!(node.fingerprint));
+    }
+    // No `allowInsecure`: Xray 26.10 removed it and refuses the whole document
+    // over it — MASQUE exists only in those versions, so it is never valid here.
+
+    // Empty values are left to Xray's defaults: the RFC 9484 path, and the
+    // TLS name as the request's authority.
+    let mut masque = Map::new();
+    for (key, value) in [
+        ("path", &node.path),
+        ("host", &node.host),
+        ("user", &node.username),
+        ("pass", &node.password),
+    ] {
+        if !value.is_empty() {
+            masque.insert(key.into(), json!(value));
+        }
+    }
+
+    json!({
+        "tag": tag,
+        "protocol": "masque",
+        "settings": { "address": node.address, "port": node.port },
+        "streamSettings": {
+            "network": "masque",
+            "security": "tls",
+            "tlsSettings": Value::Object(tls),
+            "masqueSettings": Value::Object(masque)
+        }
+    })
+}
+
 fn outbound(node: &ServerNode, tag: &str) -> Result<Value> {
     let mut settings = Map::new();
 
     match node.protocol {
+        Protocol::Masque => return Ok(masque_outbound(node, tag)),
         Protocol::Vless => {
             let mut user = Map::new();
             user.insert("id".into(), json!(node.uuid));
@@ -337,6 +390,67 @@ mod tests {
         assert_eq!(reality["shortId"], json!("79a1"));
         assert_eq!(reality["spiderX"], json!("/spider"));
         assert_eq!(reality["serverName"], json!("www.icloud.com"));
+    }
+
+    fn masque_node(id: &str) -> ServerNode {
+        ServerNode {
+            id: id.into(),
+            name: "nl-masque".into(),
+            protocol: Protocol::Masque,
+            address: "203.0.113.9".into(),
+            port: 8443,
+            security: Security::Tls,
+            sni: "masque.example.test".into(),
+            alpn: vec!["h3".into()],
+            path: "/.well-known/masque/ip/*/*/".into(),
+            username: "ivy@example.test".into(),
+            password: "pw-ivy".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn masque_gets_its_own_transport_and_basic_credentials() {
+        let built = build(&[masque_node("m")], 24150, "warning").unwrap().unwrap();
+        assert_eq!(built.ports["m"], 24150);
+        let out = &built.json["outbounds"][0];
+
+        assert_eq!(out["protocol"], json!("masque"));
+        assert_eq!(out["settings"], json!({ "address": "203.0.113.9", "port": 8443 }));
+        let stream = &out["streamSettings"];
+        assert_eq!(stream["network"], json!("masque"));
+        assert_eq!(stream["security"], json!("tls"));
+        assert_eq!(stream["tlsSettings"]["serverName"], json!("masque.example.test"));
+        assert_eq!(stream["tlsSettings"]["alpn"], json!(["h3"]));
+        assert_eq!(
+            stream["masqueSettings"],
+            json!({
+                "path": "/.well-known/masque/ip/*/*/",
+                "user": "ivy@example.test",
+                "pass": "pw-ivy"
+            })
+        );
+    }
+
+    #[test]
+    fn masque_leaves_unset_values_to_xray() {
+        // Пустой путь — значит путь RFC 9484 по умолчанию, пустой host —
+        // значит имя TLS; явная пустая строка сломала бы оба.
+        let node = ServerNode {
+            sni: String::new(),
+            path: String::new(),
+            alpn: Vec::new(),
+            allow_insecure: true,
+            ..masque_node("m")
+        };
+        let built = build(&[node], 24150, "warning").unwrap().unwrap();
+        let stream = &built.json["outbounds"][0]["streamSettings"];
+        assert_eq!(stream["tlsSettings"]["serverName"], json!("203.0.113.9"));
+        assert!(stream["tlsSettings"].get("alpn").is_none());
+        // Xray 26.10 убрал allowInsecure и отвергает с ним весь документ.
+        assert!(stream["tlsSettings"].get("allowInsecure").is_none());
+        assert!(stream["masqueSettings"].get("path").is_none());
+        assert!(stream["masqueSettings"].get("host").is_none());
     }
 
     #[test]

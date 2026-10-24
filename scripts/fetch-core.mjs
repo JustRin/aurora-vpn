@@ -202,8 +202,10 @@ async function main() {
     triple: target.triple,
   });
 
-  // Second engine: needed for VLESS Encryption and XHTTP, which sing-box does
-  // not implement. Optional — the app runs without it, minus those nodes.
+  // Second engine: needed for VLESS Encryption, XHTTP and MASQUE, which
+  // sing-box does not implement (MASQUE since Xray v26.10.10, which the latest
+  // release always satisfies). Optional — the app runs without it, minus
+  // those nodes.
   const xrayAsset = XRAY_ASSETS[key];
   if (!xrayAsset) {
     console.log(`! Xray для ${key} не публикуется — пропускаю`);

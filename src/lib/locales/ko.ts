@@ -352,6 +352,10 @@ export const ko: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "WARP를 서버 목록에 추가했습니다",
   "srv.warpFailed": "WARP를 추가하지 못했습니다",
   "srv.warpEndpointHint": "Cloudflare 접속 지점은 위의 주소와 포트입니다. 그 포트가 막혀 있으면 500, 854, 955, 4500을 시도해 보세요.",
+  "srv.awgHint": "AmneziaWG 난독화(Jc, S1–S4, H1–H4, I1–I5)는 서버 설정에서 가져옵니다. 바꾸려면 새 설정을 가져오세요. sing-box-lx 코어가 필요합니다. 기본 sing-box에서는 연결 시 이 서버를 건너뜁니다.",
+  "srv.masqueUserLabel": "사용자(이메일)",
+  "srv.masqueHttpLabel": "HTTP 버전",
+  "srv.masqueHint": "HTTP/2는 TCP를 사용하므로 UDP가 막힌 곳에서 유용합니다. MASQUE는 Xray 엔진으로 동작하며 Android에서는 아직 지원되지 않습니다.",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "WARP 추가 보호",

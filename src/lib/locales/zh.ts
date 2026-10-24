@@ -347,6 +347,10 @@ export const zh: Record<keyof typeof ru, string> = {
   "srv.warpAdded": "WARP 已加入服务器列表",
   "srv.warpFailed": "无法添加 WARP",
   "srv.warpEndpointHint": "Cloudflare 的入口就是上面的地址和端口。若该端口在你的网络被封，可试 500、854、955 或 4500。",
+  "srv.awgHint": "AmneziaWG 混淆参数（Jc、S1–S4、H1–H4、I1–I5）来自服务器配置，如需更改请重新导入。需要 sing-box-lx 内核：使用标准 sing-box 时，连接会跳过此服务器。",
+  "srv.masqueUserLabel": "用户（邮箱）",
+  "srv.masqueHttpLabel": "HTTP 版本",
+  "srv.masqueHint": "HTTP/2 走 TCP，适合 UDP 被封的网络。MASQUE 由 Xray 引擎运行，Android 暂不支持。",
 
   // --------------------------------------------------------------------- warp
   "warp.title": "WARP 额外防护",

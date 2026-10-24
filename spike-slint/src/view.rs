@@ -494,7 +494,7 @@ pub fn node_row(
             id: node.id.as_str().into(),
             name: node.name.as_str().into(),
             proto: protocol_label(node.protocol).into(),
-            transport: transport_label(node.security, node.network).into(),
+            transport: transport_label(node).into(),
             address: format!("{}:{}", node.address, node.port).into(),
             country: country.map(|c| c.code.as_str()).unwrap_or_default().into(),
             latency: "…".into(),
@@ -505,7 +505,7 @@ pub fn node_row(
         id: node.id.as_str().into(),
         name: node.name.as_str().into(),
         proto: protocol_label(node.protocol).into(),
-        transport: transport_label(node.security, node.network).into(),
+        transport: transport_label(node).into(),
         address: format!("{}:{}", node.address, node.port).into(),
         country: country.map(|c| c.code.as_str()).unwrap_or_default().into(),
         latency: latency.map(|ms| latency_text(Some(ms))).unwrap_or_else(|| "—".into()).into(),
@@ -539,17 +539,32 @@ fn protocol_label(protocol: Protocol) -> &'static str {
         Protocol::Hysteria2 => "Hysteria2",
         Protocol::Tuic => "TUIC",
         Protocol::Wireguard => "WARP",
+        Protocol::Amneziawg => "AmneziaWG",
+        Protocol::Masque => "MASQUE",
     }
 }
 
 /// `REALITY · ws` — как transportLabel из format.ts.
-fn transport_label(security: Security, network: Network) -> String {
-    let sec = match security {
+fn transport_label(node: &ServerNode) -> String {
+    match node.protocol {
+        // Ни TLS, ни транспорта у WireGuard нет — пара ниже описала бы то, чего нет.
+        Protocol::Wireguard => return "WireGuard".into(),
+        Protocol::Amneziawg => return "WireGuard · obfs".into(),
+        // MASQUE всегда поверх TLS; различает серверы версия HTTP: HTTP/2
+        // Xray берёт, только если в alpn есть h2 и нет h3.
+        Protocol::Masque => {
+            let has = |name: &str| node.alpn.iter().any(|a| a.eq_ignore_ascii_case(name));
+            let http = if has("h2") && !has("h3") { "HTTP/2" } else { "HTTP/3" };
+            return format!("TLS · {http}");
+        }
+        _ => {}
+    }
+    let sec = match node.security {
         Security::Reality => "REALITY".to_string(),
         Security::Tls => "TLS".to_string(),
         Security::None => tr(|l| l.no_tls.clone()),
     };
-    match network {
+    match node.network {
         Network::Tcp => sec,
         other => format!("{sec} · {}", other.as_xray()),
     }

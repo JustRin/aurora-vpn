@@ -54,11 +54,11 @@ TUN モード、アプリ単位のスプリットトンネリング、ルール�
 
 | | |
 |---|---|
-| **プロトコル** | VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、WireGuard |
+| **プロトコル** | VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、WireGuard、AmneziaWG（sing-box-lx コアが必要）、MASQUE（デスクトップ、Xray 経由） |
 | **セキュリティ** | uTLS フィンガープリント付き REALITY、TLS、VLESS Encryption（ML-KEM-768） |
 | **トランスポート** | TCP、WebSocket、gRPC、HTTP/2、HTTPUpgrade、XHTTP |
 | **WARP** | Cloudflare WARP を単独のサーバーとして、または任意のサーバーの上に重ねる層として — サイトからは Cloudflare が見え、サーバーからは WireGuard しか見えません |
-| **インポート** | `vless://` などのリンク、3x-ui / Marzban のサブスクリプション、バックグラウンド自動更新 |
+| **インポート** | `vless://` などのリンク、WireGuard / AmneziaWG の `.conf` と `vpn://`、3x-ui / Marzban のサブスクリプション（MASQUE を配布する唯一の手段である 3x-ui の JSON サブスクリプションも）、バックグラウンド自動更新 |
 | **QR コード** | 画面から、画像から、カメラから読み取り — PC はウェブカメラ、スマートフォンは前後どちらのカメラでも |
 | **プラン状況** | 残り日数と残りトラフィックをパネルから直接取得 |
 | **トンネルモード** | システム全体を通す TUN、または管理者権限のいらないシステムプロキシ |
