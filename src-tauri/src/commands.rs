@@ -2713,6 +2713,28 @@ pub async fn list_running_apps(
         .collect())
 }
 
+/// Icons for the picker's packages. The interface only asks on Android, where
+/// a package name is something the OS can draw; desktop answers with none.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn app_icons(packages: Vec<String>) -> Result<HashMap<String, String>> {
+    let _ = packages;
+    Ok(HashMap::new())
+}
+
+/// Rows ask in small batches as they scroll into view; drawing a few dozen
+/// icons still takes the PackageManager a while, so not on the async runtime.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn app_icons(
+    app: AppHandle,
+    packages: Vec<String>,
+) -> Result<HashMap<String, String>> {
+    tokio::task::spawn_blocking(move || crate::core::android::app_icons(&app, packages))
+        .await
+        .map_err(|e| AppError::msg(format!("не удалось получить иконки приложений: {e}")))?
+}
+
 /// Live memory/CPU of the whole process family — GUI, WebView2 children, the
 /// engines — so the user does not have to reassemble the total from scattered
 /// Task Manager rows.

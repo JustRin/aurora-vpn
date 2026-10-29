@@ -2053,6 +2053,16 @@ html[data-platform="linux"] .app {
   flex-shrink: 0;
   text-transform: uppercase;
 }
+/* A real icon brings its own shape (Android masks adaptive icons itself), so
+   the letter tile's backdrop would only peek out around the corners. */
+.app-icon.image {
+  background: none;
+}
+.app-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 
 /* ============================================================ logs */
 /* «К последним записям» — поверх ленты: строка в потоке дёргала бы высоту
@@ -2135,6 +2145,13 @@ html[data-platform="linux"] .app {
   background: var(--backdrop);
   backdrop-filter: blur(3px);
   display: grid;
+  /* An `auto` column is never narrower than the dialog's min-content, and one
+     unbreakable line — a long package name in the app picker — made that wider
+     than a phone: the dialog started at the left padding and ran off the right
+     edge. A zero floor keeps the column at the screen's width, and long lines
+     fall back to their own ellipsis. The row gets the same, so a dialog's
+     `max-height: 100%` means the screen's height rather than its own. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   z-index: 50;
   padding: 24px;
@@ -2447,6 +2464,81 @@ html[data-scan="on"] .ambient {
      crosses the switch, and a shorter one would jerk the page up. */
   min-height: 35px;
 }
+/* A touch screen has no cursor to follow, phone or tablet alike: the line only
+   changes on a tap, so reserving a second one would just leave a gap. */
+@media (hover: none) {
+  .mode-help {
+    min-height: 0;
+  }
+}
+
+/* The app picker's controls: search and refresh on one line, the system-apps
+   switch under them — or all three on one line where height is scarce. */
+.picker-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 10px;
+}
+.picker-system {
+  grid-column: 1 / -1;
+}
+.picker-list {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+/* ============================================================ medium screens
+   A tablet held upright, or a phone turned sideways: too wide for the phone's
+   single column, too narrow to give a third of the width to labelled
+   navigation — titles broke in two and subtitles shrank to a sliver. The
+   sidebar becomes an icon rail, as Android does at this size, and a page
+   head's controls drop under the title instead of squeezing it. The desktop
+   window can't get this narrow (min-width 960). */
+@media (min-width: 701px) and (max-width: 959px) {
+  :root {
+    --sidebar-w: 68px;
+  }
+
+  .sidebar {
+    padding: 14px 10px;
+    overflow-y: auto;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 11px 0;
+  }
+  .nav-item .grow,
+  .nav-item .badge {
+    display: none;
+  }
+  .update-badge {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .update-badge .grow,
+  .update-badge .update-version {
+    display: none;
+  }
+  .sidebar-footer {
+    display: none;
+  }
+
+  .content {
+    padding: 22px 24px 32px;
+  }
+
+  .page-head {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .mode-head {
+    align-items: flex-start;
+  }
+  .mode-help {
+    text-align: start;
+  }
+}
 
 /* ============================================================ narrow screens
    Phone layout (the Android build): the sidebar folds into an icon strip
@@ -2505,6 +2597,12 @@ html[data-scan="on"] .ambient {
     padding: 18px 14px 28px;
   }
 
+  /* The same gutter as the page behind it: 24px a side is a seventh of a
+     phone's width spent on backdrop. */
+  .modal-backdrop {
+    padding: 14px;
+  }
+
   .page-head {
     flex-wrap: wrap;
     gap: 10px;
@@ -2556,9 +2654,6 @@ html[data-scan="on"] .ambient {
   }
   .mode-help {
     text-align: start;
-    /* No cursor to follow on a phone, so the line only changes on a tap —
-       reserving a second line would just leave a gap. */
-    min-height: 0;
   }
 
   /* A phone cannot have both halves of the desktop rule — a track sized to its
@@ -2597,6 +2692,44 @@ html[data-scan="on"] .ambient {
     white-space: normal;
     text-align: center;
     line-height: 1.25;
+  }
+}
+
+/* ============================================================ short screens
+   A phone turned sideways has about 360px of height, and a dialog's desktop
+   chrome — gutters, title bar, footer — left its content a sliver: the app
+   picker showed a single row. Thinner chrome, and the picker's list gets
+   every pixel left. The desktop window can't get this short (min-height 640). */
+@media (max-height: 500px) {
+  .modal-backdrop {
+    padding: 8px;
+  }
+  .modal {
+    max-height: 100%;
+  }
+  .modal-head {
+    padding: 8px 18px;
+  }
+  .modal-body {
+    padding: 12px 18px;
+    gap: 10px;
+  }
+  .modal-foot {
+    padding: 8px 18px;
+  }
+
+  .picker-list {
+    max-height: none;
+  }
+}
+/* One line only where it is also wide: an upright phone gets this short too,
+   once the keyboard is up, and there the search box would be crushed. */
+@media (max-height: 500px) and (min-width: 600px) {
+  .picker-tools {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .picker-system {
+    grid-column: auto;
   }
 }
 

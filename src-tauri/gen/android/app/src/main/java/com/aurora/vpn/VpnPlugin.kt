@@ -5,8 +5,11 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.VpnService
 import android.os.Build
+import android.util.Base64
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -17,6 +20,9 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import io.nekohasekai.libbox.Libbox
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 @InvokeArg
 class StartArgs {
@@ -26,6 +32,11 @@ class StartArgs {
 @InvokeArg
 class WatchArgs {
     lateinit var channel: Channel
+}
+
+@InvokeArg
+class IconsArgs {
+    var packages: Array<String> = arrayOf()
 }
 
 @InvokeArg
@@ -179,20 +190,67 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     // ------------------------------------------------------------ packages
 
+    /**
+     * Commands arrive on the main thread, and labels and icons for a few
+     * hundred apps keep the PackageManager busy long enough to freeze the
+     * WebView mid-scroll. One worker keeps the main thread free and answers
+     * the picker's batches in the order they were asked.
+     */
+    private val packageWorker = Executors.newSingleThreadExecutor()
+
     /** Installed apps for the split-tunnel picker. */
     @Command
     fun listPackages(invoke: Invoke) {
         val pm = activity.packageManager
-        val installed = pm.getInstalledApplications(0)
-        val packages = JSArray()
-        for (app in installed) {
-            if (app.packageName == activity.packageName) continue
-            val entry = JSObject()
-                .put("name", app.loadLabel(pm).toString())
-                .put("package", app.packageName)
-                .put("system", (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0)
-            packages.put(entry)
+        packageWorker.execute {
+            val installed = pm.getInstalledApplications(0)
+            val packages = JSArray()
+            for (app in installed) {
+                if (app.packageName == activity.packageName) continue
+                val entry = JSObject()
+                    .put("name", app.loadLabel(pm).toString())
+                    .put("package", app.packageName)
+                    .put("system", (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0)
+                packages.put(entry)
+            }
+            invoke.resolve(JSObject().put("packages", packages))
         }
-        invoke.resolve(JSObject().put("packages", packages))
+    }
+
+    /**
+     * Launcher icons for the picker's rows, as PNG data URLs keyed by package.
+     * Drawn at the size the row shows them — the full drawable would be many
+     * times the bytes for nothing — and adaptive icons come out masked in the
+     * device's own shape, as on the home screen.
+     */
+    @Command
+    fun appIcons(invoke: Invoke) {
+        val args = invoke.parseArgs(IconsArgs::class.java)
+        val pm = activity.packageManager
+        val size = (ICON_DP * activity.resources.displayMetrics.density).roundToInt()
+        packageWorker.execute {
+            val icons = JSObject()
+            for (pkg in args.packages) {
+                val drawable = try {
+                    pm.getApplicationIcon(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
+                    continue // uninstalled since the list was read
+                }
+                val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                drawable.setBounds(0, 0, size, size)
+                drawable.draw(Canvas(bitmap))
+                val png = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, png)
+                bitmap.recycle()
+                val base64 = Base64.encodeToString(png.toByteArray(), Base64.NO_WRAP)
+                icons.put(pkg, "data:image/png;base64,$base64")
+            }
+            invoke.resolve(JSObject().put("icons", icons))
+        }
+    }
+
+    private companion object {
+        /** The `.app-icon` box in styles.css; the WebView maps one CSS px to one dp. */
+        const val ICON_DP = 30
     }
 }

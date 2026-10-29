@@ -169,6 +169,17 @@ const logs: LogLine[] = [
   { seq: 1, level: "info", text: "mock backend ready" },
 ];
 
+const androidApps = [
+  ["EOBD Facile", "org.eobdfacile.android"],
+  ["ReComics - Читай мангу!", "com.remanga.remangaapp"],
+  ["ABP for Samsung Internet", "org.adblockplus.adblockplussbrowser"],
+  ["Delivio", "im.ringl.delivio.food"],
+  ["VK", "com.vkontakte.android"],
+  ["Telegram", "org.telegram.messenger"],
+  ["Samsung Internet Browser Beta", "com.sec.android.app.sbrowser.beta.experimental"],
+  ["YouTube", "com.google.android.youtube"],
+].map(([name, path]) => ({ name, path, instances: 1, system: false }));
+
 /** The Cloudflare account the WARP switch asks about. */
 const warp = {
   registered: false,
@@ -257,8 +268,22 @@ mockIPC(
         });
         return undefined;
       }
+      // A phone lists packages, whose long unbreakable names are what once
+      // pushed the picker off the screen; the desktop keeps an empty list.
       case "list_running_apps":
-        return [];
+        return platform === "android" ? androidApps : [];
+      // Round tiles in the package's own hue — enough to see an icon land in
+      // its row without shipping real ones.
+      case "app_icons":
+        return Object.fromEntries(
+          (a.packages as string[]).map((pkg) => {
+            const hue = [...pkg].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
+            const svg =
+              `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30">` +
+              `<circle cx="15" cy="15" r="15" fill="hsl(${hue} 65% 52%)"/></svg>`;
+            return [pkg, `data:image/svg+xml,${encodeURIComponent(svg)}`];
+          }),
+        );
       case "test_latency":
         return snapshot.latency;
       case "connect":

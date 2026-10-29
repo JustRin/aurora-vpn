@@ -3,11 +3,13 @@
  * patches (scripts/sing-box-patches.mjs), replacing the official binary that
  * `npm run fetch-core` installs.
  *
- * Why not the official binary: upstream sing-box strips the X25519MLKEM768
- * key share from REALITY handshakes, and REALITY servers since Xray 26.9
- * reject exactly those — every VLESS-REALITY node of a panel that updates its
- * core stops connecting. Android's libbox is built from source anyway and
- * gets the same patches, so both platforms run one core.
+ * Why not the official binary: upstream sing-box always strips the
+ * X25519MLKEM768 key share from REALITY handshakes, and REALITY servers since
+ * Xray 26.9 reject exactly those — every VLESS-REALITY node of a panel that
+ * updates its core stops connecting. The patched core sends the short hello
+ * first and adds the share only when the server turns it away. Android's
+ * libbox is built from source anyway and gets the same patches, so both
+ * platforms run one core.
  *
  *   node scripts/build-sing-box.mjs [version]   # default: latest stable tag
  *
@@ -87,7 +89,8 @@ async function main() {
   const version = (process.argv[2] ?? process.env.SINGBOX_VERSION ?? latestStableTag()).replace(/^v/, "");
   console.log(`→ sing-box ${version} из исходников + патчи Aurora (${PATCH_LEVEL}) для ${key}`);
 
-  // One checkout per version, kept between runs: the patches are idempotent.
+  // One checkout per version, kept between runs: patching restores the files
+  // it touches to the tag first.
   const src = path.join(tmpdir(), `aurora-sing-box-${version}`);
   if (!existsSync(path.join(src, "go.mod"))) {
     await rm(src, { recursive: true, force: true });

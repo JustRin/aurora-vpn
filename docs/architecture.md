@@ -56,9 +56,13 @@ Android's libbox gets the same ones. Today there is one: upstream strips the
 `X25519MLKEM768` key share from every REALITY Client Hello, and REALITY servers
 since Xray 26.9 (XTLS/REALITY `8cdf7bf`) reject a hello without it — the client
 lands on the camouflage site, and the node never connects, on any network.
-With the share kept, as the chrome fingerprint carries it and as Xray's own
-client sends it, both new and old servers accept the hello: the older ones
-take the plain X25519 share that follows it. Each patch is a literal
+Keeping the share always is no fix either: the hello then outgrows one TCP
+segment (about 1.8 KB), and Russian TSPU boxes drop the second segment on the
+way to foreign hosting, so the handshake hangs on any server version. The
+patched core therefore sends the short hello first, which older servers take
+and which fits one segment, and only when the server turns it away (the client
+lands on the camouflage site) dials again with the share and keeps it for the
+rest of the session. Each patch is a literal
 replacement that must match once, so a tag whose code has moved fails the
 build instead of quietly shipping without the fix. The build also keeps only
 the features the config generator uses, which halves the binary.

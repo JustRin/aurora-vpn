@@ -20,6 +20,7 @@
 //! (in-process libbox has no stdout to capture); a tail task feeds those lines
 //! into the shared ring buffer and the `app://log` event stream.
 
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -156,6 +157,27 @@ pub fn list_packages(app: &AppHandle) -> Result<Vec<PackageInfo>> {
         .run_mobile_plugin("listPackages", Empty {})
         .map_err(|e| AppError::msg(format!("не удалось получить список приложений: {e}")))?;
     Ok(resp.packages)
+}
+
+#[derive(Serialize)]
+struct IconsPayload {
+    packages: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct IconsResponse {
+    icons: HashMap<String, String>,
+}
+
+/// Launcher icons for the picker's rows, as PNG `data:` URLs keyed by package.
+/// A package that is gone or has no icon is left out.
+pub fn app_icons(app: &AppHandle, packages: Vec<String>) -> Result<HashMap<String, String>> {
+    let handle = plugin(app)?;
+    let resp: IconsResponse = handle
+        .0
+        .run_mobile_plugin("appIcons", IconsPayload { packages })
+        .map_err(|e| AppError::msg(format!("не удалось получить иконки приложений: {e}")))?;
+    Ok(resp.icons)
 }
 
 // ------------------------------------------------------------- events

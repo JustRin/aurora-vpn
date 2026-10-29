@@ -582,6 +582,7 @@ pub fn run() {
             commands::set_window_theme,
             commands::test_latency,
             commands::list_running_apps,
+            commands::app_icons,
             commands::resource_usage,
             commands::get_logs,
             commands::clear_logs,
