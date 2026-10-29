@@ -268,6 +268,27 @@ impl Default for ServerNode {
     }
 }
 
+/// Отпечатки uTLS, которые понимает ядро.
+///
+/// Список фильтруется не для красоты: на незнакомом отпечатке sing-box
+/// отвергает не узел, а весь конфиг целиком — «initialize outbound[6]: unknown
+/// uTLS fingerprint», и подключения нет вообще. А приносят подписки что
+/// угодно: `unsafe`, `random_hello`, пустые строки. Незнакомое просто
+/// выбрасывается: ядро подставит своё, и узел останется рабочим.
+const KNOWN_FINGERPRINTS: [&str; 11] = [
+    "chrome",
+    "firefox",
+    "edge",
+    "safari",
+    "360",
+    "qq",
+    "ios",
+    "android",
+    "random",
+    "randomized",
+    "randomizednoalpn",
+];
+
 impl ServerNode {
     /// Whether this node can only be carried by the Xray engine.
     ///
@@ -374,7 +395,7 @@ impl ServerNode {
         if !self.alpn.is_empty() {
             tls.insert("alpn".into(), json!(self.alpn));
         }
-        if !self.fingerprint.is_empty() {
+        if KNOWN_FINGERPRINTS.contains(&self.fingerprint.as_str()) {
             tls.insert(
                 "utls".into(),
                 json!({ "enabled": true, "fingerprint": self.fingerprint }),
@@ -753,6 +774,22 @@ mod tests {
         let tls = &out["tls"];
         assert_eq!(tls["reality"]["enabled"], json!(true));
         assert_eq!(tls["utls"]["fingerprint"], json!("chrome"));
+    }
+
+    #[test]
+    fn an_unknown_fingerprint_is_dropped_rather_than_sinking_the_config() {
+        // Public lists carry `fp=unsafe`; passed through, sing-box would refuse
+        // the whole document and nothing would connect.
+        let node = ServerNode {
+            protocol: Protocol::Vless,
+            security: Security::Tls,
+            address: "example.com".into(),
+            fingerprint: "unsafe".into(),
+            ..Default::default()
+        };
+        let out = node.to_outbound("t", "dns-direct");
+        assert_eq!(out["tls"]["enabled"], json!(true));
+        assert!(out["tls"].get("utls").is_none());
     }
 
     #[test]

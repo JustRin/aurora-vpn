@@ -256,6 +256,53 @@ mockIPC(
         return { ...warp };
       case "add_warp_node":
         return undefined;
+      // Пул FREE: подписка с горсткой серверов, как после настоящего сбора.
+      // Повторное нажатие лишь освежает дату — второго пула не бывает.
+      case "add_free_pool": {
+        const id = "free";
+        let pool = snapshot.subscriptions.find((sub) => sub.free);
+        if (!pool) {
+          pool = {
+            id,
+            name: "FREE",
+            url: "https://github.com/igareck/vpn-configs-for-russia",
+            enabled: true,
+            lastUpdated: "",
+            nodeCount: 3,
+            lastError: "",
+            upload: 0,
+            download: 0,
+            total: 0,
+            expire: 0,
+            updateIntervalHours: 1,
+            hasUsage: false,
+            free: true,
+          };
+          snapshot.subscriptions.push(pool);
+          snapshot.nodes.push(
+            ...["🇳🇱 Netherlands", "🇩🇪 Germany", "🇫🇮 Finland"].map((name, i) => ({
+              ...node(`free-${i}`, name, `198.51.100.${i + 10}`),
+              subscriptionId: id,
+            })),
+          );
+        }
+        pool.lastUpdated = new Date().toISOString();
+        void invoke("plugin:event|emit", { event: "app://nodes", payload: [...snapshot.nodes] });
+        void invoke("plugin:event|emit", {
+          event: "app://subscriptions",
+          payload: [...snapshot.subscriptions],
+        });
+        return { added: 3, skipped: 493, errors: [] };
+      }
+      case "delete_subscription":
+        snapshot.subscriptions = snapshot.subscriptions.filter((sub) => sub.id !== a.id);
+        snapshot.nodes = snapshot.nodes.filter((n) => n.subscriptionId !== a.id);
+        void invoke("plugin:event|emit", { event: "app://nodes", payload: [...snapshot.nodes] });
+        void invoke("plugin:event|emit", {
+          event: "app://subscriptions",
+          payload: [...snapshot.subscriptions],
+        });
+        return undefined;
       case "reorder_servers": {
         const ids = (args as { ids: string[] }).ids;
         const rank = new Map(ids.map((id, index) => [id, index] as const));

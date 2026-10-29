@@ -210,6 +210,8 @@ export interface Subscription {
   updateIntervalHours: number;
   /** False when the provider has never reported a quota. */
   hasUsage: boolean;
+  /** Пул FREE: публичные серверы из открытых списков, обновляется ежечасно. */
+  free: boolean;
 }
 
 export type ConnState = "disconnected" | "connecting" | "connected" | "error";

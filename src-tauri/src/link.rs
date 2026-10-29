@@ -51,6 +51,10 @@ fn split_uri(rest: &str) -> Result<UriParts> {
         Some((u, h)) => (u.to_string(), h),
         None => (String::new(), authority),
     };
+    // `host:443/?…` — пустой путь перед запросом; так, со слэшем, пишет ссылки
+    // сам Hysteria2. Слэш в адресе не встречается, а до `@` резать нельзя: в
+    // base64 логина shadowsocks он законен.
+    let hostport = hostport.split('/').next().unwrap_or(hostport);
 
     let (host, port) = split_host_port(hostport)?;
 
@@ -267,7 +271,7 @@ fn split_hysteria2_ports(rest: &str) -> (String, Vec<String>) {
     if hostport[colon..].contains(']') {
         return keep;
     }
-    let spec = &hostport[colon + 1..];
+    let spec = hostport[colon + 1..].trim_end_matches('/');
     let looks_like_list = spec.contains([',', '-'])
         && !spec.is_empty()
         && spec.chars().all(|c| c.is_ascii_digit() || matches!(c, ',' | '-'));
@@ -1343,6 +1347,24 @@ mod tests {
         assert_eq!(v6.address, "2001:db8::1");
         assert_eq!(v6.port, 443);
         assert!(v6.hop_ports.is_empty());
+    }
+
+    #[test]
+    fn hysteria2_link_with_a_slash_before_the_query_is_accepted() {
+        // Формат из спецификации Hysteria2: `host:port/?…`.
+        let n = parse_link("hysteria2://gf1%3Apass@5.6.7.8:443/?insecure=1&sni=vk.com#x").unwrap();
+        assert_eq!(n.address, "5.6.7.8");
+        assert_eq!(n.port, 443);
+        assert_eq!(n.password, "gf1:pass");
+        assert_eq!(n.sni, "vk.com");
+
+        let hop = parse_link("hysteria2://p@h.tld:443,20000-50000/?sni=h.tld#x").unwrap();
+        assert_eq!(hop.port, 443);
+        assert_eq!(hop.hop_ports.len(), 2);
+
+        // Слэш в base64 логина shadowsocks — часть логина, а не путь.
+        let ss = parse_link("ss://YWVzLTI1Ni1nY206cGFz/w@1.2.3.4:8388#x");
+        assert!(ss.is_ok_and(|n| n.port == 8388 && n.address == "1.2.3.4"));
     }
 
     #[test]

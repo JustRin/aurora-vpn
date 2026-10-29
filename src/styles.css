@@ -2007,6 +2007,30 @@ html[data-platform="linux"] .app {
   align-items: center;
   gap: 7px;
   margin-top: 2px;
+  /* Одна строка: что не влезло, уходит в многоточие — а не на вторую строку и
+     не поверх задержки справа, как было на телефоне. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.node-meta > .chip {
+  flex-shrink: 0;
+}
+/* Ужимается первым адрес: транспорт («REALITY», «WireGuard · obfs») говорит о
+   сервере больше, чем его хост, и обрезается последним. Адрес не сжимается
+   наравне со всеми, а растёт с нуля в то, что осталось: при пропорциональном
+   сжатии транспорт терял долю пикселя — и уже получал многоточие. */
+.node-meta > .truncate:last-child {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Телефон стоймя: значок-сервер в строке — украшение, а имени нужна каждая
+   колонка. Значки балансировщиков цветные и значат режим — они остаются. */
+@media (max-width: 460px) {
+  .node-icon:not(.balancer):not(.warn) {
+    display: none;
+  }
 }
 
 .latency {
@@ -2026,6 +2050,30 @@ html[data-platform="linux"] .app {
 .node:hover .node-actions,
 .node:focus-within .node-actions {
   opacity: 1;
+}
+/* «⋮» — те же действия для сенсорного экрана (см. @media (hover: none)). */
+.node-more {
+  display: none;
+  flex-shrink: 0;
+}
+
+/* Действия сервера списком в окне, открытом кнопкой «⋮»: строки под палец,
+   удаление — отдельным цветом. */
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.action-list .picker-item {
+  padding: 12px;
+  font-size: var(--t-base);
+  color: var(--text);
+}
+.action-list .picker-item.danger {
+  color: var(--danger);
+}
+.action-list .picker-item.danger:hover {
+  background: var(--danger-soft);
 }
 
 .app-row {
@@ -2470,6 +2518,16 @@ html[data-scan="on"] .ambient {
   .mode-help {
     min-height: 0;
   }
+
+  /* Кнопки строки сервера открываются наведением, а его здесь нет. Невидимые,
+     они всё равно занимали свои 104px, и на телефоне имя сервера сжималось до
+     одной буквы. Вместо них — «⋮» со списком тех же действий. */
+  .node-actions {
+    display: none;
+  }
+  .node-more {
+    display: inline-flex;
+  }
 }
 
 /* The app picker's controls: search and refresh on one line, the system-apps
@@ -2605,6 +2663,17 @@ html[data-scan="on"] .ambient {
 
   .page-head {
     flex-wrap: wrap;
+    gap: 10px;
+  }
+  /* Кнопки шапки — на «Серверах» их четыре — переносятся на вторую строку,
+     а не выталкивают последнюю за край экрана. */
+  .page-head > .row {
+    flex-wrap: wrap;
+  }
+
+  /* В строке сервера семь колонок, и каждый пиксель промежутков отнят у
+     имени: на телефоне они поуже. */
+  .node {
     gap: 10px;
   }
 

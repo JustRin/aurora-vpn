@@ -22,6 +22,7 @@ use crate::core::process::{CoreSupervisor, Engine};
 #[cfg(not(target_os = "android"))]
 use crate::core::xray;
 use crate::error::{AppError, Result};
+use crate::free;
 use crate::link;
 use crate::model::{Protocol, ServerNode};
 use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode};
@@ -2184,16 +2185,31 @@ pub async fn add_subscription(app: AppHandle, input: SubInput) -> Result<ImportR
 }
 
 pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportReport> {
-    let url = {
+    let (url, is_free) = {
         let state = app.state();
         let subs = state.subs.read();
         subs.iter()
             .find(|s| s.id == id)
-            .map(|s| s.url.clone())
+            .map(|s| (s.url.clone(), s.free))
             .ok_or_else(|| AppError::msg("подписка не найдена"))?
     };
 
-    let (body, usage, interval, title) = match fetch_subscription(&url).await {
+    let fetch = async {
+        // У пула FREE адреса нет — есть восемь списков, сведённых в один, и
+        // тарифа с заголовками тоже нет. Списки сами просят обновлять их раз в час.
+        if is_free {
+            let pool = free::fetch().await?;
+            let report = link::ParseReport {
+                nodes: pool.nodes,
+                errors: pool.errors,
+            };
+            return Ok((report, pool.duplicates, None, 1, None));
+        }
+        let (body, usage, interval, title) = fetch_subscription(&url).await?;
+        Ok::<_, AppError>((link::parse_subscription(&body), 0, usage, interval, title))
+    };
+
+    let (report, skipped, usage, interval, title) = match fetch.await {
         Ok(result) => result,
         Err(e) => {
             let state = app.state();
@@ -2207,7 +2223,6 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
         }
     };
 
-    let report = link::parse_subscription(&body);
     let fetched = report.nodes.len();
 
     {
@@ -2256,9 +2271,75 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
     emit_subs(&app);
     Ok(ImportReport {
         added: fetched,
-        skipped: 0,
+        skipped,
         errors: report.errors,
     })
+}
+
+/// Включить пул FREE, а если он уже есть — обновить: второй такой же принёс бы
+/// те же серверы дважды.
+///
+/// Согласие спрашивает интерфейс, до вызова. Пул, который при включении не
+/// собрал ни одного сервера, не остаётся висеть пустым разделом — включение
+/// просто не состоялось.
+pub async fn add_free_pool(app: AppHandle) -> Result<ImportReport> {
+    let existing = {
+        let state = app.state();
+        let subs = state.subs.read();
+        subs.iter().find(|s| s.free).map(|s| s.id.clone())
+    };
+    if let Some(id) = existing {
+        return refresh_subscription(app, id).await;
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    {
+        let state = app.state();
+        state.subs.write().push(Subscription {
+            id: id.clone(),
+            name: free::NAME.into(),
+            url: free::SOURCE.into(),
+            free: true,
+            ..Default::default()
+        });
+        state.save_subs()?;
+    }
+    let report = refresh_subscription(app.clone(), id.clone()).await;
+    if report.is_err() {
+        {
+            let state = app.state();
+            state.subs.write().retain(|s| s.id != id);
+            state.save_subs()?;
+        }
+        emit_subs(&app);
+    }
+    report
+}
+
+/// Часовой круг пула FREE: пока пул включён, он обновляется в начале каждого
+/// часа по часам компьютера — бесплатные серверы живут недолго. Молча, как и
+/// остальные фоновые обновления.
+pub async fn keep_free_fresh(app: AppHandle) {
+    // Когда обновление сорвалось в последний раз: следующая попытка в тот же
+    // час — не раньше чем через `free::RETRY`.
+    let mut failed_at: Option<Instant> = None;
+    loop {
+        let due = {
+            let state = app.state();
+            let subs = state.subs.read();
+            subs.iter()
+                .find(|s| s.free && s.enabled && free::due_now(&s.last_updated))
+                .map(|s| s.id.clone())
+        };
+        let resting = failed_at.is_some_and(|at| at.elapsed() < free::RETRY);
+        if let (Some(id), false) = (due, resting) {
+            failed_at = match refresh_subscription(app.clone(), id).await {
+                Ok(_) => None,
+                Err(_) => Some(Instant::now()),
+            };
+        }
+        tokio::time::sleep(free::TICK).await;
+    }
 }
 
 /// Refresh every enabled subscription. Failures are collected rather than
@@ -2304,9 +2385,10 @@ pub async fn refresh_stale_subscriptions(app: &AppHandle) {
         let state = app.state();
         let interval = state.settings.read().sub_auto_update_min;
         let subs = state.subs.read();
+        // У пула FREE свои часы — `keep_free_fresh`.
         let candidates: Vec<(String, String)> = subs
             .iter()
-            .filter(|s| s.enabled)
+            .filter(|s| s.enabled && !s.free)
             .map(|s| (s.id.clone(), s.last_updated.clone()))
             .collect();
         (interval, candidates)

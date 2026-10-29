@@ -291,6 +291,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "リンクをコピー",
   "srv.editTitle": "編集",
   "srv.deleteTitle": "削除",
+  "srv.moreActions": "サーバーの操作",
   "srv.addManually": "サーバーを手動で追加",
   "srv.reportAdded": "{n} 件追加",
   "srv.reportSkipped": "重複 {n} 件をスキップ",
@@ -384,6 +385,18 @@ export const ja: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "登録し直します。鍵が変わり、出口のアドレスも変わります",
   "warp.resetDone": "WARP を登録し直しました",
   "warp.resetFailed": "WARP を登録し直せませんでした",
+
+  "free.btnTitle": "無料の公開サーバー",
+  "free.btnRefreshTitle": "FREE の無料サーバーを更新",
+  "free.consentTitle": "無料サーバー FREE",
+  "free.consentText": "アプリは公開ソース（GitHub の igareck/vpn-configs-for-russia リポジトリのリスト）にある公開サーバーを FREE という1つのプールにまとめます。重複は除かれ、プールは毎正時に更新されます。無料サーバーはすぐに使えなくなり、新しいものと入れ替わるためです。",
+  "free.riskTitle": "保証はありません",
+  "free.consentRisk": "これらのサーバーは第三者のものです。私たちは運営も確認もしておらず、動作や速度、データの漏えいや消失について一切責任を負いません。サーバーの所有者は通信を閲覧・記録できます。パスワードや支払い情報は入力しないでください。",
+  "free.consentOptout": "いつでもやめられます。FREE をごみ箱アイコンで削除すれば、プールはすべてのサーバーごと消えます。有効にすると、これらの条件に同意したことになります。",
+  "free.source": "リストの出典",
+  "free.accept": "同意して有効にする",
+  "free.failed": "無料サーバーを取得できませんでした",
+  "free.cardNote": "公開ソースの公開サーバー · 毎時更新",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "QR コードを読み取る:",

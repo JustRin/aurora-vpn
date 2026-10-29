@@ -285,6 +285,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "링크 복사",
   "srv.editTitle": "편집",
   "srv.deleteTitle": "삭제",
+  "srv.moreActions": "서버 작업",
   "srv.addManually": "서버를 직접 추가",
   "srv.reportAdded": "{n}개 추가",
   "srv.reportSkipped": "중복 {n}개 건너뜀",
@@ -376,6 +377,18 @@ export const ko: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "새로 등록합니다. 키가 바뀌고 나가는 주소도 바뀝니다",
   "warp.resetDone": "WARP를 다시 등록했습니다",
   "warp.resetFailed": "WARP를 다시 등록하지 못했습니다",
+
+  "free.btnTitle": "무료 공개 서버",
+  "free.btnRefreshTitle": "FREE 무료 서버 갱신",
+  "free.consentTitle": "무료 서버 FREE",
+  "free.consentText": "앱이 공개 출처(GitHub의 igareck/vpn-configs-for-russia 저장소 목록)의 공개 서버를 FREE라는 하나의 풀로 모읍니다. 중복은 걸러지고, 풀은 매시 정각에 갱신됩니다. 무료 서버는 금방 사라지고 새 서버가 그 자리를 채우기 때문입니다.",
+  "free.riskTitle": "보장하지 않습니다",
+  "free.consentRisk": "이 서버들은 제3자의 소유입니다. 저희는 이를 운영하거나 점검하지 않으며, 작동이나 속도, 데이터 유출·손실에 대해 책임지지 않습니다. 서버 소유자는 트래픽을 보고 기록할 수 있으니 비밀번호나 결제 정보는 입력하지 마세요.",
+  "free.consentOptout": "언제든 그만둘 수 있습니다. FREE를 휴지통 아이콘으로 삭제하면 풀이 모든 서버와 함께 사라집니다. 켜면 위 조건에 동의하는 것입니다.",
+  "free.source": "목록 출처",
+  "free.accept": "동의하고 켜기",
+  "free.failed": "무료 서버를 가져오지 못했습니다",
+  "free.cardNote": "공개 출처의 공개 서버 · 매시간 갱신",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "QR 코드 읽기:",

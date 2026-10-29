@@ -3,7 +3,7 @@
 import { Theme, Icons, SectionTitle, MonoText, Divider, NavIcon } from "../theme.slint";
 import {
     Btn, IconBtn, Field, Input, TextArea, Select, Switch, Empty, ScrollArea,
-    ModalShell, ModalFoot
+    ModalShell, ModalFoot, Alert
 } from "../widgets.slint";
 import { NodeGroupSection, BalancerRow } from "../cards.slint";
 import { Data, Conf, Ui, Draft } from "../data.slint";
@@ -83,6 +83,22 @@ export component ServersPage inherits ScrollArea {
                     icon: Icons.cloud;
                     enabled: !Data.warp-busy;
                     clicked => { Data.warp-add-node(); }
+                }
+                // Пул бесплатных серверов. Включённый — обновляется по
+                // нажатию; невключённый сперва показывает соглашение: серверы
+                // чужие, и об этом надо сказать до, а не после.
+                Btn {
+                    label: "FREE";
+                    icon: Icons.gift;
+                    busy: Data.free-busy;
+                    enabled: !Data.free-busy;
+                    clicked => {
+                        if (Data.free-id != "") {
+                            Data.free-add();
+                        } else {
+                            Ui.modal = 9;
+                        }
+                    }
                 }
                 Btn {
                     label: Str.srv-add-btn;
@@ -277,6 +293,58 @@ export component ImportModal inherits ModalShell {
             kind: "primary";
             enabled: Ui.import-text != "";
             clicked => { Data.import-links(Ui.import-text); }
+        }
+    }
+}
+
+// Соглашение перед включением пула FREE. Серверы в нём чужие и публичные —
+// об этом, об отказе от ответственности и о том, как от пула отказаться,
+// надо сказать до включения, а не после.
+export component FreeConsentModal inherits ModalShell {
+    title: Str.free-consent-title;
+    close => { Ui.modal = 0; }
+
+    VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+        Text {
+            text: Str.free-consent-text;
+            color: Theme.text-muted;
+            font-size: 12.5px * Theme.text-scale;
+            wrap: word-wrap;
+        }
+        Alert {
+            icon: Icons.shield-alert;
+            title: Str.free-risk-title;
+            text: Str.free-consent-risk;
+        }
+        Text {
+            text: Str.free-consent-optout;
+            color: Theme.text-muted;
+            font-size: 12.5px * Theme.text-scale;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: start;
+            Btn {
+                label: Str.free-source;
+                small: true;
+                clicked => { Data.open-url("https://github.com/igareck/vpn-configs-for-russia"); }
+            }
+        }
+    }
+    ModalFoot {
+        Btn {
+            label: Str.srv-cancel;
+            clicked => { Ui.modal = 0; }
+        }
+        Btn {
+            label: Str.free-accept;
+            kind: "primary";
+            clicked => {
+                Ui.modal = 0;
+                Data.free-add();
+            }
         }
     }
 }

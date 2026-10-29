@@ -1,6 +1,7 @@
 mod commands;
 mod core;
 mod error;
+mod free;
 mod link;
 mod model;
 mod net;
@@ -526,6 +527,9 @@ pub fn run() {
                 });
             }
 
+            // Пул FREE живёт по своим часам: в начале каждого часа, пока включён.
+            tauri::async_runtime::spawn(commands::keep_free_fresh(handle.clone()));
+
             Ok(())
         })
         .on_window_event(|_window, _event| {
@@ -571,6 +575,7 @@ pub fn run() {
             commands::refresh_subscription,
             commands::refresh_all_subscriptions,
             commands::delete_subscription,
+            commands::add_free_pool,
             commands::warp_status,
             commands::enable_warp,
             commands::reset_warp,

@@ -574,6 +574,10 @@ fn transport_label(node: &ServerNode) -> String {
 
 pub fn render_subs(ui: &AppWindow) {
     let rows: Vec<crate::SubInfo> = with(|view| view.subs.iter().map(sub_row).collect());
+    // Кнопке FREE надо знать, включён ли пул: включённый она обновляет, а
+    // невключённый сперва спрашивает согласия.
+    let free_id = rows.iter().find(|row| row.free).map(|row| row.id.clone());
+    ui.global::<Data>().set_free_id(free_id.unwrap_or_default());
     ui.global::<Data>().set_subs(ModelRc::new(VecModel::from(rows)));
     // Разделы списка — это те же подписки: сменилась одна, пересобрать надо оба.
     render_groups(ui);
@@ -600,6 +604,7 @@ fn sub_row(sub: &Subscription) -> crate::SubInfo {
         used: quota_used(sub.upload + sub.download, sub.total),
         warning: warning.into(),
         foot: sub_foot(sub).into(),
+        free: sub.free,
     }
 }
 

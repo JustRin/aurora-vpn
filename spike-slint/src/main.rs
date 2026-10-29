@@ -11,6 +11,7 @@ mod app;
 mod bind;
 mod core;
 mod error;
+mod free;
 mod icons;
 mod keys;
 mod link;
@@ -63,6 +64,7 @@ struct Lang {
     warp_reset_done: String,
     warp_account_on: String,
     warp_account_off: String,
+    free_failed: String,
     report_no_new: String,
     report_added: String,
     already_in_list: String,
@@ -146,6 +148,7 @@ impl Lang {
             warp_reset_done: s.get_warp_reset_done().into(),
             warp_account_on: s.get_warp_account_on().into(),
             warp_account_off: s.get_warp_account_off().into(),
+            free_failed: s.get_free_failed().into(),
             report_no_new: s.get_srv_report_no_new().into(),
             report_added: s.get_srv_report_added().into(),
             already_in_list: s.get_split_already_in_list().into(),

@@ -61,6 +61,9 @@ export const api = {
     invoke<ImportReport>("refresh_subscription", { id }),
   refreshAllSubscriptions: () => invoke<ImportReport>("refresh_all_subscriptions"),
   deleteSubscription: (id: string) => invoke<void>("delete_subscription", { id }),
+  /** Пул FREE: включает его (согласие спрашивается до вызова) или, если уже
+   *  включён, обновляет. Отказ — `deleteSubscription` его id. */
+  addFreePool: () => invoke<ImportReport>("add_free_pool"),
 
   /** Cloudflare WARP: один аккаунт и на слой поверх прокси, и на отдельный
    *  узел — живую сессию Cloudflare держит ровно одну на ключ. */

@@ -295,6 +295,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "Copiar link",
   "srv.editTitle": "Editar",
   "srv.deleteTitle": "Excluir",
+  "srv.moreActions": "Ações do servidor",
   "srv.addManually": "Adicionar um servidor manualmente",
   "srv.reportAdded": "{n} adicionados",
   "srv.reportSkipped": "{n} duplicados ignorados",
@@ -389,6 +390,18 @@ export const pt: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "Um novo registro: outra chave e outro endereço na saída",
   "warp.resetDone": "WARP registrado de novo",
   "warp.resetFailed": "Não foi possível registrar o WARP de novo",
+
+  "free.btnTitle": "Servidores públicos gratuitos",
+  "free.btnRefreshTitle": "Atualizar os servidores FREE",
+  "free.consentTitle": "Servidores gratuitos FREE",
+  "free.consentText": "O app reúne servidores públicos de fontes abertas — as listas do repositório igareck/vpn-configs-for-russia no GitHub — em um só pool chamado FREE. Duplicatas são descartadas, e o pool se atualiza no início de cada hora: servidores gratuitos morrem rápido e outros entram no lugar.",
+  "free.riskTitle": "Sem garantias",
+  "free.consentRisk": "Esses servidores pertencem a terceiros. Não os operamos nem verificamos e não nos responsabilizamos pelo funcionamento, pela velocidade nem por vazamento ou perda dos seus dados. O dono do servidor pode ver e registrar seu tráfego — não digite senhas nem dados de pagamento por eles.",
+  "free.consentOptout": "Você pode desistir a qualquer momento: apague o FREE pelo ícone da lixeira e o pool some com todos os seus servidores. Ao ligar, você aceita estes termos.",
+  "free.source": "Origem das listas",
+  "free.accept": "Concordo, ligar",
+  "free.failed": "Não foi possível reunir os servidores gratuitos",
+  "free.cardNote": "Servidores públicos de fontes abertas · atualizado a cada hora",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "Ler um código QR:",

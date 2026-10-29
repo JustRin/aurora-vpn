@@ -1,4 +1,4 @@
-import { CalendarClock, RefreshCw, Rss, Trash2 } from "lucide-react";
+import { CalendarClock, Gift, RefreshCw, Rss, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { api, errText } from "../lib/api";
@@ -38,6 +38,9 @@ export function SubscriptionCard({
   const tier = expiryTier(sub.expire);
   const expired = sub.expire > 0 && sub.expire * 1000 < Date.now();
   const exhausted = fraction !== null && fraction >= 1;
+  // Пул FREE — не подписка провайдера: свой значок, как на кнопке, что его
+  // включила, и вместо тарифа — откуда серверы и как часто они меняются.
+  const Icon = sub.free ? Gift : Rss;
 
   async function refresh() {
     setBusy(true);
@@ -54,7 +57,7 @@ export function SubscriptionCard({
     <div className={`card sub-card${compact ? " compact" : ""}`}>
       <div className="row between" style={{ gap: 10 }}>
         <div className="row grow" style={{ gap: 8, minWidth: 0 }}>
-          <Rss size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+          <Icon size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
           <span className="node-name truncate" title={sub.name}>
             {sub.name}
           </span>
@@ -120,7 +123,7 @@ export function SubscriptionCard({
         </>
       ) : (
         <div className="sub-metric-label" style={{ marginTop: 6 }}>
-          {t("srv.noUsageInfo")}
+          {t(sub.free ? "free.cardNote" : "srv.noUsageInfo")}
         </div>
       )}
 

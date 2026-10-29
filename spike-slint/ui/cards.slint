@@ -671,7 +671,9 @@ export component NodeGroupSection inherits VerticalLayout {
                 VerticalLayout {
                     alignment: center;
                     NavIcon {
-                        commands: root.own ? Icons.server : Icons.rss;
+                        // Пул FREE — со своим значком, как на кнопке, что его
+                        // включила: это не подписка провайдера.
+                        commands: root.own ? Icons.server : (root.group.sub.free ? Icons.gift : Icons.rss);
                         tint: Theme.text-muted;
                         width: 15px;
                         height: 15px;

@@ -1006,6 +1006,31 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
         }
     });
 
+    // Кнопка FREE: включает пул бесплатных серверов (согласие уже спрошено
+    // окном) или обновляет его, если он уже включён. Восемь списков качаются
+    // секунду-другую — всё это время кнопка крутится и не нажимается.
+    data.on_free_add({
+        let handle = handle.clone();
+        move || {
+            let handle = handle.clone();
+            handle.with_ui(|ui| ui.global::<Data>().set_free_busy(true));
+            app::runtime().spawn(async move {
+                let reporter = handle.clone();
+                let result = api::add_free_pool(handle).await;
+                reporter.with_ui(move |ui| {
+                    ui.global::<Data>().set_free_busy(false);
+                    match result {
+                        Ok(report) => import_toast(ui, &report),
+                        Err(e) => {
+                            let title = crate::tr(|l| l.free_failed.clone());
+                            view::toast(ui, "error", &title, &human(e.to_string()));
+                        }
+                    }
+                });
+            });
+        }
+    });
+
     // ---- раздельный туннель ----------------------------------------------
     // Заход на страницу — повод поискать иконки, которых не нашлось раньше:
     // программу, не запущенную при старте клиента, за это время могли открыть.
@@ -1630,6 +1655,9 @@ pub fn after_start(ui: &AppWindow, handle: &AppHandle) {
             api::refresh_stale_subscriptions(&handle).await;
         });
     }
+
+    // Пул FREE живёт по своим часам: в начале каждого часа, пока включён.
+    app::runtime().spawn(api::keep_free_fresh(handle.clone()));
 
     if settings.auto_connect {
         let handle = handle.clone();

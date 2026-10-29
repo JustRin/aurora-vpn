@@ -777,6 +777,22 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_fingerprint_is_dropped_rather_than_sinking_the_config() {
+        // Public lists carry `fp=unsafe`; passed through, sing-box would refuse
+        // the whole document and nothing would connect.
+        let node = ServerNode {
+            protocol: Protocol::Vless,
+            security: Security::Tls,
+            address: "example.com".into(),
+            fingerprint: "unsafe".into(),
+            ..Default::default()
+        };
+        let out = node.to_outbound("t", "dns-direct");
+        assert_eq!(out["tls"]["enabled"], json!(true));
+        assert!(out["tls"].get("utls").is_none());
+    }
+
+    #[test]
     fn vision_flow_suppresses_multiplex() {
         let node = ServerNode {
             security: Security::Reality,

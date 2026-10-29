@@ -410,6 +410,9 @@ pub struct Subscription {
     /// True once the panel actually reported a quota, so the UI can tell
     /// "unlimited" apart from "never asked".
     pub has_usage: bool,
+    /// Пул FREE (см. free.rs): серверы тянутся из открытых списков, а не по
+    /// `url`, и обновляются в начале каждого часа.
+    pub free: bool,
 }
 
 impl Default for Subscription {
@@ -428,6 +431,7 @@ impl Default for Subscription {
             expire: 0,
             update_interval_hours: 0,
             has_usage: false,
+            free: false,
         }
     }
 }

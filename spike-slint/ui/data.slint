@@ -29,6 +29,8 @@ export struct SubInfo {
     used: float,
     warning: string,
     foot: string,
+    // Пул бесплатных серверов FREE: публичные списки, а не панель провайдера.
+    free: bool,
 }
 
 // Раздел списка серверов: подписка со своими узлами. Собирается в Rust — там
@@ -176,6 +178,13 @@ export global Data {
     callback warp-reset();
     callback warp-toggle(bool);
     callback warp-add-node();
+
+    // Пул бесплатных серверов FREE. `free-id` — id его подписки, пусто, пока
+    // пул не включён: тогда кнопка сперва показывает соглашение.
+    in-out property <string> free-id;
+    in-out property <bool> free-busy;
+    // Включить пул или, если уже включён, обновить его.
+    callback free-add();
     // Ссылка открывается системным браузером: условия — у Cloudflare, а не тут.
     callback open-url(string);
     // Раздел перетащили на новое место: id подписки и её новый номер.

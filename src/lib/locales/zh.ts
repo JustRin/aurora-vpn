@@ -280,6 +280,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "复制链接",
   "srv.editTitle": "编辑",
   "srv.deleteTitle": "删除",
+  "srv.moreActions": "服务器操作",
   "srv.addManually": "手动添加服务器",
   "srv.reportAdded": "已添加 {n}",
   "srv.reportSkipped": "跳过 {n} 条重复",
@@ -371,6 +372,18 @@ export const zh: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "重新注册：换一把密钥，出口地址也随之改变",
   "warp.resetDone": "WARP 已重新注册",
   "warp.resetFailed": "WARP 重新注册失败",
+
+  "free.btnTitle": "免费公共服务器",
+  "free.btnRefreshTitle": "更新 FREE 免费服务器",
+  "free.consentTitle": "免费服务器 FREE",
+  "free.consentText": "应用会把公开来源（GitHub 上 igareck/vpn-configs-for-russia 仓库的列表）中的公共服务器汇集到一个名为 FREE 的池中。重复项会被剔除，池在每个整点自动更新：免费服务器失效很快，新的会随时补上。",
+  "free.riskTitle": "不作任何保证",
+  "free.consentRisk": "这些服务器属于第三方。我们既不运营也不检查它们，对其可用性、速度以及您数据的泄露或丢失概不负责。服务器所有者能够查看并记录您的流量——请勿通过它们输入密码或支付信息。",
+  "free.consentOptout": "您可随时退出：点击 FREE 旁的垃圾桶图标将其删除，整个池连同其中的所有服务器都会消失。开启即表示您接受上述条款。",
+  "free.source": "列表来源",
+  "free.accept": "同意并开启",
+  "free.failed": "无法获取免费服务器",
+  "free.cardNote": "来自公开来源的公共服务器 · 每小时更新",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "扫描二维码：",

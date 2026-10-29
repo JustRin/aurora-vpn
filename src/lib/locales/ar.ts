@@ -292,6 +292,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "نسخ الرابط",
   "srv.editTitle": "تحرير",
   "srv.deleteTitle": "حذف",
+  "srv.moreActions": "إجراءات الخادم",
   "srv.addManually": "إضافة خادم يدويًا",
   "srv.reportAdded": "أُضيف {n}",
   "srv.reportSkipped": "تُخطّي {n} مكررًا",
@@ -385,6 +386,18 @@ export const ar: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "تسجيل جديد: مفتاح آخر، وعنوان خروج آخر",
   "warp.resetDone": "أُعيد تسجيل WARP",
   "warp.resetFailed": "تعذّرت إعادة تسجيل WARP",
+
+  "free.btnTitle": "خوادم عامة مجانية",
+  "free.btnRefreshTitle": "تحديث خوادم FREE المجانية",
+  "free.consentTitle": "خوادم مجانية FREE",
+  "free.consentText": "يجمع التطبيق خوادم عامة من مصادر مفتوحة — قوائم مستودع igareck/vpn-configs-for-russia على GitHub — في مجموعة واحدة اسمها FREE. تُحذف المكررات، وتتحدّث المجموعة في بداية كل ساعة: فالخوادم المجانية تتوقف بسرعة وتحلّ محلها خوادم جديدة.",
+  "free.riskTitle": "بلا أي ضمانات",
+  "free.consentRisk": "هذه الخوادم مملوكة لأطراف ثالثة. نحن لا نديرها ولا نفحصها ولا نتحمّل أي مسؤولية عن عملها أو سرعتها أو تسرّب بياناتك أو فقدانها. يستطيع مالك الخادم رؤية حركة بياناتك وتسجيلها — لا تُدخل عبرها كلمات مرور أو بيانات دفع.",
+  "free.consentOptout": "يمكنك الانسحاب في أي وقت: احذف FREE بأيقونة سلة المهملات فتختفي المجموعة مع جميع خوادمها. بتشغيلها فأنت توافق على هذه الشروط.",
+  "free.source": "مصدر القوائم",
+  "free.accept": "أوافق، شغّلها",
+  "free.failed": "تعذّر جمع الخوادم المجانية",
+  "free.cardNote": "خوادم عامة من مصادر مفتوحة · تتحدّث كل ساعة",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "قراءة رمز QR:",

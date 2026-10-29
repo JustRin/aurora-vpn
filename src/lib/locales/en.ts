@@ -294,6 +294,7 @@ export const en: Record<keyof typeof ru, string> = {
   "srv.copyLinkTitle": "Copy link",
   "srv.editTitle": "Edit",
   "srv.deleteTitle": "Delete",
+  "srv.moreActions": "Server actions",
   "srv.addManually": "Add a server manually",
   "srv.reportAdded": "added {n}",
   "srv.reportSkipped": "skipped {n} duplicates",
@@ -387,6 +388,18 @@ export const en: Record<keyof typeof ru, string> = {
   "warp.newAddressHint": "A fresh registration: another key, and another address on the way out",
   "warp.resetDone": "WARP re-registered",
   "warp.resetFailed": "Could not re-register WARP",
+
+  "free.btnTitle": "Free public servers",
+  "free.btnRefreshTitle": "Refresh the FREE servers",
+  "free.consentTitle": "Free servers (FREE)",
+  "free.consentText": "The app gathers public servers from open sources — the lists of the igareck/vpn-configs-for-russia repository on GitHub — into one pool called FREE. Duplicates are dropped, and the pool refreshes at the top of every hour: free servers die quickly and new ones take their place.",
+  "free.riskTitle": "No guarantees",
+  "free.consentRisk": "These servers belong to third parties. We neither run nor check them and accept no responsibility for how they work, their speed, or any leak or loss of your data. A server's owner can see and record your traffic — don't enter passwords or payment details through them.",
+  "free.consentOptout": "You can opt out at any time: delete FREE with its trash icon and the pool disappears along with all its servers. By turning it on you accept these terms.",
+  "free.source": "Source lists",
+  "free.accept": "Agree and turn on",
+  "free.failed": "Could not gather the free servers",
+  "free.cardNote": "Public servers from open sources · refreshed every hour",
 
   // ----------------------------------------------------------------------- qr
   "qr.scan": "Scan a QR code:",

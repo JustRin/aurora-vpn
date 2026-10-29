@@ -3,6 +3,7 @@ import {
   ClipboardPaste,
   Cloud,
   Copy,
+  EllipsisVertical,
   Gauge,
   GripVertical,
   Pencil,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { FreePoolButton } from "../components/FreePool";
 import { QrSources } from "../components/QrScanner";
 import { SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
@@ -110,6 +112,9 @@ export function Servers() {
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [editing, setEditing] = useState<ServerNode | null>(null);
   const [addingWarp, setAddingWarp] = useState(false);
+  // Сервер, чьи действия открыты кнопкой «⋮» — так их достают на сенсорном
+  // экране, где наведения, открывающего кнопки в строке, не бывает.
+  const [actionsFor, setActionsFor] = useState<ServerNode | null>(null);
 
   /** Новый порядок уезжает на бэкенд один раз, когда строку отпустили. */
   const saveOrder = useCallback(
@@ -194,6 +199,7 @@ export function Servers() {
             <Cloud size={15} className={addingWarp ? "spin" : ""} />
             WARP
           </button>
+          <FreePoolButton onReport={(report) => reportToast(report, toast)} />
           <button
             type="button"
             className="btn primary"
@@ -352,9 +358,14 @@ export function Servers() {
                       <span className="chip accent">{t("pick.nowChip")}</span>
                     )}
                     <span className="chip">{protocolLabel(node.protocol)}</span>
-                    <span>{transportLabel(node.security, node.network, node.protocol, node.alpn)}</span>
-                    <span>·</span>
                     <span className="truncate">
+                      {transportLabel(node.security, node.network, node.protocol, node.alpn)}
+                    </span>
+                    {/* Точка — в одном куске с адресом: на телефоне адрес
+                        ужимается первым, и она уходит вместе с ним, а не
+                        висит в конце строки. */}
+                    <span className="truncate">
+                      {"· "}
                       {node.address}:{node.port}
                     </span>
                   </div>
@@ -391,11 +402,66 @@ export function Servers() {
                     <Trash2 size={14} />
                   </button>
                 </div>
+                {/* Вместо трёх кнопок на сенсорном экране (см. .node-more):
+                    они ждут наведения, и, невидимые, всё равно съедали
+                    ширину — на телефоне имя сервера сжималось до буквы. */}
+                <button
+                  type="button"
+                  className="btn ghost icon node-more"
+                  aria-label={t("srv.moreActions")}
+                  onClick={() => setActionsFor(node)}
+                >
+                  <EllipsisVertical size={16} />
+                </button>
               </div>
             );
           })}
         </div>
       )}
+
+      <Modal
+        open={actionsFor !== null}
+        title={actionsFor?.name ?? ""}
+        onClose={() => setActionsFor(null)}
+      >
+        {actionsFor && (
+          <div className="action-list">
+            <button
+              type="button"
+              className="picker-item"
+              onClick={() => {
+                setActionsFor(null);
+                void copyLink(actionsFor);
+              }}
+            >
+              <Copy size={16} />
+              {t("srv.copyLinkTitle")}
+            </button>
+            <button
+              type="button"
+              className="picker-item"
+              onClick={() => {
+                setActionsFor(null);
+                setEditing(actionsFor);
+              }}
+            >
+              <Pencil size={16} />
+              {t("srv.editTitle")}
+            </button>
+            <button
+              type="button"
+              className="picker-item danger"
+              onClick={() => {
+                setActionsFor(null);
+                void remove(actionsFor);
+              }}
+            >
+              <Trash2 size={16} />
+              {t("srv.deleteTitle")}
+            </button>
+          </div>
+        )}
+      </Modal>
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} />
       {editing && (
