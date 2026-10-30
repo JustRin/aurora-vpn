@@ -2137,6 +2137,15 @@ pub async fn update_server(app: AppHandle, node: ServerNode) -> Result<()> {
     restart_if_running(&app).await
 }
 
+/// Пока сервер не выбирали явно, выбранным считается первый в списке — и
+/// перестановка молча сменила бы его. Поэтому перед ней выбор закрепляется:
+/// порядок строк не повод подключаться к другому серверу.
+fn pin_active(state: &AppState) -> Result<()> {
+    let resolved = state.resolve_active_id();
+    *state.active_id.write() = resolved;
+    state.save_ui()
+}
+
 /// Переставить серверы в порядок `ids` — то, что пользователь собрал
 /// перетаскиванием.
 ///
@@ -2149,6 +2158,7 @@ pub async fn update_server(app: AppHandle, node: ServerNode) -> Result<()> {
 pub async fn reorder_servers(app: AppHandle, ids: Vec<String>) -> Result<()> {
     {
         let state = app.state::<AppState>();
+        pin_active(&state)?;
         let mut nodes = state.nodes.write();
 
         let rank: HashMap<&str, usize> = ids
@@ -2216,6 +2226,7 @@ fn sort_subs(subs: &mut [Subscription], ids: &[String]) -> Vec<String> {
 pub async fn reorder_subscriptions(app: AppHandle, ids: Vec<String>) -> Result<()> {
     {
         let state = app.state::<AppState>();
+        pin_active(&state)?;
         // Замки берутся по одному: обновление подписки берёт сначала узлы, потом
         // подписки, и встречный порядок здесь однажды сцепился бы с ним намертво.
         let order = sort_subs(&mut state.subs.write(), &ids);
@@ -3604,7 +3615,7 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        installer_suffix, merge_subscription_nodes, parse_version, pick_installer_url,
+        installer_suffix, merge_subscription_nodes, parse_version, pick_installer_url, pin_active,
         reflow_nodes_by_subs, sort_subs, split_frame, split_import_text, ServerNode, Subscription,
     };
     use serde_json::json;
@@ -3647,6 +3658,31 @@ mod tests {
 
         // Свои серверы всегда в конце — там же, где их показывает список.
         assert_eq!(node_names(&nodes), vec!["B", "A", "Свой"]);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn a_server_nobody_picked_stays_chosen_when_the_list_is_reordered() {
+        // Без явного выбора выбран первый в списке: перетаскивание не должно
+        // незаметно отправить следующее подключение на другой сервер.
+        let dir = std::env::temp_dir().join("aurora-pin-active-tauri");
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = crate::state::AppState::new(dir.clone(), "sing-box".into(), None).unwrap();
+        *state.nodes.write() = vec![section_node("A", Some("s1")), section_node("B", Some("s2"))];
+        *state.active_id.write() = "исчезнувший".into();
+
+        pin_active(&state).unwrap();
+        reflow_nodes_by_subs(
+            &mut state.nodes.write(),
+            &["s2".to_string(), "s1".to_string()],
+        );
+
+        assert_eq!(node_names(&state.nodes.read()), vec!["B", "A"]);
+        assert_eq!(state.resolve_active_id(), "A");
+        // И после перезапуска: выбор лежит на диске.
+        let saved = std::fs::read_to_string(dir.join("ui.json")).unwrap();
+        assert!(saved.contains("\"A\""), "{saved}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1871,8 +1871,7 @@ fn merge_subscription_nodes(
         let slot = incoming
             .iter_mut()
             .find(|candidate| candidate.as_ref().is_some_and(|n| n.fingerprint_key() == key));
-        // No slot means the provider stopped serving this node, and it goes
-        // away with it.
+
         if let Some(slot) = slot {
             let mut fresh = slot.take().expect("совпадение ищется только среди занятых мест");
             fresh.id = node.id;
@@ -1880,15 +1879,11 @@ fn merge_subscription_nodes(
         }
     }
 
-    // Whatever the provider has added since last time goes to the end, in the
-    // order it listed them.
+
     merged.extend(incoming.into_iter().flatten());
     merged
 }
 
-/// Переставить подписку: `to` — её новый номер среди подписок.
-///
-/// Возвращает новый порядок идентификаторов, если что-то сдвинулось.
 fn move_sub_order(subs: &mut Vec<Subscription>, id: &str, to: i32) -> Option<Vec<String>> {
     let from = subs.iter().position(|s| s.id == id)?;
     let to = to.clamp(0, subs.len().saturating_sub(1) as i32) as usize;
@@ -1900,13 +1895,14 @@ fn move_sub_order(subs: &mut Vec<Subscription>, id: &str, to: i32) -> Option<Vec
     Some(subs.iter().map(|s| s.id.clone()).collect())
 }
 
-/// Разложить узлы по разделам в порядке `order`, свои серверы — в конец.
-///
-/// Порядок разделов на экране — это порядок подписок, но вместе с ними должны
-/// переезжать и узлы: из этого списка собирается документ ядра, и «по кругу»
-/// обходил бы серверы в одном порядке, пока на экране стоял бы другой. Узел
-/// подписки, которой больше нет, попадает к своим — ровно туда, куда его
-/// кладёт и список.
+
+fn pin_active(state: &AppState) -> Result<()> {
+    let resolved = state.resolve_active_id();
+    *state.active_id.write() = resolved;
+    state.save_ui()
+}
+
+
 fn reflow_nodes_by_subs(nodes: &mut Vec<ServerNode>, order: &[String]) {
     // Функцией, а не замыканием: время жизни ответа привязано к узлу, а
     // замыкание такую связь выразить не умеет — то же, что в view::render_groups.
@@ -1924,11 +1920,7 @@ fn reflow_nodes_by_subs(nodes: &mut Vec<ServerNode>, order: &[String]) {
     *nodes = reflowed;
 }
 
-/// Переставить раздел — подписку целиком — на новое место в списке.
-///
-/// Ядро не перезапускается по той же причине, что и при перестановке строк:
-/// теги запущенного документа держатся по идентификаторам узлов, а не по
-/// позициям.
+
 pub async fn reorder_sub(app: AppHandle, id: String, to: i32) -> Result<()> {
     let state = app.state();
     // Замки берутся по одному: обновление подписки берёт сначала узлы, потом
@@ -1940,6 +1932,7 @@ pub async fn reorder_sub(app: AppHandle, id: String, to: i32) -> Result<()> {
             None => return Ok(()),
         }
     };
+    pin_active(state)?;
     {
         let mut nodes = state.nodes.write();
         reflow_nodes_by_subs(&mut nodes, &order);
@@ -1951,12 +1944,7 @@ pub async fn reorder_sub(app: AppHandle, id: String, to: i32) -> Result<()> {
     Ok(())
 }
 
-/// Переставить узел внутри его раздела. Возвращает, сдвинулось ли что-нибудь.
-///
-/// Между разделами строка не ездит: раздел — это панель, которая сервер
-/// раздаёт, и сменить её перетаскиванием нельзя. Поэтому переставляются не
-/// узлы в общем списке, а их содержимое по тем же местам, которые узлы этой
-/// подписки в списке и занимают.
+
 fn move_within_group(nodes: &mut [ServerNode], id: &str, to: i32) -> bool {
     let Some(moved_at) = nodes.iter().position(|n| n.id == id) else {
         return false;
@@ -1986,17 +1974,11 @@ fn move_within_group(nodes: &mut [ServerNode], id: &str, to: i32) -> bool {
     true
 }
 
-/// Переставить сервер внутри его раздела: `to` — новый номер среди узлов той
-/// же подписки (у своих серверов раздел общий, подписки у них нет).
-///
-/// Ядро не перезапускается намеренно: теги запущенного документа держатся в
-/// `state.tags` по идентификатору узла, а не по позиции, так что и панель
-/// управления, и балансировщик после перестановки указывают туда же, куда
-/// указывали. Новый порядок попадает в документ при следующем подключении —
-/// рвать живое соединение ради порядка строк в списке не за что.
+
 pub async fn reorder_node(app: AppHandle, id: String, to: i32) -> Result<()> {
     {
         let state = app.state();
+        pin_active(state)?;
         let mut nodes = state.nodes.write();
         if !move_within_group(&mut nodes, &id, to) {
             return Ok(());
@@ -2043,15 +2025,10 @@ fn emit_nodes(app: &AppHandle) {
         state.resolve_active_id()
     };
 
-    // Список изменился — в нём могли появиться адреса, страна которых ещё не
-    // известна. Уже определённые берутся из кэша и не стоят ничего.
+
     let handle = app.clone();
     tokio::spawn(async move { refresh_countries(&handle).await });
 
-    // The list just changed: it may have gained its first node, or lost the one
-    // that was pinned. The core resolves this on its own when connecting, so
-    // without syncing the status the UI would report "сервер не выбран" over a
-    // perfectly working tunnel.
     let changed = {
         let state = app.state();
         let mut status = state.status.write();
@@ -2064,18 +2041,14 @@ fn emit_nodes(app: &AppHandle) {
     }
 }
 
-/// Push the subscription list, including plan usage. Needed because refreshes
-/// also happen on a timer, with no UI action to hang a reload off.
+
 fn emit_subs(app: &AppHandle) {
     let state = app.state();
     let subs = state.subs.read().clone();
     let _ = app.emit(Event::Subscriptions(subs));
 }
 
-/// Определить страны серверов и разослать их интерфейсу.
-///
-/// Тихо: без базы или без сети подпись просто останется без страны — ради
-/// украшения списка ошибку показывать незачем.
+
 pub async fn refresh_countries(app: &AppHandle) {
     let countries = geoip::resolve_nodes(app.state()).await;
     if !countries.is_empty() {
@@ -2085,24 +2058,21 @@ pub async fn refresh_countries(app: &AppHandle) {
 
 // ---------------------------------------------------------- subscriptions
 
-/// Тело подписки и то, что панель сообщает о тарифе заголовками.
+
 type Fetched = (String, Option<link::UserInfo>, u32, Option<String>);
 
-/// Один заход за подпиской.
+
 async fn fetch_once(url: &str, trust_any_cert: bool) -> Result<Fetched> {
     let client = crate::net::http_builder()
         .timeout(Duration::from_secs(30))
-        // A subscription URL is normally reachable without the tunnel; going
-        // through a half-configured system proxy would deadlock the refresh.
+
         .no_proxy()
         .danger_accept_invalid_certs(trust_any_cert)
         .user_agent("Aurora-VPN/0.1 (sing-box)")
         .build()?;
 
     let response = client.get(url).send().await?;
-    // Ответ панели своими словами: reqwest говорит про неё «HTTP status client
-    // error (404 Not Found) for url (…)», а человеку важно другое — дошли до
-    // сервера, но по этому адресу подписки нет.
+
     let status = response.status();
     if !status.is_success() {
         let code = status.as_u16();
@@ -2120,8 +2090,7 @@ async fn fetch_once(url: &str, trust_any_cert: bool) -> Result<Fetched> {
         }));
     }
 
-    // The plan status rides along in headers, so read them before the body
-    // is consumed.
+
     let header = |name: &str| {
         response
             .headers()
@@ -2139,7 +2108,6 @@ async fn fetch_once(url: &str, trust_any_cert: bool) -> Result<Fetched> {
     Ok((body, usage, interval, title))
 }
 
-/// Похожа ли неудача на разговор о сертификате, а не на «сервера нет».
 fn looks_like_tls(err: &AppError) -> bool {
     let text = err.to_string().to_lowercase();
     ["certificate", "cert", "tls", "ssl", "handshake", "unknownissuer", "expired"]
@@ -2147,19 +2115,7 @@ fn looks_like_tls(err: &AppError) -> bool {
         .any(|marker| text.contains(marker))
 }
 
-/// Забрать подписку, пережив сломанный сертификат панели.
-///
-/// Панели на голом IP живут с сертификатом на шесть дней, и просроченный —
-/// самая частая причина, по которой подписка вдруг перестаёт обновляться.
-/// Поэтому на ошибке TLS запрос повторяется: сперва тем же https, но без
-/// проверки сертификата — данные остаются зашифрованными, и подслушать их
-/// со стороны по-прежнему нельзя, — и только если сервер вообще не говорит по
-/// TLS, простым http.
-///
-/// Порядок именно такой не случайно: в теле подписки лежат ссылки с паролями и
-/// UUID, и открытым текстом они уходят лишь тогда, когда других вариантов не
-/// осталось. Ошибка возвращается исходная: она про настоящую причину, а не про
-/// последнюю попытку.
+
 async fn fetch_subscription(url: &str) -> Result<Fetched> {
     let first = fetch_once(url, false).await;
     let err = match first {
@@ -2208,8 +2164,7 @@ pub async fn add_subscription(app: AppHandle, input: SubInput) -> Result<ImportR
         state.subs.write().push(Subscription {
             id: id.clone(),
             name: if input.name.trim().is_empty() {
-                // A full subscription URL is long and mostly opaque token; the
-                // host alone identifies the panel and fits in a card.
+
                 host_of(&input.url)
             } else {
                 input.name.clone()
@@ -3286,7 +3241,7 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 mod tests {
     use super::{
         installer_suffix, merge_subscription_nodes, move_sub_order, move_within_group,
-        parse_version, pick_installer_url, reflow_nodes_by_subs, split_import_text,
+        parse_version, pick_installer_url, pin_active, reflow_nodes_by_subs, split_import_text,
         ServerNode, Subscription,
     };
     use serde_json::json;
@@ -3489,6 +3444,30 @@ mod tests {
 
         // Свои серверы всегда в конце — там же, где их показывает список.
         assert_eq!(names(&nodes), vec!["B", "A", "Свой"]);
+    }
+
+    #[test]
+    fn a_server_nobody_picked_stays_chosen_when_the_list_is_reordered() {
+        // Без явного выбора выбран первый в списке: перетаскивание не должно
+        // незаметно отправить следующее подключение на другой сервер.
+        let dir = std::env::temp_dir().join("aurora-pin-active-slint");
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = crate::state::AppState::new(dir.clone(), "sing-box".into(), None).unwrap();
+        *state.nodes.write() = vec![
+            sub_node("A", "a", "a.example", Some("s1")),
+            sub_node("B", "b", "b.example", Some("s2")),
+        ];
+        *state.active_id.write() = "исчезнувший".into();
+
+        pin_active(&state).unwrap();
+        reflow_nodes_by_subs(&mut state.nodes.write(), &["s2".to_string(), "s1".to_string()]);
+
+        assert_eq!(names(&state.nodes.read()), vec!["B", "A"]);
+        assert_eq!(state.resolve_active_id(), "a");
+        // И после перезапуска: выбор лежит на диске.
+        let saved = std::fs::read_to_string(dir.join("ui.json")).unwrap();
+        assert!(saved.contains("\"a\""), "{saved}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
