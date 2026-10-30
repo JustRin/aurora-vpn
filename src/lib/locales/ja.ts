@@ -277,7 +277,7 @@ export const ja: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "サーバーを削除できませんでした",
   "srv.noRawLink": "このサーバーには元のリンクがありません",
   "srv.linkCopied": "リンクをコピーしました",
-  "srv.subscriptions": "サブスクリプション",
+  "srv.ownGroup": "自前のサーバー",
   "srv.refreshAll": "すべて更新",
   "srv.refreshFailed": "更新に失敗しました",
   "srv.deleteSubTitle": "サブスクリプションとそのサーバーを削除",

@@ -76,12 +76,17 @@ interface AppStore {
   history: TrafficSample[];
   toasts: Toast[];
   busy: Record<string, boolean>;
+  /** Раскрытые разделы списка серверов; null — пока их не трогали, и открыт
+   *  тот, где лежит текущий сервер. Здесь, а не в странице: иначе уход на
+   *  другую вкладку сбрасывал бы то, что человек раскрыл. */
+  openGroups: string[] | null;
 
   init: () => Promise<void>;
   navigate: (page: PageId) => void;
   toast: (kind: Toast["kind"], text: string, detail?: string) => void;
   dismissToast: (id: number) => void;
   setBusy: (key: string, value: boolean) => void;
+  setOpenGroups: (ids: string[]) => void;
 
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -142,6 +147,7 @@ export const useStore = create<AppStore>((set, get) => ({
   history: [],
   toasts: [],
   busy: {},
+  openGroups: null,
 
   async init() {
     // Independent of the snapshot: a failure here must not block start-up,
@@ -223,6 +229,10 @@ export const useStore = create<AppStore>((set, get) => ({
 
   setBusy(key, value) {
     set((s) => ({ busy: { ...s.busy, [key]: value } }));
+  },
+
+  setOpenGroups(ids) {
+    set({ openGroups: ids });
   },
 
   async connect() {

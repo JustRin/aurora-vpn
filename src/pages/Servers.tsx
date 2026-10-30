@@ -16,7 +16,7 @@ import { useCallback, useState } from "react";
 
 import { FreePoolButton } from "../components/FreePool";
 import { QrSources } from "../components/QrScanner";
-import { SubscriptionCard } from "../components/SubscriptionCard";
+import { OwnServersHead, SubscriptionCard } from "../components/SubscriptionCard";
 import { Empty, Field, Modal, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { BALANCERS, balancerMeta, onBackup } from "../lib/balancers";
@@ -91,7 +91,6 @@ export function Servers() {
   const t = useT();
   const nodes = useStore((s) => s.nodes);
   const subs = useStore((s) => s.subscriptions);
-  const latency = useStore((s) => s.latency);
   const status = useStore((s) => s.status);
   const balancer = useStore((s) => s.settings.balancer ?? "manual");
   const saveSettings = useStore((s) => s.saveSettings);
@@ -103,7 +102,8 @@ export function Servers() {
   const routedId = balancer === "manual" ? "" : shownId;
   const backup = onBackup(balancer, status);
   const testing = useStore((s) => s.busy.latency);
-  const selectServer = useStore((s) => s.selectServer);
+  const openGroups = useStore((s) => s.openGroups);
+  const setOpenGroups = useStore((s) => s.setOpenGroups);
   const refreshLatency = useStore((s) => s.refreshLatency);
   const reload = useStore((s) => s.reload);
   const toast = useStore((s) => s.toast);
@@ -115,25 +115,6 @@ export function Servers() {
   // Сервер, чьи действия открыты кнопкой «⋮» — так их достают на сенсорном
   // экране, где наведения, открывающего кнопки в строке, не бывает.
   const [actionsFor, setActionsFor] = useState<ServerNode | null>(null);
-
-  /** Новый порядок уезжает на бэкенд один раз, когда строку отпустили. */
-  const saveOrder = useCallback(
-    async (ids: string[]) => {
-      try {
-        await api.reorderServers(ids);
-      } catch (e) {
-        toast("error", tNow("srv.reorderFailed"), errText(e));
-        // Порядок на экране был предположением: вернуть тот, что на диске.
-        await reload();
-      }
-    },
-    [reload, toast],
-  );
-  const reorder = useReorder(
-    nodes.map((n) => n.id),
-    saveOrder,
-  );
-  const ordered = applyOrder(nodes, reorder.order);
 
   /** WARP as a server of its own, for when there is no server to wrap.
    *  A second one would be pointless — both would share the single session
@@ -168,6 +149,36 @@ export function Servers() {
     await navigator.clipboard.writeText(node.rawLink);
     toast("success", t("srv.linkCopied"));
   }
+
+  // Узел, чья подписка уже удалена, считается своим — иначе он пропал бы с
+  // экрана, оставшись в списке. Своих обычно единицы, они идут последними.
+  const known = new Set(subs.map((sub) => sub.id));
+  const groupOf = (node: ServerNode) =>
+    node.subscriptionId && known.has(node.subscriptionId) ? node.subscriptionId : "";
+  const nodesOf = (id: string) => nodes.filter((node) => groupOf(node) === id);
+  const own = nodesOf("");
+
+  // Пока разделы не трогали, открыт тот, где лежит текущий сервер. Первый же
+  // щелчок отменяет автоматику: дальше список открыт так, как его оставили.
+  const shownNode = nodes.find((node) => node.id === shownId);
+  const shownGroup = shownNode ? groupOf(shownNode) : "";
+  const isOpen = (id: string) => (openGroups ? openGroups.includes(id) : id === shownGroup);
+  const toggleGroup = (id: string) => {
+    const current = openGroups ?? [shownGroup];
+    setOpenGroups(current.includes(id) ? current.filter((g) => g !== id) : [...current, id]);
+  };
+
+  const rows = (group: ServerNode[]) => (
+    <ServerRows
+      nodes={group}
+      activeId={activeId}
+      routedId={routedId}
+      onCopy={(node) => void copyLink(node)}
+      onEdit={setEditing}
+      onRemove={(node) => void remove(node)}
+      onMore={setActionsFor}
+    />
+  );
 
   return (
     <>
@@ -211,47 +222,6 @@ export function Servers() {
         </div>
       </div>
 
-      {subs.length > 0 && (
-        <>
-          <div className="row between" style={{ marginBottom: 11 }}>
-            <div className="section-title" style={{ margin: 0 }}>
-              {t("srv.subscriptions")}
-            </div>
-            <button
-              type="button"
-              className="btn ghost sm"
-              disabled={refreshingAll}
-              onClick={async () => {
-                setRefreshingAll(true);
-                try {
-                  reportToast(await api.refreshAllSubscriptions(), toast);
-                } catch (e) {
-                  toast("error", t("srv.refreshFailed"), errText(e));
-                } finally {
-                  setRefreshingAll(false);
-                }
-              }}
-            >
-              <RefreshCw size={14} className={refreshingAll ? "spin" : ""} />
-              {t("srv.refreshAll")}
-            </button>
-          </div>
-
-          <div className="grid-2" style={{ marginBottom: 8 }}>
-            {subs.map((sub) => (
-              <SubscriptionCard
-                key={sub.id}
-                sub={sub}
-                onDelete={async () => {
-                  await api.deleteSubscription(sub.id);
-                  await reload();
-                }}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
       {/* The strategies sit in the same list as the servers, as separate
           entries — the way Hiddify lists its «Auto» group — so they are seen
           and switched on with the same gesture. One server leaves nothing to
@@ -294,11 +264,33 @@ export function Servers() {
         </>
       )}
 
-      <div className="section-title">
-        {t("srv.title")} {nodes.length > 0 && <span>({nodes.length})</span>}
+      <div className="row between" style={{ margin: "30px 0 11px" }}>
+        <div className="section-title" style={{ margin: 0 }}>
+          {t("srv.title")} {nodes.length > 0 && <span>({nodes.length})</span>}
+        </div>
+        {subs.length > 0 && (
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={refreshingAll}
+            onClick={async () => {
+              setRefreshingAll(true);
+              try {
+                reportToast(await api.refreshAllSubscriptions(), toast);
+              } catch (e) {
+                toast("error", t("srv.refreshFailed"), errText(e));
+              } finally {
+                setRefreshingAll(false);
+              }
+            }}
+          >
+            <RefreshCw size={14} className={refreshingAll ? "spin" : ""} />
+            {t("srv.refreshAll")}
+          </button>
+        )}
       </div>
 
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && subs.length === 0 ? (
         <Empty
           icon={<ServerIcon size={34} color="var(--text-muted)" />}
           title={t("srv.emptyTitle")}
@@ -314,108 +306,35 @@ export function Servers() {
             </button>
           }
         />
+      ) : subs.length === 0 ? (
+        // Без подписок раздел был бы один: сворачивать нечего и незачем.
+        rows(nodes)
       ) : (
-        <div className="list" data-reorder-list>
-          {ordered.map((node) => {
-            const ms = latency[node.id];
-            const tier = latencyTier(ms);
-            const held = reorder.dragging === node.id;
-            return (
-              <div
-                key={node.id}
-                data-reorder-id={node.id}
-                className={`node${node.id === activeId ? " active" : ""}${held ? " dragging" : ""}`}
-                onDoubleClick={() => void selectServer(node.id)}
-              >
-                {/* Тянуть за отдельную ручку, а не за строку: строка занята
-                    двойным щелчком, кнопками и прокруткой пальцем. */}
-                <span
-                  className="node-grip"
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={t("srv.reorderHandle")}
-                  title={t("srv.reorderHandle")}
-                  {...reorder.gripProps(node.id)}
-                >
-                  <GripVertical size={15} />
-                </span>
-                <button
-                  type="button"
-                  className="node-radio"
-                  aria-label={t("srv.selectServer")}
-                  onClick={() => void selectServer(node.id)}
-                />
-                {/* The muted server icon pairs with the accent strategy icon in
-                    the same column: the two kinds of row read differently at
-                    a glance. */}
-                <span className="node-icon">
-                  <ServerIcon size={16} />
-                </span>
-                <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="node-name truncate">{node.name}</div>
-                  <div className="node-meta">
-                    {node.id === routedId && (
-                      <span className="chip accent">{t("pick.nowChip")}</span>
-                    )}
-                    <span className="chip">{protocolLabel(node.protocol)}</span>
-                    <span className="truncate">
-                      {transportLabel(node.security, node.network, node.protocol, node.alpn)}
-                    </span>
-                    {/* Точка — в одном куске с адресом: на телефоне адрес
-                        ужимается первым, и она уходит вместе с ним, а не
-                        висит в конце строки. */}
-                    <span className="truncate">
-                      {"· "}
-                      {node.address}:{node.port}
-                    </span>
-                  </div>
-                </div>
-
-                <span className={`dot ${tier}`} />
-                <span className="latency">
-                  {ms === undefined ? "—" : ms === null ? t("srv.latencyNa") : t("srv.latencyMs", { ms })}
-                </span>
-
-                <div className="node-actions">
-                  <button
-                    type="button"
-                    className="btn ghost icon"
-                    title={t("srv.copyLinkTitle")}
-                    onClick={() => void copyLink(node)}
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost icon"
-                    title={t("srv.editTitle")}
-                    onClick={() => setEditing(node)}
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost icon"
-                    title={t("srv.deleteTitle")}
-                    onClick={() => void remove(node)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-                {/* Вместо трёх кнопок на сенсорном экране (см. .node-more):
-                    они ждут наведения, и, невидимые, всё равно съедали
-                    ширину — на телефоне имя сервера сжималось до буквы. */}
-                <button
-                  type="button"
-                  className="btn ghost icon node-more"
-                  aria-label={t("srv.moreActions")}
-                  onClick={() => setActionsFor(node)}
-                >
-                  <EllipsisVertical size={16} />
-                </button>
-              </div>
-            );
-          })}
+        <div className="server-groups">
+          {subs.map((sub) => (
+            <section key={sub.id} className="server-group">
+              <SubscriptionCard
+                sub={sub}
+                open={isOpen(sub.id)}
+                onToggle={() => toggleGroup(sub.id)}
+                onDelete={async () => {
+                  await api.deleteSubscription(sub.id);
+                  await reload();
+                }}
+              />
+              {isOpen(sub.id) && rows(nodesOf(sub.id))}
+            </section>
+          ))}
+          {own.length > 0 && (
+            <section className="server-group">
+              <OwnServersHead
+                count={own.length}
+                open={isOpen("")}
+                onToggle={() => toggleGroup("")}
+              />
+              {isOpen("") && rows(own)}
+            </section>
+          )}
         </div>
       )}
 
@@ -485,6 +404,164 @@ export function Servers() {
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * Строки одного раздела. Перетаскивают их только внутри него: раздел — это
+ * панель, которая сервер раздаёт, и сменить её перетаскиванием нельзя.
+ */
+function ServerRows({
+  nodes,
+  activeId,
+  routedId,
+  onCopy,
+  onEdit,
+  onRemove,
+  onMore,
+}: {
+  nodes: ServerNode[];
+  activeId: string;
+  routedId: string;
+  onCopy: (node: ServerNode) => void;
+  onEdit: (node: ServerNode) => void;
+  onRemove: (node: ServerNode) => void;
+  onMore: (node: ServerNode) => void;
+}) {
+  const t = useT();
+  const latency = useStore((s) => s.latency);
+  const selectServer = useStore((s) => s.selectServer);
+  const reload = useStore((s) => s.reload);
+  const toast = useStore((s) => s.toast);
+
+  /** Новый порядок уезжает на бэкенд один раз, когда строку отпустили. Бэкенду
+   *  нужен весь список: узлы раздела встают на те же места, что и занимали. */
+  const saveOrder = useCallback(
+    async (ids: string[]) => {
+      const moved = new Set(ids);
+      let next = 0;
+      const all = useStore
+        .getState()
+        .nodes.map((node) => (moved.has(node.id) ? ids[next++] : node.id));
+      try {
+        await api.reorderServers(all);
+      } catch (e) {
+        toast("error", tNow("srv.reorderFailed"), errText(e));
+        // Порядок на экране был предположением: вернуть тот, что на диске.
+        await reload();
+      }
+    },
+    [reload, toast],
+  );
+  const reorder = useReorder(
+    nodes.map((n) => n.id),
+    saveOrder,
+  );
+  const ordered = applyOrder(nodes, reorder.order);
+
+  return (
+    <div className="list" data-reorder-list>
+      {ordered.map((node) => {
+        const ms = latency[node.id];
+        const tier = latencyTier(ms);
+        const held = reorder.dragging === node.id;
+        return (
+          <div
+            key={node.id}
+            data-reorder-id={node.id}
+            className={`node${node.id === activeId ? " active" : ""}${held ? " dragging" : ""}`}
+            onDoubleClick={() => void selectServer(node.id)}
+          >
+            {/* Тянуть за отдельную ручку, а не за строку: строка занята
+                двойным щелчком, кнопками и прокруткой пальцем. */}
+            <span
+              className="node-grip"
+              role="button"
+              tabIndex={-1}
+              aria-label={t("srv.reorderHandle")}
+              title={t("srv.reorderHandle")}
+              {...reorder.gripProps(node.id)}
+            >
+              <GripVertical size={15} />
+            </span>
+            <button
+              type="button"
+              className="node-radio"
+              aria-label={t("srv.selectServer")}
+              onClick={() => void selectServer(node.id)}
+            />
+            {/* The muted server icon pairs with the accent strategy icon in
+                the same column: the two kinds of row read differently at
+                a glance. */}
+            <span className="node-icon">
+              <ServerIcon size={16} />
+            </span>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div className="node-name truncate">{node.name}</div>
+              <div className="node-meta">
+                {node.id === routedId && (
+                  <span className="chip accent">{t("pick.nowChip")}</span>
+                )}
+                <span className="chip">{protocolLabel(node.protocol)}</span>
+                <span className="truncate">
+                  {transportLabel(node.security, node.network, node.protocol, node.alpn)}
+                </span>
+                {/* Точка — в одном куске с адресом: на телефоне адрес
+                    ужимается первым, и она уходит вместе с ним, а не
+                    висит в конце строки. */}
+                <span className="truncate">
+                  {"· "}
+                  {node.address}:{node.port}
+                </span>
+              </div>
+            </div>
+
+            <span className={`dot ${tier}`} />
+            <span className="latency">
+              {ms === undefined ? "—" : ms === null ? t("srv.latencyNa") : t("srv.latencyMs", { ms })}
+            </span>
+
+            <div className="node-actions">
+              <button
+                type="button"
+                className="btn ghost icon"
+                title={t("srv.copyLinkTitle")}
+                onClick={() => onCopy(node)}
+              >
+                <Copy size={14} />
+              </button>
+              <button
+                type="button"
+                className="btn ghost icon"
+                title={t("srv.editTitle")}
+                onClick={() => onEdit(node)}
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                type="button"
+                className="btn ghost icon"
+                title={t("srv.deleteTitle")}
+                onClick={() => onRemove(node)}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+            {/* Вместо трёх кнопок на сенсорном экране (см. .node-more):
+                они ждут наведения, и, невидимые, всё равно съедали
+                ширину — на телефоне имя сервера сжималось до буквы. */}
+            <button
+              type="button"
+              className="btn ghost icon node-more"
+              aria-label={t("srv.moreActions")}
+              onClick={() => onMore(node)}
+            >
+              <EllipsisVertical size={16} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

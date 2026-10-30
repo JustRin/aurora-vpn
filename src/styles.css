@@ -1880,6 +1880,83 @@ html[data-platform="linux"] .app {
   min-width: 0;
 }
 
+/* Раздел списка серверов: подписка, под ней — её серверы. Шапкой служит та же
+   карточка, поэтому срок и трафик видны и у свёрнутого раздела. */
+.server-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.server-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.server-group > .list {
+  margin-inline-start: 14px;
+}
+
+.sub-card.group {
+  gap: 10px;
+  transition: background 0.13s;
+}
+@media (hover: hover) {
+  .sub-card.group:hover {
+    background: var(--panel-hover);
+  }
+}
+
+.sub-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+/* Где ширина позволяет — в строку, как на ПК: имя и низ карточки слева, цифры и
+   кнопки справа. Шапка распадается на свои части, чтобы встать в ту же сетку;
+   всё, что остаётся (полоса, предупреждения), идёт под ней во всю ширину. */
+@media (min-width: 701px) {
+  .sub-card.group {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 22px;
+    row-gap: 6px;
+    align-items: center;
+  }
+  .sub-card.group > * {
+    grid-column: 1 / -1;
+  }
+  .sub-card.group > .sub-head {
+    display: contents;
+  }
+  .sub-card.group .sub-toggle {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .sub-card.group > .sub-foot {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .sub-card.group > .sub-metrics {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    gap: 22px;
+  }
+  .sub-card.group .sub-actions {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
 /* ============================================================ lists */
 .list {
   display: flex;
@@ -2684,6 +2761,9 @@ html[data-scan="on"] .ambient {
      имени: на телефоне они поуже. */
   .node {
     gap: 10px;
+  }
+  .server-group > .list {
+    margin-inline-start: 6px;
   }
 
   .hero {

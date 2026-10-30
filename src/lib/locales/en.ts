@@ -280,7 +280,7 @@ export const en: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "Failed to delete the server",
   "srv.noRawLink": "This server has no original link",
   "srv.linkCopied": "Link copied",
-  "srv.subscriptions": "Subscriptions",
+  "srv.ownGroup": "Own servers",
   "srv.refreshAll": "Refresh all",
   "srv.refreshFailed": "Refresh failed",
   "srv.deleteSubTitle": "Delete the subscription and its servers",

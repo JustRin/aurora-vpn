@@ -271,7 +271,7 @@ export const ko: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "서버를 삭제하지 못했습니다",
   "srv.noRawLink": "이 서버에는 원본 링크가 없습니다",
   "srv.linkCopied": "링크를 복사했습니다",
-  "srv.subscriptions": "구독",
+  "srv.ownGroup": "직접 추가한 서버",
   "srv.refreshAll": "모두 새로 고침",
   "srv.refreshFailed": "새로 고침에 실패했습니다",
   "srv.deleteSubTitle": "구독과 그 서버들을 삭제",

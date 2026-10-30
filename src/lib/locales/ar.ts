@@ -278,7 +278,7 @@ export const ar: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "تعذّر حذف الخادم",
   "srv.noRawLink": "لا يملك هذا الخادم رابطًا أصليًا",
   "srv.linkCopied": "نُسخ الرابط",
-  "srv.subscriptions": "الاشتراكات",
+  "srv.ownGroup": "خوادمي",
   "srv.refreshAll": "تحديث الكل",
   "srv.refreshFailed": "فشل التحديث",
   "srv.deleteSubTitle": "حذف الاشتراك وخوادمه",

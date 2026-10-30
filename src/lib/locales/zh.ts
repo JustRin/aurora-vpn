@@ -266,7 +266,7 @@ export const zh: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "删除服务器失败",
   "srv.noRawLink": "该服务器没有原始链接",
   "srv.linkCopied": "链接已复制",
-  "srv.subscriptions": "订阅",
+  "srv.ownGroup": "自有服务器",
   "srv.refreshAll": "全部刷新",
   "srv.refreshFailed": "刷新失败",
   "srv.deleteSubTitle": "删除该订阅及其服务器",

@@ -119,8 +119,31 @@ const snapshot: Snapshot = {
       password: "secret",
       flow: "",
     },
+    ...["Hysteria", "tls", "vless-reality"].map((name, i) => ({
+      ...node(`panel-${i}`, name, "panel.example.net"),
+      subscriptionId: "panel",
+    })),
   ],
-  subscriptions: [],
+  // Подписка с тарифом — рядом с собственными серверами: так видны оба вида
+  // разделов в списке и карточка на «Обзоре».
+  subscriptions: [
+    {
+      id: "panel",
+      name: "panel.example.net",
+      url: "https://panel.example.net/sub/demo",
+      enabled: true,
+      lastUpdated: new Date(Date.now() - 24 * 60_000).toISOString(),
+      nodeCount: 3,
+      lastError: "",
+      upload: 3_000_000_000,
+      download: 200_000_000_000,
+      total: 0,
+      expire: 0,
+      updateIntervalHours: 6,
+      hasUsage: true,
+      free: false,
+    },
+  ],
   split: {
     mode: "off",
     apps: [],

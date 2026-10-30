@@ -1,4 +1,4 @@
-import { CalendarClock, Gift, RefreshCw, Rss, Trash2 } from "lucide-react";
+import { CalendarClock, ChevronDown, Gift, RefreshCw, Rss, Server, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { api, errText } from "../lib/api";
@@ -14,21 +14,63 @@ import { useT } from "../lib/i18n";
 import type { Subscription } from "../lib/types";
 import { useStore } from "../store";
 
+/** «3 сервера» — подпись раздела в списке и низа карточки подписки. */
+function ServerCount({ count }: { count: number }) {
+  const t = useT();
+  return (
+    <span>
+      {count} {plural(count, t("srv.serverOne"), t("srv.serverFew"), t("srv.serverMany"))}
+    </span>
+  );
+}
+
+/** Шапка раздела своих серверов: подписки нет, поэтому нет ни срока, ни кнопок. */
+export function OwnServersHead({
+  count,
+  open,
+  onToggle,
+}: {
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="card sub-card group" onClick={onToggle}>
+      <button type="button" className="sub-toggle" aria-expanded={open}>
+        <ChevronDown size={14} className="picker-caret" data-open={open} />
+        <Server size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+        <span className="node-name truncate">{t("srv.ownGroup")}</span>
+      </button>
+      <div className="sub-foot">
+        <ServerCount count={count} />
+      </div>
+    </div>
+  );
+}
+
 /**
  * Plan status for one subscription: days remaining and traffic consumed.
  *
  * Both numbers come from the panel's `subscription-userinfo` header, so they are
  * only shown once a refresh has actually reported them — inventing a "0 из 0"
  * bar for a provider that sends nothing would be worse than showing nothing.
+ *
+ * With `onToggle` it heads that subscription's section of the server list: a
+ * tap anywhere but its buttons folds the servers under it.
  */
 export function SubscriptionCard({
   sub,
   compact,
   onDelete,
+  open,
+  onToggle,
 }: {
   sub: Subscription;
   compact?: boolean;
   onDelete?: () => void;
+  open?: boolean;
+  onToggle?: () => void;
 }) {
   const t = useT();
   const toast = useStore((s) => s.toast);
@@ -53,16 +95,37 @@ export function SubscriptionCard({
     }
   }
 
+  const title = (
+    <>
+      <Icon size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+      <span className="node-name truncate" title={sub.name}>
+        {sub.name}
+      </span>
+    </>
+  );
+
   return (
-    <div className={`card sub-card${compact ? " compact" : ""}`}>
-      <div className="row between" style={{ gap: 10 }}>
-        <div className="row grow" style={{ gap: 8, minWidth: 0 }}>
-          <Icon size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-          <span className="node-name truncate" title={sub.name}>
-            {sub.name}
-          </span>
-        </div>
-        <div className="row" style={{ gap: 2, flexShrink: 0 }}>
+    <div
+      className={`card sub-card${compact ? " compact" : ""}${onToggle ? " group" : ""}`}
+      onClick={onToggle}
+    >
+      <div className="row between sub-head" style={{ gap: 10 }}>
+        {onToggle ? (
+          <button type="button" className="sub-toggle" aria-expanded={open}>
+            <ChevronDown size={14} className="picker-caret" data-open={open} />
+            {title}
+          </button>
+        ) : (
+          <div className="row grow" style={{ gap: 8, minWidth: 0 }}>
+            {title}
+          </div>
+        )}
+        {/* Обновить и удалить — не повод сворачивать раздел. */}
+        <div
+          className="row sub-actions"
+          style={{ gap: 2, flexShrink: 0 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {onDelete && (
             <button
               type="button"
@@ -128,15 +191,7 @@ export function SubscriptionCard({
       )}
 
       <div className="sub-foot">
-        <span>
-          {sub.nodeCount}{" "}
-          {plural(
-            sub.nodeCount,
-            t("srv.serverOne"),
-            t("srv.serverFew"),
-            t("srv.serverMany"),
-          )}
-        </span>
+        <ServerCount count={sub.nodeCount} />
         <span>·</span>
         <span>{t("srv.updatedWhen", { when: relativeTime(sub.lastUpdated) })}</span>
       </div>

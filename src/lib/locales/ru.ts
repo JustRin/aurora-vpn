@@ -282,7 +282,7 @@ export const ru = {
   "srv.deleteFailed": "Не удалось удалить сервер",
   "srv.noRawLink": "У этого сервера нет исходной ссылки",
   "srv.linkCopied": "Ссылка скопирована",
-  "srv.subscriptions": "Подписки",
+  "srv.ownGroup": "Свои серверы",
   "srv.refreshAll": "Обновить все",
   "srv.refreshFailed": "Обновление не удалось",
   "srv.deleteSubTitle": "Удалить подписку и её серверы",

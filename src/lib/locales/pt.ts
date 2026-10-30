@@ -281,7 +281,7 @@ export const pt: Record<keyof typeof ru, string> = {
   "srv.deleteFailed": "Falha ao excluir o servidor",
   "srv.noRawLink": "Este servidor não tem link original",
   "srv.linkCopied": "Link copiado",
-  "srv.subscriptions": "Assinaturas",
+  "srv.ownGroup": "Servidores próprios",
   "srv.refreshAll": "Atualizar todas",
   "srv.refreshFailed": "Falha ao atualizar",
   "srv.deleteSubTitle": "Excluir a assinatura e seus servidores",
