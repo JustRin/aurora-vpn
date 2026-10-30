@@ -1339,6 +1339,15 @@ html[data-platform="linux"] .app {
   overflow-y: auto;
   padding: 6px;
 }
+/* In a dialog the body already scrolls, and a list with a height of its own
+   would scroll inside that. The margin takes back the rows' own padding, so
+   they line up with the dialog's title rather than sitting a step inside it. */
+.picker-list.in-modal {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  margin: -8px;
+}
 
 .picker-item {
   display: flex;
