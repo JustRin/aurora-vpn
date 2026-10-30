@@ -187,6 +187,10 @@ const AWG_CORE_MISSING: &str = "AmneziaWG на Android пока не подде�
 /// other server still connects. Only a list of nothing else is an error.
 fn nodes_for_core(state: &AppState) -> Result<Vec<ServerNode>> {
     let mut nodes = effective_nodes(state);
+    {
+        let rejected = state.xray_rejected.read();
+        nodes.retain(|n| !rejected.contains(&n.id));
+    }
     if nodes.iter().any(ServerNode::needs_awg_core) && !core_runs_awg(state) {
         nodes.retain(|n| !n.needs_awg_core());
         if nodes.is_empty() {
@@ -227,36 +231,70 @@ fn start_xray_if_needed(_app: &AppHandle) -> Result<HashMap<String, u16>> {
 /// listens on. Returns an empty map when sing-box can handle everything.
 #[cfg(not(target_os = "android"))]
 fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
-    let (nodes, log_level) = {
+    let (mut nodes, log_level) = {
         let state = app.state();
         let nodes = effective_nodes(&state);
         let level = state.settings.read().log_level.clone();
         (nodes, level)
     };
 
-    if !nodes.iter().any(|n| n.needs_xray()) {
-        let state = app.state();
-        if let Some(engine) = state.xray.lock().as_mut() {
-            engine.stop();
-        }
-        state.xray_ports.write().clear();
-        return Ok(HashMap::new());
-    }
-
-    let built = xray::build(&nodes, xray::DEFAULT_BASE_PORT, xray::log_level(&log_level))?
-        .expect("at least one node needs xray");
-
     let state = app.state();
+    state.xray_rejected.write().clear();
     let config_path = state.paths.xray_config.clone();
-    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json)?)?;
+
+    // A node Xray refuses must not take the others down with it: it stays out
+    // of this run and the rest go ahead. Only the server the user picked is an
+    // error, since connecting through another one instead would be a lie.
+    let built = loop {
+        let Some(built) =
+            xray::build(&nodes, xray::DEFAULT_BASE_PORT, xray::log_level(&log_level))?
+        else {
+            if let Some(engine) = state.xray.lock().as_mut() {
+                engine.stop();
+            }
+            state.xray_ports.write().clear();
+            return Ok(HashMap::new());
+        };
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json)?)?;
+
+        let checked = state
+            .xray
+            .lock()
+            .as_ref()
+            .ok_or_else(|| {
+                AppError::msg(
+                    "часть серверов требует движка Xray, но его бинарник не найден — \
+                     выполните npm run fetch-core или переустановите приложение",
+                )
+            })?
+            .check_config(&config_path);
+        let Err(error) = checked else { break built };
+
+        let message = error.to_string();
+        let Some(id) = built.rejected_node(&message).map(str::to_owned) else {
+            return Err(error);
+        };
+        if *state.active_id.read() == id {
+            return Err(error);
+        }
+        let name = nodes.iter().find(|n| n.id == id).map(|n| n.name.clone());
+        log_line(
+            app,
+            "warn",
+            format!(
+                "сервер «{}» пропущен: {}",
+                name.unwrap_or_default(),
+                message.rsplit(" > ").next().unwrap_or(&message)
+            ),
+        );
+        nodes.retain(|n| n.id != id);
+        state.xray_rejected.write().insert(id);
+    };
 
     let mut guard = state.xray.lock();
-    let engine = guard.as_mut().ok_or_else(|| {
-        AppError::msg(
-            "часть серверов требует движка Xray, но его бинарник не найден — \
-             выполните npm run fetch-core или переустановите приложение",
-        )
-    })?;
+    let engine = guard
+        .as_mut()
+        .expect("the engine was there to check the document");
 
     engine.stop();
     let log_app = app.clone();

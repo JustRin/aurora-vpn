@@ -581,3 +581,52 @@ fn an_imported_masque_outbound_is_accepted_by_xray() {
     let _ = std::fs::remove_dir_all(&work);
     result.expect("Xray должен принять MASQUE из JSON-подписки");
 }
+
+/// Сервера из публичного списка отсеиваются по тексту ошибки Xray, поэтому её
+/// формат проверяется на настоящем бинарнике: новая версия не должна молча
+/// вернуть нас к «один плохой сервер лишает связи все остальные».
+#[test]
+fn xray_names_the_outbound_it_refuses() {
+    let Some(exe) = xray_binary() else {
+        eprintln!("пропуск: бинарник Xray не найден (запустите npm run fetch-core)");
+        return;
+    };
+    let work = std::env::temp_dir().join("aurora-xray-rejected");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    let node = |id: &str, public_key: &str| ServerNode {
+        id: id.into(),
+        protocol: Protocol::Vless,
+        network: crate::model::Network::Xhttp,
+        security: Security::Reality,
+        address: "192.0.2.14".into(),
+        port: 443,
+        uuid: "9deed72d-8f4a-42f8-8c22-ee0d5f6ed6c2".into(),
+        sni: "www.example.test".into(),
+        public_key: public_key.into(),
+        ..Default::default()
+    };
+    let good = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let nodes = vec![node("good", good), node("bad", "не-ключ")];
+
+    let built = crate::core::xray::build(&nodes, 24_150, "warning")
+        .unwrap()
+        .unwrap();
+    let config_path = work.join("xray.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+
+    let core = CoreSupervisor::new(Engine::Xray, exe, work.clone());
+    let refused = core.check_config(&config_path).unwrap_err().to_string();
+
+    let kept = vec![nodes[0].clone()];
+    let rebuilt = crate::core::xray::build(&kept, 24_150, "warning")
+        .unwrap()
+        .unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&rebuilt.json).unwrap()).unwrap();
+    let retried = core.check_config(&config_path);
+    let _ = std::fs::remove_dir_all(&work);
+
+    assert_eq!(built.rejected_node(&refused), Some("bad"), "{refused}");
+    retried.expect("без отвергнутого узла Xray должен принять остальные");
+}

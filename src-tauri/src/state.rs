@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 
@@ -174,6 +174,9 @@ pub struct AppState {
     /// node id → loopback SOCKS port of the running Xray engine, kept for the
     /// post-connect probe that verifies those nodes actually carry traffic.
     pub xray_ports: RwLock<HashMap<String, u16>>,
+    /// Nodes Xray refused on this start. They stay out of the sing-box document
+    /// too: there it could only render them without their transport.
+    pub xray_rejected: RwLock<HashSet<String>>,
 
     #[cfg(not(target_os = "android"))]
     pub core: Mutex<CoreSupervisor>,
@@ -282,6 +285,7 @@ impl AppState {
             balancer_wake: tokio::sync::Notify::new(),
             engine_overrides: RwLock::new(engine_overrides),
             xray_ports: RwLock::new(HashMap::new()),
+            xray_rejected: RwLock::new(HashSet::new()),
             clash: RwLock::new(None),
             status: RwLock::new(status),
             traffic: RwLock::new(Traffic::default()),

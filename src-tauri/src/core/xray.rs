@@ -20,6 +20,22 @@ pub struct BuiltXray {
     pub json: Value,
     /// node id → the loopback SOCKS port that reaches it.
     pub ports: HashMap<String, u16>,
+    /// Node ids in outbound order: `out-3` is `outbound_ids[3]`.
+    outbound_ids: Vec<String>,
+}
+
+impl BuiltXray {
+    /// The node whose outbound Xray refused, read off its error message.
+    ///
+    /// One bad node makes Xray refuse the whole document, and public lists bring
+    /// in whatever their authors publish, so the caller leaves this node out and
+    /// tries again. `None` means the complaint is not about any single node.
+    pub fn rejected_node(&self, error: &str) -> Option<&str> {
+        let rest = error.split("outbound config with tag out-").nth(1)?;
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        let index: usize = digits.parse().ok()?;
+        self.outbound_ids.get(index).map(String::as_str)
+    }
 }
 
 fn stream_settings(node: &ServerNode) -> Value {
@@ -50,9 +66,9 @@ fn stream_settings(node: &ServerNode) -> Value {
             if !node.fingerprint.is_empty() {
                 tls.insert("fingerprint".into(), json!(node.fingerprint));
             }
-            if node.allow_insecure {
-                tls.insert("allowInsecure".into(), json!(true));
-            }
+            // `allow_insecure` stays sing-box's: Xray 26.10 removed the option
+            // with no way to skip the check, and refuses the whole document —
+            // every other server included — over a node that still asks for it.
             if !node.alpn.is_empty() {
                 tls.insert("alpn".into(), json!(node.alpn));
             }
@@ -266,6 +282,7 @@ pub fn build(nodes: &[ServerNode], base_port: u16, log_level: &str) -> Result<Op
     let mut outbounds = Vec::new();
     let mut rules = Vec::new();
     let mut ports = HashMap::new();
+    let mut outbound_ids = Vec::new();
 
     for (index, node) in needing.iter().enumerate() {
         let port = base_port
@@ -291,6 +308,7 @@ pub fn build(nodes: &[ServerNode], base_port: u16, log_level: &str) -> Result<Op
         }));
 
         ports.insert(node.id.clone(), port);
+        outbound_ids.push(node.id.clone());
     }
 
     let json = json!({
@@ -300,7 +318,7 @@ pub fn build(nodes: &[ServerNode], base_port: u16, log_level: &str) -> Result<Op
         "routing": { "rules": rules }
     });
 
-    Ok(Some(BuiltXray { json, ports }))
+    Ok(Some(BuiltXray { json, ports, outbound_ids }))
 }
 
 /// Xray's log levels differ from sing-box's; map ours onto the nearest.
@@ -390,6 +408,41 @@ mod tests {
         assert_eq!(reality["shortId"], json!("79a1"));
         assert_eq!(reality["spiderX"], json!("/spider"));
         assert_eq!(reality["serverName"], json!("www.icloud.com"));
+    }
+
+    #[test]
+    fn tls_never_asks_xray_to_skip_verification() {
+        // Такой узел пришёл из публичного списка и лишил подключения все серверы:
+        // Xray 26.10 отвергает allowInsecure вместе со всем документом.
+        let node = ServerNode {
+            protocol: Protocol::Trojan,
+            network: Network::Xhttp,
+            security: Security::Tls,
+            sni: "www.example.test".into(),
+            allow_insecure: true,
+            ..Default::default()
+        };
+        let built = build(&[node], 24150, "warning").unwrap().unwrap();
+        let tls = &built.json["outbounds"][0]["streamSettings"]["tlsSettings"];
+        assert_eq!(tls["serverName"], json!("www.example.test"));
+        assert!(tls.get("allowInsecure").is_none());
+    }
+
+    #[test]
+    fn a_rejection_is_traced_back_to_its_node() {
+        let nodes = vec![encrypted_node("a"), encrypted_node("b")];
+        let built = build(&nodes, 24150, "warning").unwrap().unwrap();
+
+        let about = |tag: &str| {
+            format!(
+                "Failed to start: main: failed to load config files: [xray.json] > infra/conf: \
+                 failed to build outbound config with tag {tag} > infra/conf: failed to build \
+                 stream settings for outbound detour"
+            )
+        };
+        assert_eq!(built.rejected_node(&about("out-1")), Some("b"));
+        assert_eq!(built.rejected_node(&about("out-7")), None);
+        assert_eq!(built.rejected_node("failed to listen on 127.0.0.1:24150"), None);
     }
 
     fn masque_node(id: &str) -> ServerNode {
