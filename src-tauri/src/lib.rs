@@ -571,6 +571,7 @@ pub fn run() {
             commands::delete_server,
             commands::update_server,
             commands::reorder_servers,
+            commands::reorder_subscriptions,
             commands::add_subscription,
             commands::refresh_subscription,
             commands::refresh_all_subscriptions,

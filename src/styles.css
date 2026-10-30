@@ -1906,6 +1906,26 @@ html[data-platform="linux"] .app {
   }
 }
 
+/* Раздел, который держат, идёт сквозь остальные целиком, вместе со строками. */
+.server-group.dragging {
+  opacity: 0.75;
+}
+.server-group.dragging > .sub-card {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+.sub-card.group:hover .node-grip {
+  opacity: 0.7;
+}
+
+.sub-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+
 .sub-toggle {
   display: flex;
   align-items: center;
@@ -1938,7 +1958,8 @@ html[data-platform="linux"] .app {
   .sub-card.group > .sub-head {
     display: contents;
   }
-  .sub-card.group .sub-toggle {
+  .sub-card.group .sub-title,
+  .sub-card.group > .sub-toggle {
     grid-column: 1;
     grid-row: 1;
   }

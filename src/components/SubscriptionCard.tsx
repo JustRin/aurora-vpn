@@ -1,4 +1,13 @@
-import { CalendarClock, ChevronDown, Gift, RefreshCw, Rss, Server, Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  ChevronDown,
+  Gift,
+  GripVertical,
+  RefreshCw,
+  Rss,
+  Server,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { api, errText } from "../lib/api";
@@ -11,6 +20,7 @@ import {
   relativeTime,
 } from "../lib/format";
 import { useT } from "../lib/i18n";
+import type { GripProps } from "../lib/reorder";
 import type { Subscription } from "../lib/types";
 import { useStore } from "../store";
 
@@ -65,12 +75,15 @@ export function SubscriptionCard({
   onDelete,
   open,
   onToggle,
+  grip,
 }: {
   sub: Subscription;
   compact?: boolean;
   onDelete?: () => void;
   open?: boolean;
   onToggle?: () => void;
+  /** Ручка, за которую раздел перетаскивают среди других. */
+  grip?: GripProps;
 }) {
   const t = useT();
   const toast = useStore((s) => s.toast);
@@ -111,10 +124,25 @@ export function SubscriptionCard({
     >
       <div className="row between sub-head" style={{ gap: 10 }}>
         {onToggle ? (
-          <button type="button" className="sub-toggle" aria-expanded={open}>
-            <ChevronDown size={14} className="picker-caret" data-open={open} />
-            {title}
-          </button>
+          <div className="sub-title">
+            {grip && (
+              <span
+                className="node-grip"
+                role="button"
+                tabIndex={-1}
+                aria-label={t("srv.reorderHandle")}
+                title={t("srv.reorderHandle")}
+                onClick={(e) => e.stopPropagation()}
+                {...grip}
+              >
+                <GripVertical size={15} />
+              </span>
+            )}
+            <button type="button" className="sub-toggle" aria-expanded={open}>
+              <ChevronDown size={14} className="picker-caret" data-open={open} />
+              {title}
+            </button>
+          </div>
         ) : (
           <div className="row grow" style={{ gap: 8, minWidth: 0 }}>
             {title}

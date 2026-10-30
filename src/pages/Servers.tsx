@@ -168,6 +168,24 @@ export function Servers() {
     setOpenGroups(current.includes(id) ? current.filter((g) => g !== id) : [...current, id]);
   };
 
+  /** Разделы тянут так же, как строки; свои серверы всегда остаются последними. */
+  const saveSubOrder = useCallback(
+    async (ids: string[]) => {
+      try {
+        await api.reorderSubscriptions(ids);
+      } catch (e) {
+        toast("error", tNow("srv.reorderFailed"), errText(e));
+        await reload();
+      }
+    },
+    [reload, toast],
+  );
+  const subReorder = useReorder(
+    subs.map((sub) => sub.id),
+    saveSubOrder,
+  );
+  const orderedSubs = applyOrder(subs, subReorder.order);
+
   const rows = (group: ServerNode[]) => (
     <ServerRows
       nodes={group}
@@ -310,13 +328,19 @@ export function Servers() {
         // Без подписок раздел был бы один: сворачивать нечего и незачем.
         rows(nodes)
       ) : (
-        <div className="server-groups">
-          {subs.map((sub) => (
-            <section key={sub.id} className="server-group">
+        <div className="server-groups" data-reorder-list>
+          {orderedSubs.map((sub) => (
+            <section
+              key={sub.id}
+              data-reorder-id={sub.id}
+              className={`server-group${subReorder.dragging === sub.id ? " dragging" : ""}`}
+            >
               <SubscriptionCard
                 sub={sub}
                 open={isOpen(sub.id)}
                 onToggle={() => toggleGroup(sub.id)}
+                // Одну подписку переставлять не с чем: свои серверы всегда ниже.
+                grip={subs.length > 1 ? subReorder.gripProps(sub.id) : undefined}
                 onDelete={async () => {
                   await api.deleteSubscription(sub.id);
                   await reload();

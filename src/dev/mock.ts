@@ -338,6 +338,18 @@ mockIPC(
         });
         return undefined;
       }
+      case "reorder_subscriptions": {
+        const ids = (args as { ids: string[] }).ids;
+        const rank = new Map(ids.map((id, index) => [id, index] as const));
+        snapshot.subscriptions.sort(
+          (a, b) => (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length),
+        );
+        void invoke("plugin:event|emit", {
+          event: "app://subscriptions",
+          payload: [...snapshot.subscriptions],
+        });
+        return undefined;
+      }
       // A phone lists packages, whose long unbreakable names are what once
       // pushed the picker off the screen; the desktop keeps an empty list.
       case "list_running_apps":

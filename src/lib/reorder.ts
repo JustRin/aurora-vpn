@@ -12,6 +12,9 @@ import type { PointerEvent as ReactPointerEvent } from "react";
  * The list is reordered live while the pointer moves — the row the user is
  * holding walks through the others — and only what they end up with is sent to
  * the backend, once, on release.
+ *
+ * The rows may differ in height: a server list's sections do, by as much as the
+ * servers open under them.
  */
 export interface Reorder {
   /** Ids in the order to render right now: the live one while dragging. */
@@ -19,12 +22,11 @@ export interface Reorder {
   /** The row being held, for styling. */
   dragging: string | null;
   /** Spread onto the grip of each row. */
-  gripProps: (id: string) => {
-    onPointerDown: (e: ReactPointerEvent) => void;
-    onPointerMove: (e: ReactPointerEvent) => void;
-    onPointerUp: (e: ReactPointerEvent) => void;
-    onPointerCancel: (e: ReactPointerEvent) => void;
-  };
+  gripProps: (id: string) => GripProps;
+}
+
+export interface GripProps {
+  onPointerDown: (e: ReactPointerEvent) => void;
 }
 
 /** Distance from the viewport edge where the list starts scrolling itself. */
@@ -60,6 +62,8 @@ export function useReorder(
   const edge = useRef(0);
   /** Handle of the auto-scroll timer, 0 when it is not running. */
   const frame = useRef(0);
+  /** Снимает слушателей текущего перетаскивания. */
+  const unlisten = useRef<(() => void) | null>(null);
 
   const stopScrolling = useCallback(() => {
     if (frame.current) clearInterval(frame.current);
@@ -67,7 +71,13 @@ export function useReorder(
     edge.current = 0;
   }, []);
 
-  useEffect(() => stopScrolling, [stopScrolling]);
+  useEffect(
+    () => () => {
+      unlisten.current?.();
+      stopScrolling();
+    },
+    [stopScrolling],
+  );
 
   const gripProps = useCallback(
     (id: string) => ({
@@ -77,84 +87,115 @@ export function useReorder(
         e.preventDefault();
         e.stopPropagation();
         const grip = e.currentTarget as HTMLElement;
-        // Капчур — удобство, а не условие: без него события всё равно доходят,
-        // пока указатель над строкой. Ронять из-за него перетаскивание не за что.
+        const pointer = e.pointerId;
+        // Капчур — удобство, а не условие: перестановка переносит удерживаемую
+        // строку в DOM, и браузер его снимает. Поэтому события слушает окно, а
+        // не ручка: у строки разной высоты ручка ещё и уезжает из-под пальца.
         try {
-          grip.setPointerCapture(e.pointerId);
+          grip.setPointerCapture(pointer);
         } catch {
           /* указателя уже нет — тянем без захвата */
         }
         setDragging(id);
         setOrder(latest.current.ids.slice());
-      },
 
-      onPointerMove(e: ReactPointerEvent) {
-        if (!latest.current.order) return;
-        e.preventDefault();
+        const onMove = (move: PointerEvent) => {
+          if (move.pointerId !== pointer) return;
+          const current = latest.current.order;
+          if (!current) return;
+          move.preventDefault();
 
-        const grip = e.currentTarget as HTMLElement;
-        const rows = Array.from(
-          (grip.closest("[data-reorder-list]") ?? document).querySelectorAll<HTMLElement>(
-            "[data-reorder-id]",
-          ),
-        );
-        const under = rows.find((row) => {
-          const box = row.getBoundingClientRect();
-          return e.clientY >= box.top && e.clientY <= box.bottom;
-        });
-
-        const overId = under?.dataset.reorderId;
-        if (overId && overId !== id) {
-          setOrder((current) => {
-            if (!current) return current;
-            const from = current.indexOf(id);
-            const to = current.indexOf(overId);
-            if (from < 0 || to < 0 || from === to) return current;
-            const next = current.slice();
-            next.splice(to, 0, ...next.splice(from, 1));
-            return next;
+          // Только свои: внутри раздела лежат строки вложенного списка.
+          const rows = Array.from(
+            (grip.closest("[data-reorder-list]") ?? document).querySelectorAll<HTMLElement>(
+              "[data-reorder-id]",
+            ),
+          ).filter((row) => current.includes(row.dataset.reorderId ?? ""));
+          const under = rows.find((row) => {
+            const box = row.getBoundingClientRect();
+            return move.clientY >= box.top && move.clientY <= box.bottom;
           });
-        }
+          const held = rows.find((row) => row.dataset.reorderId === id);
 
-        // Дотянуть до конца списка из полусотни серверов, не отпуская: иначе
-        // тащить можно только до края экрана. Прокрутку двигает таймер, а не
-        // requestAnimationFrame: тот замирает всюду, где окно не рисуется, и
-        // прокрутка тогда молча не работала бы.
-        const top = e.clientY < EDGE;
-        const bottom = e.clientY > window.innerHeight - EDGE;
-        edge.current = top ? -EDGE_SPEED : bottom ? EDGE_SPEED : 0;
-        if (edge.current !== 0 && !frame.current) {
-          const scroller = scrollParent(grip);
-          frame.current = window.setInterval(() => {
-            if (edge.current === 0) {
-              stopScrolling();
-              return;
+          const overId = under?.dataset.reorderId;
+          if (under && held && overId && overId !== id) {
+            // Меняться, только если после обмена палец окажется на своей же
+            // строке. Иначе короткая, встав за высокой, снова оказалась бы под
+            // ней — и они менялись бы местами на каждое движение.
+            const box = under.getBoundingClientRect();
+            const height = held.getBoundingClientRect().height;
+            const reached =
+              current.indexOf(overId) > current.indexOf(id)
+                ? move.clientY >= box.bottom - height
+                : move.clientY <= box.top + height;
+            if (reached) {
+              setOrder((now) => {
+                if (!now) return now;
+                const from = now.indexOf(id);
+                const to = now.indexOf(overId);
+                if (from < 0 || to < 0 || from === to) return now;
+                const next = now.slice();
+                next.splice(to, 0, ...next.splice(from, 1));
+                return next;
+              });
             }
-            scroller.scrollBy(0, edge.current);
-          }, EDGE_TICK);
-        }
-      },
+          }
 
-      onPointerUp(e: ReactPointerEvent) {
-        stopScrolling();
-        const finished = latest.current.order;
-        setDragging(null);
-        setOrder(null);
-        try {
-          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-        } catch {
-          /* захвата и не было */
-        }
-        // Отпустили там же, откуда взяли — записывать нечего.
-        if (finished && finished.join() !== latest.current.ids.join()) {
-          void commit(finished);
-        }
-      },
+          // Дотянуть до конца списка из полусотни серверов, не отпуская: иначе
+          // тащить можно только до края экрана. Прокрутку двигает таймер, а не
+          // requestAnimationFrame: тот замирает всюду, где окно не рисуется, и
+          // прокрутка тогда молча не работала бы.
+          const top = move.clientY < EDGE;
+          const bottom = move.clientY > window.innerHeight - EDGE;
+          edge.current = top ? -EDGE_SPEED : bottom ? EDGE_SPEED : 0;
+          if (edge.current !== 0 && !frame.current) {
+            const scroller = scrollParent(grip);
+            frame.current = window.setInterval(() => {
+              if (edge.current === 0) {
+                stopScrolling();
+                return;
+              }
+              scroller.scrollBy(0, edge.current);
+            }, EDGE_TICK);
+          }
+        };
 
-      onPointerCancel() {
-        stopScrolling();
-        setDragging(null);
-        setOrder(null);
+        const onUp = (up: PointerEvent) => {
+          if (up.pointerId !== pointer) return;
+          const finished = latest.current.order;
+          end();
+          // Отпустили там же, откуда взяли — записывать нечего.
+          if (finished && finished.join() !== latest.current.ids.join()) {
+            // Без захвата мышь отпускают над другим элементом, и щелчок достаётся
+            // их общему предку — например, карточке, что сворачивает раздел.
+            const swallow = (click: MouseEvent) => click.stopPropagation();
+            window.addEventListener("click", swallow, { capture: true, once: true });
+            setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+            void commit(finished);
+          }
+        };
+
+        const onCancel = (cancel: PointerEvent) => {
+          if (cancel.pointerId === pointer) end();
+        };
+
+        function end() {
+          unlisten.current?.();
+          stopScrolling();
+          setDragging(null);
+          setOrder(null);
+        }
+
+        unlisten.current?.();
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onCancel);
+        unlisten.current = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onCancel);
+          unlisten.current = null;
+        };
       },
     }),
     [commit, stopScrolling],

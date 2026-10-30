@@ -2170,6 +2170,64 @@ pub async fn reorder_servers(app: AppHandle, ids: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// Разложить узлы по разделам в порядке `order`, свои серверы — в конец.
+///
+/// Порядок разделов на экране — это порядок подписок, но вместе с ними должны
+/// переезжать и узлы: из этого списка собирается документ ядра, и «по кругу»
+/// обходил бы серверы в одном порядке, пока на экране стоял бы другой. Узел
+/// подписки, которой больше нет, попадает к своим — ровно туда, куда его
+/// кладёт и список.
+fn reflow_nodes_by_subs(nodes: &mut Vec<ServerNode>, order: &[String]) {
+    // Функцией, а не замыканием: время жизни ответа привязано к узлу, а
+    // замыкание такую связь выразить не умеет.
+    fn group_of<'a>(node: &'a ServerNode, order: &[String]) -> &'a str {
+        match node.subscription_id.as_deref() {
+            Some(id) if order.iter().any(|known| known == id) => id,
+            _ => "",
+        }
+    }
+    let mut reflowed: Vec<ServerNode> = Vec::with_capacity(nodes.len());
+    for id in order {
+        reflowed.extend(nodes.iter().filter(|n| group_of(n, order) == id).cloned());
+    }
+    reflowed.extend(nodes.iter().filter(|n| group_of(n, order).is_empty()).cloned());
+    *nodes = reflowed;
+}
+
+/// Поставить подписки в порядок `ids` и вернуть то, что получилось. Сортировка
+/// устойчивая: подписка, добавленная, пока тянули раздел, остаётся в хвосте.
+fn sort_subs(subs: &mut [Subscription], ids: &[String]) -> Vec<String> {
+    let rank: HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect();
+    let tail = ids.len();
+    subs.sort_by_key(|sub| rank.get(sub.id.as_str()).copied().unwrap_or(tail));
+    subs.iter().map(|sub| sub.id.clone()).collect()
+}
+
+/// Переставить разделы — подписки целиком — в порядок `ids`.
+///
+/// Ядро не перезапускается по той же причине, что и при перестановке строк:
+/// теги запущенного документа держатся по идентификаторам узлов, а не по
+/// позициям.
+#[tauri::command]
+pub async fn reorder_subscriptions(app: AppHandle, ids: Vec<String>) -> Result<()> {
+    {
+        let state = app.state::<AppState>();
+        // Замки берутся по одному: обновление подписки берёт сначала узлы, потом
+        // подписки, и встречный порядок здесь однажды сцепился бы с ним намертво.
+        let order = sort_subs(&mut state.subs.write(), &ids);
+        reflow_nodes_by_subs(&mut state.nodes.write(), &order);
+        state.save_subs()?;
+        state.save_nodes()?;
+    }
+    emit_subs(&app);
+    emit_nodes(&app);
+    Ok(())
+}
+
 fn emit_nodes(app: &AppHandle) {
     let resolved = {
         let state = app.state::<AppState>();
@@ -3546,10 +3604,75 @@ pub async fn open_config_dir(app: AppHandle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        installer_suffix, merge_subscription_nodes, parse_version, pick_installer_url, split_frame,
-        split_import_text, ServerNode,
+        installer_suffix, merge_subscription_nodes, parse_version, pick_installer_url,
+        reflow_nodes_by_subs, sort_subs, split_frame, split_import_text, ServerNode, Subscription,
     };
     use serde_json::json;
+
+    fn section_node(name: &str, sub: Option<&str>) -> ServerNode {
+        ServerNode {
+            id: name.into(),
+            name: name.into(),
+            subscription_id: sub.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn section(id: &str) -> Subscription {
+        Subscription {
+            id: id.into(),
+            ..Default::default()
+        }
+    }
+
+    fn node_names(nodes: &[ServerNode]) -> Vec<&str> {
+        nodes.iter().map(|n| n.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_section_moved_takes_its_servers_with_it() {
+        // Список, который видно, и список, из которого собирается документ,
+        // должны совпадать: иначе «по кругу» обходил бы серверы в одном
+        // порядке, а на экране стоял бы другой.
+        let mut subs = vec![section("s1"), section("s2")];
+        let mut nodes = vec![
+            section_node("A", Some("s1")),
+            section_node("Свой", None),
+            section_node("B", Some("s2")),
+        ];
+
+        let order = sort_subs(&mut subs, &["s2".to_string(), "s1".to_string()]);
+        assert_eq!(order, vec!["s2".to_string(), "s1".to_string()]);
+        reflow_nodes_by_subs(&mut nodes, &order);
+
+        // Свои серверы всегда в конце — там же, где их показывает список.
+        assert_eq!(node_names(&nodes), vec!["B", "A", "Свой"]);
+    }
+
+    #[test]
+    fn a_subscription_added_during_the_drag_stays_in_the_tail() {
+        let mut subs = vec![section("new"), section("s1"), section("s2")];
+        let order = sort_subs(
+            &mut subs,
+            &["s2".to_string(), "s1".to_string(), "gone".to_string()],
+        );
+        assert_eq!(
+            order,
+            vec!["s2".to_string(), "s1".to_string(), "new".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_node_of_a_subscription_that_is_gone_joins_the_manual_ones() {
+        // Подписку удалили, а её узел ещё лежит в списке: он должен попасть к
+        // своим, а не исчезнуть при перекладке.
+        let mut nodes = vec![
+            section_node("Осиротевший", Some("gone")),
+            section_node("A", Some("s1")),
+        ];
+        reflow_nodes_by_subs(&mut nodes, &["s1".to_string()]);
+        assert_eq!(node_names(&nodes), vec!["A", "Осиротевший"]);
+    }
 
     #[test]
     fn subscription_urls_are_split_from_node_links() {

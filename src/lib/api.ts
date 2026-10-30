@@ -54,6 +54,8 @@ export const api = {
   /** Порядок серверов, собранный перетаскиванием. Ядро не перезапускается:
    *  теги живого документа привязаны к идентификаторам, а не к позициям. */
   reorderServers: (ids: string[]) => invoke<void>("reorder_servers", { ids }),
+  /** Порядок разделов списка серверов. Их серверы переезжают вместе с ними. */
+  reorderSubscriptions: (ids: string[]) => invoke<void>("reorder_subscriptions", { ids }),
 
   addSubscription: (name: string, url: string) =>
     invoke<ImportReport>("add_subscription", { input: { name, url } }),
