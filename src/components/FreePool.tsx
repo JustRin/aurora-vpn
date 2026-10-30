@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { Gift, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 
@@ -7,9 +6,6 @@ import { useT } from "../lib/i18n";
 import type { ImportReport } from "../lib/types";
 import { useStore } from "../store";
 import { Modal } from "./ui";
-
-/** Откуда берутся серверы пула — то же, что `free::SOURCE` в Rust. */
-const SOURCE_URL = "https://github.com/igareck/vpn-configs-for-russia";
 
 /**
  * Кнопка пула FREE: публичные серверы из открытых списков, сведённые в одну
@@ -36,16 +32,6 @@ export function FreePoolButton({ onReport }: { onReport: (report: ImportReport) 
       toast("error", t("free.failed"), errText(e));
     } finally {
       setBusy(false);
-    }
-  }
-
-  /** Списки лежат на GitHub — и читаются там, в системном браузере. */
-  async function showSource() {
-    try {
-      await openUrl(SOURCE_URL);
-    } catch {
-      await navigator.clipboard.writeText(SOURCE_URL).catch(() => {});
-      toast("info", t("srv.linkCopied"), SOURCE_URL);
     }
   }
 
@@ -77,9 +63,6 @@ export function FreePoolButton({ onReport }: { onReport: (report: ImportReport) 
           </>
         }
       >
-        <p className="hint" style={{ marginTop: 0 }}>
-          {t("free.consentText")}
-        </p>
         <div className="alert">
           <ShieldAlert size={17} color="var(--warn)" style={{ flexShrink: 0 }} />
           <div>
@@ -88,11 +71,6 @@ export function FreePoolButton({ onReport }: { onReport: (report: ImportReport) 
           </div>
         </div>
         <p className="hint">{t("free.consentOptout")}</p>
-        <div className="row">
-          <button type="button" className="btn sm" onClick={() => void showSource()}>
-            {t("free.source")}
-          </button>
-        </div>
       </Modal>
     </>
   );
