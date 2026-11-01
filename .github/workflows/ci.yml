@@ -59,6 +59,11 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # Движок пока работает только в клиенте для Windows, но собираться и проходить
+      # тесты обязан везде: иначе перенос на другие платформы начнётся с починки.
+      - name: Engine tests
+        run: cargo test --manifest-path engine/Cargo.toml
+
   # Нативный клиент на Slint: собирается только под Windows и живёт своим
   # крейтом, поэтому и проверяется отдельно от Tauri-части.
   native-check:
@@ -98,3 +103,4 @@ jobs:
           export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-linux-android --lib
+          cargo check --manifest-path engine/Cargo.toml --target aarch64-linux-android --lib

@@ -108,6 +108,17 @@ Still unsupported by either engine: `kcp`, `quic` as a VLESS transport and
 `headerType=http` obfuscation over TCP. Such links are rejected at import with a
 reason, instead of sitting in the list silently broken.
 
+### Our own engine: aura-engine
+
+On Windows, **aura-engine** (`engine/`, Settings → Core) can run instead of
+sing-box. It is a Rust engine inside the app's own process, with no separate exe. It
+reads the same document and serves the same Clash API, so the config generator and
+the balancer cannot tell the two apart. The main difference is not the language: TCP from the TUN never passes
+through a userspace stack. Packets are only rewritten and turned around to an
+ordinary socket, while windows and retransmissions are left to the Windows kernel.
+See [engine/README.md](../engine/README.md) for details, what is supported, and what
+only sing-box can do so far.
+
 ---
 
 ## Routing rule order

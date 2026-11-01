@@ -378,6 +378,15 @@ export component SettingsPage inherits ScrollArea {
         Rectangle { height: 12px; }
         Card {
             StackRow {
+                label: Str.set-core-engine;
+                desc: Str.set-core-engine-hint;
+                Segmented {
+                    options: ["sing-box", "Aura"];
+                    selected <=> Conf.core-engine;
+                }
+            }
+            Divider { }
+            StackRow {
                 label: Str.set-tunnel-mode;
                 desc: Conf.tunnel-mode == 0
                     ? Str.set-tunnel-mode-tun-desc
@@ -400,7 +409,8 @@ export component SettingsPage inherits ScrollArea {
             Card {
                 HorizontalLayout {
                     spacing: 14px;
-                    Field {
+                    // Стек — настройка sing-box: Aura всегда отдаёт TCP ядру ОС.
+                    if Conf.core-engine == 0: Field {
                         label: Str.set-tun-stack;
                         hint: Str.set-tun-stack-hint;
                         horizontal-stretch: 1;

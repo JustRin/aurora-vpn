@@ -114,25 +114,6 @@ pub fn relaunch_elevated(_args: Option<&str>) -> Result<()> {
     ))
 }
 
-/// Let the single-instance «show yourself» message through UIPI.
-///
-/// The plugin delivers a second launch as a `WM_COPYDATA` message to a hidden
-/// window, and Windows silently drops window messages sent by an unelevated
-/// process to an elevated one. This app usually runs elevated (the autostart
-/// task, TUN mode) while the desktop shortcut starts a plain process, so
-/// without this exception the running instance never hears that click.
-/// Process-wide on purpose: the target is the plugin's hidden event window,
-/// whose handle this code never sees.
-#[cfg(windows)]
-pub fn allow_single_instance_message() {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        ChangeWindowMessageFilter, MSGFLT_ADD, WM_COPYDATA,
-    };
-    unsafe {
-        let _ = ChangeWindowMessageFilter(WM_COPYDATA, MSGFLT_ADD);
-    }
-}
-
 /// Pass this fresh launch's right to take the foreground on to whichever
 /// process ends up showing the window. A process the user just started may
 /// bring itself to the front; the long-running tray instance may not — its

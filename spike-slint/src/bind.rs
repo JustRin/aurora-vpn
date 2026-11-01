@@ -17,7 +17,7 @@ use crate::app::{self, AppHandle};
 use crate::error::Result;
 use crate::model::{Network, Protocol, Security, ServerNode};
 use crate::qr;
-use crate::settings::{AppRule, Balancer, Settings, SplitConfig, SplitMode, TunStack, TunnelMode};
+use crate::settings::{AppRule, Balancer, CoreEngine, Settings, SplitConfig, SplitMode, TunStack, TunnelMode};
 use crate::shell;
 use crate::state::AppState;
 use crate::sys::autostart::AutostartMode;
@@ -163,6 +163,10 @@ pub fn install(ui: &AppWindow) -> Result<AppHandle> {
 
 /// Разложить снимок состояния по глобалам. Делается один раз на старте: дальше
 /// интерфейс живёт событиями.
+pub fn show_core_version(ui: &AppWindow, version: &str) {
+    ui.global::<Data>().set_core_version(version.into());
+}
+
 fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     let data = ui.global::<Data>();
     data.set_core_version(snap.core_version.as_str().into());
@@ -222,6 +226,7 @@ fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
         TunStack::System => 1,
         TunStack::Gvisor => 2,
     });
+    conf.set_core_engine(matches!(s.core_engine, CoreEngine::Aura) as i32);
     conf.set_tun_mtu(s.tun_mtu.to_string().into());
     conf.set_strict_route(s.strict_route);
     conf.set_ipv6(s.ipv6);
@@ -295,6 +300,7 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
             2 => TunStack::Gvisor,
             _ => TunStack::Mixed,
         },
+        core_engine: if conf.get_core_engine() == 1 { CoreEngine::Aura } else { CoreEngine::SingBox },
         tun_mtu: number(conf.get_tun_mtu(), current.tun_mtu).clamp(576, 65535),
         strict_route: conf.get_strict_route(),
         ipv6: conf.get_ipv6(),
@@ -1679,7 +1685,7 @@ pub fn after_start(ui: &AppWindow, handle: &AppHandle) {
             let handle = handle.clone();
             app::runtime().spawn(async move {
                 let reporter = handle.clone();
-                let Ok(found) = api::check_update(handle).await else { return };
+                let Ok(found) = api::check_update().await else { return };
                 reporter.with_ui(move |ui| {
                     let data = ui.global::<Data>();
                     match found {

@@ -22,6 +22,16 @@ pub enum TunStack {
     Gvisor,
 }
 
+/// Какое ядро ведёт трафик. Переключается без переустановки: оба лежат рядом.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoreEngine {
+    #[default]
+    SingBox,
+    /// Свой движок на Rust (`engine/`): читает тот же документ и тот же Clash API.
+    Aura,
+}
+
 impl TunStack {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -36,6 +46,7 @@ impl TunStack {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub tunnel_mode: TunnelMode,
+    pub core_engine: CoreEngine,
     pub mixed_port: u16,
     pub clash_port: u16,
     pub allow_lan: bool,
@@ -111,6 +122,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             tunnel_mode: TunnelMode::Tun,
+            core_engine: CoreEngine::SingBox,
             mixed_port: 2080,
             clash_port: 9191,
             allow_lan: false,
@@ -162,6 +174,8 @@ impl Settings {
     pub fn tunnel_changed(&self, next: &Settings) -> bool {
         let Settings {
             tunnel_mode,
+            // Смена ядра — это перезапуск туннеля, хотя документ тот же.
+            core_engine,
             mixed_port,
             clash_port,
             allow_lan,
@@ -197,6 +211,7 @@ impl Settings {
         } = self;
 
         *tunnel_mode != next.tunnel_mode
+            || *core_engine != next.core_engine
             || *mixed_port != next.mixed_port
             || *clash_port != next.clash_port
             || *allow_lan != next.allow_lan

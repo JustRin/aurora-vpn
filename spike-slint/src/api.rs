@@ -29,7 +29,7 @@ use crate::settings::{Balancer, Settings, SplitConfig, Subscription, TunnelMode}
 use crate::state::{AppState, ConnState, Link, Status, Traffic};
 use crate::warp::WarpAccount;
 use crate::sys::autostart::{self, AutostartMode};
-use crate::sys::{elevate, procs, sysproxy};
+use crate::sys::{elevate, sysproxy};
 
 /// Сговор ядра с интерфейсом, как `ELEVATION_REQUIRED`: подключение прервано
 /// не ошибкой, а вопросом — окно уже спрашивает про ядро от прошлого сеанса.
@@ -1082,6 +1082,8 @@ fn spawn_balancer(app: AppHandle, session: u64) {
 // ---------------------------------------------------------------- commands
 
 pub async fn get_snapshot(app: AppHandle) -> Result<Snapshot> {
+    #[cfg(not(target_os = "android"))]
+    choose_core_engine(&app);
     let state = app.state();
     let core_version = {
         let core = state.core.lock();
@@ -1123,6 +1125,20 @@ pub async fn connect(app: AppHandle) -> Result<()> {
     connect_inner(app).await
 }
 
+/// Поставить в супервизор ядро из настроек. TUN без драйвера не поднимется: работаем на
+/// sing-box и пишем об этом — подключение важнее выбора.
+#[cfg(not(target_os = "android"))]
+fn choose_core_engine(app: &AppHandle) {
+    let state = app.state();
+    if state.sync_core_engine() {
+        let _ = app.emit(Event::Log(LogLine {
+            seq: 0,
+            level: "warn".into(),
+            text: "рядом с приложением нет wintun.dll — работаю на sing-box".into(),
+        }));
+    }
+}
+
 async fn connect_inner(app: AppHandle) -> Result<()> {
     let (tunnel_mode, mixed_port, clash_port, node_count) = {
         let state = app.state();
@@ -1160,6 +1176,9 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
     // started: a refusal must leave the current state untouched.
     #[cfg(target_os = "android")]
     crate::core::android::prepare(&app).await?;
+
+    #[cfg(not(target_os = "android"))]
+    choose_core_engine(&app);
 
     // ---- ядро от прошлого сеанса -----------------------------------------
     // Оно открывает cache.db монопольно, и новое ядро десять секунд ждёт
@@ -1437,12 +1456,6 @@ async fn restart_if_running(app: &AppHandle) -> Result<()> {
 
 pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
     let tunnel_mode = settings.tunnel_mode;
-    #[cfg(desktop)]
-    let language_changed = {
-        let state = app.state();
-        let changed = state.settings.read().language != settings.language;
-        changed
-    };
     // Decided before the write below: afterwards both sides are the new value.
     let (tunnel_changed, balancer_changed) = {
         let state = app.state();
@@ -1454,14 +1467,11 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
         *state.settings.write() = settings;
         state.save_settings()?;
     }
-    #[cfg(desktop)]
-    if language_changed {
-        let choice = {
-            let state = app.state();
-            let choice = state.settings.read().language.clone();
-            choice
-        };
-        crate::update_tray_language(&app, &choice);
+    #[cfg(not(target_os = "android"))]
+    {
+        choose_core_engine(&app);
+        let version = app.state().core.lock().version().unwrap_or_default();
+        app.with_ui(move |ui| crate::bind::show_core_version(ui, &version));
     }
     set_status(&app, |s| s.tunnel_mode = tunnel_mode);
     // A theme click or a tray preference must not drop a live connection —
@@ -2713,55 +2723,6 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
 
 // ---------------------------------------------------------------- system
 
-#[cfg(not(target_os = "android"))]
-pub async fn list_running_apps(include_system: bool) -> Result<Vec<procs::RunningApp>> {
-    // Enumerating processes touches the whole process table; keep it off the UI thread.
-    tokio::task::spawn_blocking(move || procs::running_apps(include_system))
-        .await
-        .map_err(|e| AppError::msg(format!("не удалось получить список процессов: {e}")))
-}
-
-/// Same command, different well: a sandboxed app cannot see other processes,
-/// but it can list installed packages. `path` carries the package name — the
-/// value the tun inbound's include/exclude lists match on.
-#[cfg(target_os = "android")]
-pub async fn list_running_apps(
-    app: AppHandle,
-    include_system: bool,
-) -> Result<Vec<procs::RunningApp>> {
-    let packages = tokio::task::spawn_blocking(move || crate::core::android::list_packages(&app))
-        .await
-        .map_err(|e| AppError::msg(format!("не удалось получить список приложений: {e}")))??;
-    Ok(packages
-        .into_iter()
-        .filter(|p| include_system || !p.system)
-        .map(|p| procs::RunningApp {
-            name: p.name,
-            path: p.package,
-            instances: 1,
-            system: p.system,
-        })
-        .collect())
-}
-
-/// Live memory/CPU of the whole process family — GUI, WebView2 children, the
-/// engines — so the user does not have to reassemble the total from scattered
-/// Task Manager rows.
-#[cfg(not(target_os = "android"))]
-pub async fn resource_usage() -> Result<Vec<procs::ResourceGroup>> {
-    // Enumerating processes touches the whole process table; keep it off the UI thread.
-    tokio::task::spawn_blocking(procs::resource_usage)
-        .await
-        .map_err(|e| AppError::msg(format!("не удалось измерить потребление ресурсов: {e}")))
-}
-
-/// On Android everything already lives in this one process (libbox is
-/// in-process) and the OS shows the app as a single entry — nothing to fold.
-#[cfg(target_os = "android")]
-pub async fn resource_usage() -> Result<Vec<procs::ResourceGroup>> {
-    Ok(Vec::new())
-}
-
 pub async fn get_logs(app: AppHandle) -> Result<Vec<LogLine>> {
     let state = app.state();
     let core = state.core.lock();
@@ -2932,7 +2893,7 @@ fn pick_installer_url(assets: &[Value]) -> Option<String> {
 /// Silence is deliberate for everything except transport errors: no releases
 /// yet, a rate-limited API or a release without an installer asset are all
 /// "no update", not failures the user can act on.
-pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>> {
+pub async fn check_update() -> Result<Option<UpdateInfo>> {
     let current = crate::app::VERSION.to_string();
     let api = format!("https://api.github.com/repos/{UPDATE_REPO}/releases/latest");
 
@@ -3155,37 +3116,6 @@ pub async fn install_update(app: AppHandle, url: String) -> Result<()> {
         });
     }
     Ok(())
-}
-
-/// Reveal the main window once the interface has actually painted.
-///
-/// The window starts hidden: showing it earlier means the user stares at an
-/// empty white WebView for a beat before the dark UI replaces it.
-pub async fn app_ready(app: AppHandle) -> Result<()> {
-    // Окно создаётся скрытым, а запуск в трей не создаёт его вовсе — поэтому к
-    // моменту, когда интерфейс отчитался о первом кадре, показать его всегда
-    // правильно.
-    app.show_window();
-    Ok(())
-}
-
-pub async fn get_autostart() -> Result<AutostartMode> {
-    Ok(autostart::current())
-}
-
-/// Register or clear launch-at-login. Returns the mode actually in force, which
-/// lets the UI correct itself if the OS refused part of the request.
-pub async fn set_autostart(mode: AutostartMode) -> Result<AutostartMode> {
-    // Registering the elevated variant writes to the system task store, so it
-    // must not block the UI thread.
-    tokio::task::spawn_blocking(move || autostart::apply(mode))
-        .await
-        .map_err(|e| AppError::msg(format!("не удалось изменить автозапуск: {e}")))??;
-    Ok(autostart::current())
-}
-
-pub async fn is_elevated() -> Result<bool> {
-    Ok(elevate::is_elevated())
 }
 
 pub async fn relaunch_elevated(app: AppHandle) -> Result<()> {

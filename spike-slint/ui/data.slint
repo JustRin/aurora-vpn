@@ -265,6 +265,7 @@ export global Data {
 // Настройки: то, что в вебе лежит в store.settings и store.split.
 export global Conf {
     in-out property <int> tunnel-mode: 0;   // 0 TUN, 1 системный прокси
+    in-out property <int> core-engine: 0;   // 0 sing-box, 1 aura-engine
     in-out property <int> tun-stack: 0;     // 0 mixed, 1 system, 2 gvisor
     in-out property <string> tun-mtu: "9000";
     in-out property <bool> strict-route: true;

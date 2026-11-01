@@ -64,6 +64,9 @@ jobs:
       - name: Build patched sing-box
         run: node scripts/build-sing-box.mjs
 
+      - name: Fetch wintun
+        run: node scripts/fetch-wintun.mjs
+
       - name: Build app
         run: cargo build --release --manifest-path spike-slint/Cargo.toml
 

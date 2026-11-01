@@ -180,7 +180,7 @@ export component AppWindow inherits Window {
     // форму целиком. Сохранение отложено на полсекунды: иначе набор порта
     // перезапускал бы ядро на каждой цифре.
     property <string> conf-digest:
-        "\{Conf.tunnel-mode}|\{Conf.tun-stack}|\{Conf.tun-mtu}|\{Conf.strict-route ? 1 : 0}"
+        "\{Conf.tunnel-mode}|\{Conf.core-engine}|\{Conf.tun-stack}|\{Conf.tun-mtu}|\{Conf.strict-route ? 1 : 0}"
         + "|\{Conf.ipv6 ? 1 : 0}|\{Conf.fake-ip ? 1 : 0}|\{Conf.dns-remote}|\{Conf.dns-direct}"
         + "|\{Conf.mixed-port}|\{Conf.clash-port}|\{Conf.latency-url}|\{Conf.log-level}"
         + "|\{Conf.allow-lan ? 1 : 0}|\{Conf.balancer}|\{Conf.balancer-interval}|\{Conf.balancer-tolerance}"

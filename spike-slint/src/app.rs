@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use slint::ComponentHandle;
 
 use crate::api::UpdateProgress;
 use crate::core::log::LogLine;
@@ -85,16 +84,6 @@ impl AppHandle {
         let _ = self.ui.upgrade_in_event_loop(move |ui| f(&ui));
     }
 
-    /// Показать окно: оно создаётся скрытым, чтобы не мигнуть пустым кадром.
-    pub fn show_window(&self) {
-        self.with_ui(|ui| {
-            let window = ui.window();
-            window.show().ok();
-            // Из трея окно возвращают уже свёрнутым — поднять и отдать фокус.
-            window.set_minimized(false);
-        });
-    }
-
     /// Завершить приложение — та же дорога, что у «Выхода» в трее: значок
     /// снимается, туннель опускается, процесс уходит. Зовут отсюда обычно из
     /// задач tokio (обновление, перезапуск с правами), и на цикл интерфейса
@@ -132,6 +121,15 @@ pub fn locate_core() -> Option<PathBuf> {
 /// этом, а всё остальное продолжит работать на sing-box.
 pub fn locate_xray() -> Option<PathBuf> {
     locate_binary("xray")
+}
+
+/// Драйвер адаптера для встроенного движка. Лежит рядом с exe, а в дереве сборки —
+/// там, куда его кладёт `npm run wintun`. Без него движок работает только в режиме
+/// системного прокси.
+pub fn locate_wintun() -> Option<PathBuf> {
+    let beside_exe = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("wintun.dll")));
+    let in_tree = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/binaries/wintun.dll");
+    beside_exe.into_iter().chain(std::iter::once(in_tree)).find(|p| p.is_file())
 }
 
 fn locate_binary(stem: &str) -> Option<PathBuf> {

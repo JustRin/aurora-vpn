@@ -18,6 +18,9 @@ i-slint-backend-winit = { version = "1.17", default-features = false }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 # Ядро приложения — то, что раньше жило в src-tauri/src и не знало про Tauri.
+# Свой движок: живёт в этом же процессе. Его код собирается под профиль приложения,
+# поэтому горячие крейты подняты до opt-level 3 ниже.
+aura-engine = { path = "../engine" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -151,6 +154,29 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.owned_ttf_parser]
 opt-level = 3
+
+# Перекачка и шифрование: каждый байт трафика идёт через них.
+[profile.release.package.aura-engine]
+opt-level = 3
+[profile.release.package.tokio]
+opt-level = 3
+[profile.release.package.ring]
+opt-level = 3
+[profile.release.package.quinn]
+opt-level = 3
+[profile.release.package.quinn-proto]
+opt-level = 3
+[profile.release.package.quinn-udp]
+opt-level = 3
+
+# Для работы над кодом: тот же быстрый рендер, но без LTO и с инкрементальной
+# сборкой. `cargo run --profile fast --manifest-path spike-slint/Cargo.toml`
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 256
+incremental = true
+strip = false
 
 [patch.crates-io]
 # Софтверный рендер с правкой отрисовки текста: дробные позиции глифов,

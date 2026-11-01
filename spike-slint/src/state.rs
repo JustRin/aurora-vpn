@@ -310,6 +310,22 @@ impl AppState {
         })
     }
 
+    /// Привести супервизор к ядру из настроек. `true` — выбран Aura, но для TUN нет
+    /// wintun.dll, и работать будет sing-box.
+    #[cfg(not(target_os = "android"))]
+    pub fn sync_core_engine(&self) -> bool {
+        use crate::settings::CoreEngine;
+        let (wanted, tun) = {
+            let settings = self.settings.read();
+            (settings.core_engine, settings.tunnel_mode == TunnelMode::Tun)
+        };
+        let wintun = crate::app::locate_wintun();
+        let fallback = wanted == CoreEngine::Aura && tun && wintun.is_none();
+        let engine = if wanted == CoreEngine::Aura && !fallback { Engine::Aura } else { Engine::SingBox };
+        self.core.lock().use_engine(engine, wintun);
+        fallback
+    }
+
     pub fn save_settings(&self) -> Result<()> {
         self.store.save("settings", &*self.settings.read())
     }

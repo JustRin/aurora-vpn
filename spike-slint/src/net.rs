@@ -13,6 +13,16 @@ pub fn http_client() -> reqwest::Client {
         .expect("HTTP-клиент не собрался — это ошибка сборки, а не окружения")
 }
 
+// Движок тянет rustls с ring, reqwest — с aws-lc-rs. С двумя провайдерами rustls не
+// может выбрать сам и паникует там, где полагается на выбор по умолчанию.
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_client_builds_next_to_the_engines_tls_provider() {
+        let _ = super::http_client();
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 pub fn http_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()

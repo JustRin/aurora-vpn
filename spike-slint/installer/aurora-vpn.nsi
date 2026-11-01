@@ -110,6 +110,7 @@ Section "install"
   File "${SOURCE}\${APP_EXE}"
   File "${SOURCE}\sing-box.exe"
   File "${SOURCE}\xray.exe"
+  File /nonfatal "${SOURCE}\wintun.dll"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -183,6 +184,9 @@ Section "uninstall"
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\sing-box.exe"
   Delete "$INSTDIR\xray.exe"
+  nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="Aurora Engine"'
+  Pop $0
+  Delete "$INSTDIR\wintun.dll"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
 

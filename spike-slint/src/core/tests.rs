@@ -650,3 +650,76 @@ fn xray_names_the_outbound_it_refuses() {
     assert_eq!(built.rejected_node(&refused), Some("bad"), "{refused}");
     retried.expect("без отвергнутого узла Xray должен принять остальные");
 }
+
+/// Встроенный движок через тот же супервизор: документ от настоящего генератора,
+/// управление по Clash API, журнал через обратный вызов, повторный запуск в том же
+/// процессе — ровно то, что делает переподключение. TUN здесь нет: нужны права.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_embedded_engine_restarts_inside_the_process() {
+    const CLASH: u16 = 19_291;
+    const MIXED: u16 = 12_180;
+
+    let work = std::env::temp_dir().join("aurora-embedded-lifecycle");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+
+    let nodes = sample_nodes();
+    let settings = Settings {
+        tunnel_mode: TunnelMode::SystemProxy,
+        clash_port: CLASH,
+        mixed_port: MIXED,
+        ..Default::default()
+    };
+    let split = SplitConfig::default();
+    let built = config::build(&BuildInput {
+        nodes: &nodes,
+        active_id: "n2",
+        settings: &settings,
+        split: &split,
+        clash_secret: "test-secret",
+        cache_path: &work.join("cache.db"),
+        xray_ports: &no_xray(),
+        xray_exe: None,
+        rule_sets: &no_sets(),
+        rule_set_dir: &work.join("rulesets"),
+        warp_chain: None,
+    })
+    .expect("конфигурация должна собираться");
+    let config_path = work.join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+
+    // Файл sing-box супервизору для этого ядра не нужен.
+    let mut core = CoreSupervisor::new(Engine::SingBox, PathBuf::from("нет-такого-файла"), work.clone());
+    core.use_engine(Engine::Aura, None);
+    assert!(core.version().unwrap().starts_with("aura-engine"));
+    core.check_config(&config_path).expect("движок должен принять сгенерированный конфиг");
+
+    let captured: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
+    for round in 0..2 {
+        let sink = Arc::clone(&captured);
+        let pid = core
+            .start(&config_path, move |line| sink.lock().push(line.text))
+            .expect("движок должен запуститься");
+        assert_eq!(pid, std::process::id(), "движок живёт в этом процессе");
+        assert!(core.is_running());
+
+        let api = ClashApi::new(CLASH, "test-secret");
+        let ready = api.wait_ready(Duration::from_secs(5)).await;
+        let selected = api.select(TAG_PROXY, "1-Проверка WebSocket").await;
+        let moved = api.set_mode("Global").await;
+        let totals = api.totals().await;
+        core.stop();
+
+        ready.unwrap_or_else(|e| panic!("круг {round}: {e}"));
+        selected.expect("селектор должен переключаться");
+        moved.expect("режим должен переключаться");
+        assert_eq!(totals.expect("счётчики").connections, 0);
+        assert!(!core.is_running());
+    }
+    assert!(captured.lock().iter().any(|line| line.contains("aura-engine")), "журнал дошёл до приложения");
+
+    // Возврат на sing-box: подпись версии следует за выбором сразу, без подключения.
+    core.use_engine(Engine::SingBox, None);
+    assert!(!core.version().unwrap_or_default().starts_with("aura-engine"));
+    let _ = std::fs::remove_dir_all(&work);
+}

@@ -1,6 +1,6 @@
-//! Supervises the sing-box child process: config validation, spawn, log capture
-//! and teardown. Desktop-only — on Android the engine runs in-process (libbox)
-//! and is driven by `core::android` instead.
+//! Supervises the core: config validation, start, log capture and teardown.
+//! sing-box and Xray are child processes; aura-engine lives in this one. Desktop-only
+//! — on Android the engine runs in-process (libbox) and is driven by `core::android`.
 
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
@@ -102,13 +102,15 @@ fn adopt_into_job(child: &Child) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Engine {
     SingBox,
+    /// `engine/`: тот же конфиг и Clash API, что у sing-box, но внутри этого процесса.
+    Aura,
     Xray,
 }
 
 impl Engine {
     fn run_args(self, config: &Path, workdir: &Path) -> Vec<std::ffi::OsString> {
         match self {
-            Engine::SingBox => vec![
+            Engine::SingBox | Engine::Aura => vec![
                 "run".into(),
                 "-c".into(),
                 config.into(),
@@ -121,7 +123,7 @@ impl Engine {
 
     fn check_args(self, config: &Path) -> Vec<std::ffi::OsString> {
         match self {
-            Engine::SingBox => vec!["check".into(), "-c".into(), config.into()],
+            Engine::SingBox | Engine::Aura => vec!["check".into(), "-c".into(), config.into()],
             Engine::Xray => vec!["run".into(), "-test".into(), "-c".into(), config.into()],
         }
     }
@@ -129,6 +131,7 @@ impl Engine {
     pub fn label(self) -> &'static str {
         match self {
             Engine::SingBox => "sing-box",
+            Engine::Aura => "aura-engine",
             Engine::Xray => "Xray",
         }
     }
@@ -139,6 +142,9 @@ pub struct CoreSupervisor {
     exe: PathBuf,
     workdir: PathBuf,
     child: Option<Child>,
+    embedded: Option<aura_engine::Engine>,
+    /// Где лежит wintun.dll для встроенного движка.
+    wintun: Option<PathBuf>,
     pub logs: Arc<Mutex<LogBuffer>>,
 }
 
@@ -149,8 +155,18 @@ impl CoreSupervisor {
             exe,
             workdir,
             child: None,
+            embedded: None,
+            wintun: None,
             logs: Arc::new(Mutex::new(LogBuffer::default())),
         }
+    }
+
+    /// Сменить ядро для следующего запуска. Работающее не трогает: его снимет `stop`
+    /// перед новым стартом. `exe` остаётся прежним: поиск ядра-сироты и замер узлов
+    /// без подключения работают с файлом sing-box при любом выборе.
+    pub fn use_engine(&mut self, engine: Engine, wintun: Option<PathBuf>) {
+        self.engine = engine;
+        self.wintun = wintun;
     }
 
     /// The binary actually spawned — sing-box has to name it in a routing rule
@@ -174,6 +190,9 @@ impl CoreSupervisor {
     }
 
     pub fn version(&self) -> Result<String> {
+        if self.engine == Engine::Aura {
+            return Ok(aura_engine::VERSION_LINE.to_string());
+        }
         let out = self
             .base_command()
             .arg("version")
@@ -186,6 +205,11 @@ impl CoreSupervisor {
     /// Validate before spawning so configuration mistakes surface as a readable
     /// message instead of a core that dies half a second after connect.
     pub fn check_config(&self, config: &Path) -> Result<()> {
+        if self.engine == Engine::Aura {
+            return aura_engine::check(config)
+                .map(|_| ())
+                .map_err(|e| AppError::msg(format!("aura-engine отклонил конфигурацию: {e}")));
+        }
         let out = self
             .base_command()
             .args(self.engine.check_args(config))
@@ -207,6 +231,9 @@ impl CoreSupervisor {
     }
 
     pub fn is_running(&mut self) -> bool {
+        if let Some(engine) = &self.embedded {
+            return engine.is_alive();
+        }
         match self.child.as_mut() {
             Some(child) => matches!(child.try_wait(), Ok(None)),
             None => false,
@@ -221,6 +248,9 @@ impl CoreSupervisor {
     {
         if self.is_running() {
             return Err(AppError::msg("ядро уже запущено"));
+        }
+        if self.engine == Engine::Aura {
+            return self.start_embedded(config, on_log);
         }
         self.check_config(config)?;
 
@@ -276,7 +306,36 @@ impl CoreSupervisor {
         Ok(pid)
     }
 
+    /// Движок в этом процессе. Номер процесса возвращается свой: запись в `core.pid`
+    /// при следующем запуске сотрёт `forget_dead_pid` — файл у процесса не тот.
+    fn start_embedded<F>(&mut self, config: &Path, on_log: F) -> Result<u32>
+    where
+        F: Fn(LogLine) + Send + Sync + 'static,
+    {
+        // Поток чтения TUN умер: движок ещё числится запущенным и держит адаптер.
+        if let Some(dead) = self.embedded.take() {
+            dead.stop();
+        }
+        let logs = Arc::clone(&self.logs);
+        let sink = aura_engine::log_sink(move |level, text| {
+            let entry = logs.lock().push(level.to_string(), text.to_string());
+            on_log(entry);
+        });
+        let engine = aura_engine::start(aura_engine::Options {
+            config: config.to_path_buf(),
+            wintun: self.wintun.clone(),
+            log: Some(sink),
+        })
+        .map_err(|e| AppError::msg(format!("aura-engine: {e}")))?;
+        self.embedded = Some(engine);
+        Ok(std::process::id())
+    }
+
     pub fn stop(&mut self) {
+        // Ждёт, пока адаптер исчезнет из системы и освободятся порты.
+        if let Some(engine) = self.embedded.take() {
+            engine.stop();
+        }
         if let Some(mut child) = self.child.take() {
             spawned().lock().remove(&child.id());
             let _ = child.kill();

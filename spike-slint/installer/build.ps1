@@ -44,6 +44,10 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item $app (Join-Path $stage "aurora-vpn.exe")
 Copy-Item (Join-Path $binaries "sing-box-$triple.exe") (Join-Path $stage "sing-box.exe")
 Copy-Item (Join-Path $binaries "xray-$triple.exe") (Join-Path $stage "xray.exe")
+# Драйвер адаптера для встроенного движка; без него TUN остаётся за sing-box.
+if (Test-Path (Join-Path $binaries "wintun.dll")) {
+    Copy-Item (Join-Path $binaries "wintun.dll") (Join-Path $stage "wintun.dll")
+}
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
 # Имя как у прежних релизов: по нему встроенное обновление узнаёт свой файл
