@@ -309,6 +309,7 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
         // Тумблер живёт на «Обзоре», а не в форме настроек: сюда он попадает
         // тем же путём, что тема и язык — из уже сохранённого состояния.
         warp_over_proxy: current.warp_over_proxy,
+        aura_default_applied: current.aura_default_applied,
         dns_remote: conf.get_dns_remote().to_string(),
         dns_direct: conf.get_dns_direct().to_string(),
         mixed_port: number(conf.get_mixed_port(), current.mixed_port as u32).clamp(1, 65535) as u16,

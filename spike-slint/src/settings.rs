@@ -26,9 +26,11 @@ pub enum TunStack {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum CoreEngine {
-    #[default]
     SingBox,
     /// Свой движок на Rust (`engine/`): читает тот же документ и тот же Clash API.
+    /// Основной с ноября 2026: меньше памяти, умеет Veil. Узел, который он пока
+    /// не везёт, на это подключение уходит на sing-box (`api.rs`).
+    #[default]
     Aura,
 }
 
@@ -101,6 +103,9 @@ pub struct Settings {
     pub auto_select: bool,
     /// Minutes between automatic subscription refreshes; 0 disables it.
     pub sub_auto_update_min: u32,
+    /// Разовый переезд на Aura (ноябрь 2026): прежний выбор sing-box был
+    /// значением по умолчанию, а не решением. Дальше выбор пользователя.
+    pub aura_default_applied: bool,
 }
 
 /// Кто выбирает сервер. Стратегии описаны в core/balancer.rs.
@@ -122,7 +127,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             tunnel_mode: TunnelMode::Tun,
-            core_engine: CoreEngine::SingBox,
+            core_engine: CoreEngine::Aura,
             mixed_port: 2080,
             clash_port: 9191,
             allow_lan: false,
@@ -156,6 +161,9 @@ impl Default for Settings {
             balancer_interval_min: 3,
             balancer_tolerance_ms: 100,
             auto_select: false,
+            // false и у нового файла: serde берёт недостающие поля отсюда, и
+            // только так переезд сработает для старых файлов без этого поля.
+            aura_default_applied: false,
             // Refresh once a day out of the box: a silently stale server list is
             // the most common way one of these clients stops working.
             sub_auto_update_min: 1440,
@@ -198,6 +206,7 @@ impl Settings {
             balancer_interval_min: _,
             balancer_tolerance_ms: _,
             auto_select: _,
+            aura_default_applied: _,
             // UI-only: never part of the generated document.
             auto_connect: _,
             start_minimized: _,
@@ -239,14 +248,20 @@ impl Settings {
     /// Переезд с тумблера «выбирать самый быстрый» на стратегии. Возвращает,
     /// изменилось ли что-то — тогда файл стоит перезаписать.
     pub fn migrate(&mut self) -> bool {
-        if !self.auto_select {
-            return false;
+        let mut changed = false;
+        if self.auto_select {
+            self.auto_select = false;
+            if self.balancer == Balancer::Manual {
+                self.balancer = Balancer::Fastest;
+            }
+            changed = true;
         }
-        self.auto_select = false;
-        if self.balancer == Balancer::Manual {
-            self.balancer = Balancer::Fastest;
+        if !self.aura_default_applied {
+            self.aura_default_applied = true;
+            self.core_engine = CoreEngine::Aura;
+            changed = true;
         }
-        true
+        changed
     }
 }
 
@@ -338,7 +353,7 @@ impl Default for SplitConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{Balancer, Settings, SplitConfig};
+    use super::{Balancer, CoreEngine, Settings, SplitConfig};
 
     #[test]
     fn ui_preferences_do_not_touch_the_tunnel() {
@@ -386,8 +401,23 @@ mod tests {
         assert!(explicit.migrate());
         assert_eq!(explicit.balancer, Balancer::Failover);
 
-        let mut untouched = Settings::default();
+        let mut untouched = Settings { aura_default_applied: true, ..Settings::default() };
         assert!(!untouched.migrate());
+    }
+
+    #[test]
+    fn aura_becomes_the_engine_once() {
+        // Старый файл: sing-box был значением по умолчанию.
+        let mut old: Settings = serde_json::from_str(r#"{"coreEngine": "sing-box"}"#).unwrap();
+        assert!(old.migrate());
+        assert_eq!(old.core_engine, CoreEngine::Aura);
+        // Вернули sing-box сами — второй раз не трогаем.
+        old.core_engine = CoreEngine::SingBox;
+        let mut again: Settings = serde_json::from_str(&serde_json::to_string(&old).unwrap()).unwrap();
+        assert!(!again.migrate());
+        assert_eq!(again.core_engine, CoreEngine::SingBox);
+        // Новая установка сразу на Aura.
+        assert_eq!(Settings::default().core_engine, CoreEngine::Aura);
     }
 
     #[test]

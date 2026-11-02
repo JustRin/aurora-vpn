@@ -812,6 +812,33 @@ mod tests {
     use super::*;
     use crate::model::{Protocol, Security};
 
+    /// Откат с Aura на sing-box (api.rs) опирается на то, что проверка движка
+    /// называет узлы, которые он не везёт. Обычный VLESS среди них быть не должен.
+    #[test]
+    fn aura_names_the_nodes_it_cannot_carry() {
+        let tls = |name: &str, id: &str| ServerNode { security: Security::Tls, public_key: String::new(), ..node(name, id) };
+        let plain = tls("Plain", "p");
+        let grpc = ServerNode { network: crate::model::Network::Grpc, service_name: "svc".into(), ..tls("Grpc", "g") };
+        let tuic = ServerNode { protocol: Protocol::Tuic, password: "pw".into(), ..tls("Tuic", "t") };
+        let wg = ServerNode {
+            protocol: Protocol::Wireguard,
+            private_key: "cGtleXBrZXlwa2V5cGtleXBrZXlwa2V5cGtleXBrZXk=".into(),
+            peer_public_key: "cGVlcnBlZXJwZWVycGVlcnBlZXJwZWVycGVlcnBlZXI=".into(),
+            local_v4: "172.16.0.2".into(),
+            ..tls("Wg", "w")
+        };
+        let cfg = build_for_nodes(vec![plain, grpc, tuic, wg], HashMap::new());
+        let path = std::env::temp_dir().join(format!("aura-check-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+        let skipped = aura_engine::check(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        let tags: Vec<&str> = skipped.iter().map(|(tag, _)| tag.as_str()).collect();
+        for expected in ["1-Grpc", "2-Tuic", "3-Wg"] {
+            assert!(tags.contains(&expected), "{expected}: {tags:?}");
+        }
+        assert!(!tags.contains(&"0-Plain"), "{tags:?}");
+    }
+
     #[test]
     fn russian_sites_go_direct_even_without_geo_sets() {
         // Наборы не скачаны (GitHub недоступен), а защита от утечки обязана работать.

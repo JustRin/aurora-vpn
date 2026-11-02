@@ -1143,6 +1143,41 @@ pub async fn connect(app: AppHandle) -> Result<()> {
     connect_inner(app).await
 }
 
+/// Aura — ядро по умолчанию, но пока не всё умеет: WireGuard и WARP, TUIC,
+/// транспорты gRPC и HTTP, мультиплекс. Если выбранный узел или слой WARP ему
+/// не по силам, это подключение идёт на sing-box; настройка не меняется.
+/// Решает сам движок: его проверка называет узлы, ставшие заглушками.
+#[cfg(not(target_os = "android"))]
+fn fall_back_from_aura(app: &AppHandle) -> bool {
+    use crate::core::process::Engine;
+    let state = app.state();
+    if state.core.lock().engine() != Engine::Aura {
+        return false;
+    }
+    let active = state.resolve_active_id();
+    // Veil не везёт никто, кроме Aura: здесь отступать некуда.
+    if state.nodes.read().iter().any(|n| n.id == active && n.needs_aura()) {
+        return false;
+    }
+    let Ok(skipped) = aura_engine::check(&state.paths.config_file) else {
+        return false;
+    };
+    let active_tag = state.tags.read().get(&active).cloned();
+    let Some((tag, reason)) = skipped
+        .iter()
+        .find(|(tag, _)| Some(tag) == active_tag.as_ref() || tag == crate::core::config::TAG_WARP)
+    else {
+        return false;
+    };
+    state.core.lock().use_engine(Engine::SingBox, crate::app::locate_wintun());
+    let _ = app.emit(Event::Log(LogLine {
+        seq: 0,
+        level: "warn".into(),
+        text: format!("«{tag}»: {reason} — это подключение идёт через sing-box"),
+    }));
+    true
+}
+
 /// Поставить в супервизор ядро из настроек. TUN без драйвера не поднимется: работаем на
 /// sing-box и пишем об этом — подключение важнее выбора.
 #[cfg(not(target_os = "android"))]
@@ -1279,6 +1314,12 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
 
         let state = app.state();
         build_and_write(&state, &xray_ports, &sets.available)?;
+        // Узел, который Aura пока не везёт: документ пересобирается под
+        // sing-box (у него свой набор узлов — без Veil).
+        #[cfg(not(target_os = "android"))]
+        if fall_back_from_aura(&app) {
+            build_and_write(&state, &xray_ports, &sets.available)?;
+        }
 
         let config_path = state.paths.config_file.clone();
         let pid_path = state.paths.pid_file.clone();
