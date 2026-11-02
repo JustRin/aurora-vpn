@@ -1,0 +1,6 @@
+# Сервер собирается под Linux прямо с Windows: в крейте только Rust, и
+# статический бинарник musl линкует rust-lld из поставки самого rustc.
+#   rustup target add x86_64-unknown-linux-musl
+#   cargo build --release --target x86_64-unknown-linux-musl
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"

@@ -44,6 +44,10 @@ struct DelayResponse {
 }
 
 impl ClashApi {
+    pub fn secret(&self) -> &str {
+        &self.secret
+    }
+
     pub fn new(port: u16, secret: &str) -> Self {
         Self {
             base: format!("http://127.0.0.1:{port}"),

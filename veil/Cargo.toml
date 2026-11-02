@@ -1,0 +1,38 @@
+[package]
+name = "aura-veil"
+version = "0.1.0"
+edition = "2021"
+description = "Veil — туннель Aurora VPN, который снаружи выглядит как обычный сайт на HTTP/2"
+license = "MIT"
+
+[lib]
+name = "aura_veil"
+path = "src/lib.rs"
+
+[[bin]]
+name = "veil-server"
+path = "src/bin/veil-server.rs"
+
+# Только чистый Rust: сервер собирается под x86_64-unknown-linux-musl прямо с
+# Windows через rust-lld, без кросс-компилятора C. Поэтому здесь нет ring.
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros", "signal", "fs"] }
+h2 = "0.4"
+http = "1"
+bytes = "1"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+socket2 = "0.6"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "unwind"

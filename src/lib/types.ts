@@ -14,7 +14,8 @@ export type Protocol =
    *  core; on any other one the node is skipped at connect. */
   | "amneziawg"
   /** CONNECT-IP over HTTP/3 or HTTP/2 (RFC 9484). Dialled by Xray only. */
-  | "masque";
+  | "masque"
+  | "veil";
 
 /** AmneziaWG obfuscation, verbatim from the server's `.conf`. */
 export interface AwgParams {
@@ -189,6 +190,8 @@ export interface SplitConfig {
   bypassRu: boolean;
   bypassCn: boolean;
   blockAds: boolean;
+  /** Android: российские приложения целиком мимо туннеля. */
+  ruAppsDirect: boolean;
 }
 
 export interface Subscription {

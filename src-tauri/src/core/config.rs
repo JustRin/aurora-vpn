@@ -18,6 +18,7 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use crate::error::{AppError, Result};
+use crate::core::rules::{RU_DIRECT_SUFFIXES, RU_PACKAGES};
 use crate::model::ServerNode;
 use crate::settings::{Settings, SplitConfig, SplitMode, TunnelMode};
 
@@ -99,7 +100,7 @@ fn sanitize_tag(name: &str, index: usize) -> String {
 ///
 /// Accepts a bare IP (`1.1.1.1`), an explicit scheme (`tls://`, `https://`,
 /// `quic://`, `h3://`, `udp://`) or the literal `local` for the OS resolver.
-fn dns_server(tag: &str, address: &str, detour: Option<&str>) -> (Value, bool) {
+pub(crate) fn dns_server(tag: &str, address: &str, detour: Option<&str>) -> (Value, bool) {
     let raw = address.trim();
     let mut server = Map::new();
     server.insert("tag".into(), json!(tag));
@@ -210,6 +211,60 @@ fn engine_bypass_rules(exe: &Path, extra: &[(&str, Value)]) -> Vec<Value> {
 }
 
 /// Local, never remote: the file is already on disk by the time we get here.
+/// Какие пакеты Android отдать VpnService: `include_package` или
+/// `exclude_package`, вместе их VpnService.Builder не принимает. Российские
+/// приложения добавляются к исключениям; в режиме «только выбранные» их и так
+/// нет в туннеле, если пользователь не выбрал их сам.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn tun_packages(split: &SplitConfig) -> Option<(&'static str, Vec<String>)> {
+    let chosen = if split.has_active_apps() { split.active_paths() } else { Vec::new() };
+    match split.mode {
+        SplitMode::Include if !chosen.is_empty() => Some(("include_package", chosen)),
+        mode => {
+            let mut excluded = if mode == SplitMode::Exclude { chosen } else { Vec::new() };
+            if split.ru_apps_direct {
+                for package in RU_PACKAGES {
+                    if !excluded.iter().any(|p| p == package) {
+                        excluded.push(package.to_string());
+                    }
+                }
+            }
+            (!excluded.is_empty()).then_some(("exclude_package", excluded))
+        }
+    }
+}
+
+/// Android: на телефоне 127.0.0.1 общий для всех приложений, а 2080 — первый
+/// порт, который проверяют сканеры VPN. Открытый прокси пустил бы через сервер
+/// любое приложение, в том числе российское из исключённых, и оно увидело бы
+/// IP сервера. Поэтому вход под паролем (секрет сессии); приложение само ходит
+/// через него с этим паролем ([`local_proxy_url`]). На ПК системный прокси
+/// пароля не умеет, а с «доступом из LAN» пароль сломал бы раздачу.
+pub const LOCAL_PROXY_AUTH: bool = cfg!(target_os = "android");
+
+fn mixed_inbound(settings: &Settings, secret: &str, auth: bool) -> Value {
+    let mut inbound = json!({
+        "type": "mixed",
+        "tag": "mixed-in",
+        "listen": if settings.allow_lan { "0.0.0.0" } else { "127.0.0.1" },
+        "listen_port": settings.mixed_port
+    });
+    if auth && !settings.allow_lan {
+        inbound["users"] = json!([{ "username": crate::core::veil::PROXY_USER, "password": secret }]);
+    }
+    inbound
+}
+
+/// Адрес локального входа для запросов самого приложения, с паролем, если он
+/// там стоит.
+pub fn local_proxy_url(settings: &Settings, secret: &str) -> String {
+    if LOCAL_PROXY_AUTH && !settings.allow_lan {
+        format!("http://{}:{secret}@127.0.0.1:{}", crate::core::veil::PROXY_USER, settings.mixed_port)
+    } else {
+        format!("http://127.0.0.1:{}", settings.mixed_port)
+    }
+}
+
 fn rule_set(tag: &str, dir: &Path) -> Value {
     json!({
         "type": "local",
@@ -284,10 +339,12 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     let runnable: Vec<&ServerNode> = nodes
         .iter()
         .filter(|n| n.protocol != crate::model::Protocol::Masque || xray_ports.contains_key(&n.id))
+        // Veil тоже: без входа движка Aura sing-box отверг бы весь документ.
+        .filter(|n| !n.needs_aura() || xray_ports.contains_key(&n.id))
         .collect();
     if runnable.is_empty() {
         return Err(AppError::msg(
-            "ни один из серверов не может работать здесь: MASQUE требует движка Xray",
+            "ни один из серверов не может работать здесь: MASQUE требует движка Xray, Veil — движка Aura",
         ));
     }
 
@@ -323,6 +380,16 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
             endpoints.push(node.to_endpoint(&tag, TAG_DNS_DIRECT, None));
         } else {
             let outbound = match xray_ports.get(&node.id) {
+                // Вход движка Veil под паролем: см. core/veil.rs.
+                Some(port) if node.needs_aura() => json!({
+                    "type": "socks",
+                    "tag": tag,
+                    "server": "127.0.0.1",
+                    "server_port": port,
+                    "version": "5",
+                    "username": crate::core::veil::PROXY_USER,
+                    "password": clash_secret
+                }),
                 Some(port) => json!({
                     "type": "socks",
                     "tag": tag,
@@ -493,6 +560,13 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         }));
     }
 
+    // Встроенный список работает и без скачанных наборов: см. RU_DIRECT_SUFFIXES.
+    if split.bypass_ru {
+        dns_rules.push(json!({
+            "domain_suffix": RU_DIRECT_SUFFIXES,
+            "server": TAG_DNS_DIRECT
+        }));
+    }
     let mut geo_direct_sites: Vec<&str> = Vec::new();
     if bypass_ru {
         geo_direct_sites.push("geosite-ru");
@@ -598,27 +672,14 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         // enter the tunnel at all. `AppRule.path` carries the package name.
         #[cfg(target_os = "android")]
         {
-            let packages = split.active_paths();
-            if !packages.is_empty() && split.has_active_apps() {
-                let key = match split.mode {
-                    SplitMode::Include => Some("include_package"),
-                    SplitMode::Exclude => Some("exclude_package"),
-                    SplitMode::Off => None,
-                };
-                if let Some(key) = key {
-                    tun[key] = json!(packages);
-                }
+            if let Some((key, packages)) = tun_packages(split) {
+                tun[key] = json!(packages);
             }
         }
         inbounds.push(tun);
     }
 
-    inbounds.push(json!({
-        "type": "mixed",
-        "tag": "mixed-in",
-        "listen": if settings.allow_lan { "0.0.0.0" } else { "127.0.0.1" },
-        "listen_port": settings.mixed_port
-    }));
+    inbounds.push(mixed_inbound(settings, clash_secret, LOCAL_PROXY_AUTH));
 
     // ------------------------------------------------------------------- route
     let mut rules: Vec<Value> = Vec::new();
@@ -676,6 +737,9 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
         rules.push(json!({ "domain_suffix": split.proxy_domains, "outbound": proxy_tag }));
     }
 
+    if split.bypass_ru {
+        rules.push(json!({ "domain_suffix": RU_DIRECT_SUFFIXES, "outbound": TAG_DIRECT }));
+    }
     if bypass_ru {
         rules.push(json!({ "rule_set": ["geosite-ru"], "outbound": TAG_DIRECT }));
         used_rule_sets.push(rule_set("geosite-ru", rule_set_dir));
@@ -782,6 +846,83 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
 mod tests {
     use super::*;
     use crate::model::{Protocol, Security};
+
+    #[test]
+    fn russian_sites_go_direct_even_without_geo_sets() {
+        // Наборы не скачаны (GitHub недоступен), а защита от утечки обязана работать.
+        let split = SplitConfig { bypass_ru: true, ..SplitConfig::default() };
+        let cfg = build_full(Settings::default(), split, HashMap::new(), HashSet::new());
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        let builtin = rules
+            .iter()
+            .find(|r| r["domain_suffix"].as_array().is_some_and(|d| d.contains(&json!("ru"))))
+            .expect("встроенное правило для РФ");
+        assert_eq!(builtin["outbound"], json!(TAG_DIRECT));
+        assert!(builtin["domain_suffix"].as_array().unwrap().contains(&json!("vk.com")));
+        let dns = cfg["dns"]["rules"].as_array().unwrap();
+        assert!(dns.iter().any(|r| r["domain_suffix"].as_array().is_some_and(|d| d.contains(&json!("yandex.net")))
+            && r["server"] == json!(TAG_DNS_DIRECT)));
+
+        let off = build_with(Settings::default(), SplitConfig { bypass_ru: false, ..SplitConfig::default() });
+        let rules = off["route"]["rules"].as_array().unwrap();
+        assert!(!rules.iter().any(|r| r["domain_suffix"].as_array().is_some_and(|d| d.contains(&json!("ru")))));
+    }
+
+    #[test]
+    fn the_local_proxy_is_locked_where_apps_share_localhost() {
+        let settings = Settings::default();
+        let open = mixed_inbound(&settings, "s3cret", false);
+        assert!(open.get("users").is_none());
+        let locked = mixed_inbound(&settings, "s3cret", true);
+        assert_eq!(locked["users"][0]["password"], json!("s3cret"));
+        // С раздачей в LAN пароль сломал бы подключения соседей.
+        let lan = Settings { allow_lan: true, ..Settings::default() };
+        assert!(mixed_inbound(&lan, "s3cret", true).get("users").is_none());
+    }
+
+    #[test]
+    fn veil_rides_a_locked_loopback_or_stays_out() {
+        let mut nodes = vec![node("Berlin", "a"), node("Veil", "v")];
+        nodes[1].protocol = Protocol::Veil;
+        nodes[1].password = "pw".into();
+        nodes[1].path = "/api/x".into();
+        // Без порта движка Aura узла в документе нет: sing-box отверг бы тип «veil».
+        let cfg = build_for_nodes(nodes.clone(), HashMap::new());
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        assert!(outbounds.iter().all(|o| o["type"] != json!("veil")));
+        // С портом — loopback-SOCKS под паролем сессии.
+        let cfg = build_for_nodes(nodes, HashMap::from([("v".to_string(), 24250u16)]));
+        let outbounds = cfg["outbounds"].as_array().unwrap();
+        let socks = outbounds.iter().find(|o| o["server_port"] == json!(24250)).unwrap();
+        assert_eq!(socks["type"], json!("socks"));
+        assert_eq!(socks["username"], json!(crate::core::veil::PROXY_USER));
+        assert!(!socks["password"].as_str().unwrap_or("").is_empty());
+    }
+
+    #[test]
+    fn russian_apps_leave_the_tunnel_on_android() {
+        let app = |path: &str| AppRule { id: path.into(), name: path.into(), path: path.into(), enabled: true };
+        // Без выбора приложений — исключаются только российские.
+        let (key, list) = tun_packages(&SplitConfig::default()).unwrap();
+        assert_eq!(key, "exclude_package");
+        assert!(list.contains(&"ru.ozon.app.android".to_string()));
+        // Исключения пользователя сохраняются и не дублируются.
+        let split = SplitConfig {
+            mode: SplitMode::Exclude,
+            apps: vec![app("org.telegram.messenger"), app("com.vkontakte.android")],
+            ..SplitConfig::default()
+        };
+        let (key, list) = tun_packages(&split).unwrap();
+        assert_eq!(key, "exclude_package");
+        assert!(list.contains(&"org.telegram.messenger".to_string()));
+        assert_eq!(list.iter().filter(|p| *p == "com.vkontakte.android").count(), 1);
+        // «Только выбранные» не трогаем: там российских приложений нет без выбора.
+        let split = SplitConfig { mode: SplitMode::Include, apps: vec![app("org.telegram.messenger")], ..SplitConfig::default() };
+        assert_eq!(tun_packages(&split), Some(("include_package", vec!["org.telegram.messenger".to_string()])));
+        // Защита выключена и приложений нет — списков нет вовсе.
+        let split = SplitConfig { ru_apps_direct: false, ..SplitConfig::default() };
+        assert_eq!(tun_packages(&split), None);
+    }
     use crate::settings::AppRule;
     use std::path::PathBuf;
 
@@ -1251,10 +1392,12 @@ mod tests {
 
     #[test]
     fn only_referenced_rule_sets_are_downloaded() {
-        let cfg = build_with(Settings::default(), SplitConfig::default());
+        // «Россия напрямую» включена по умолчанию и тянет свои наборы.
+        let none = SplitConfig { bypass_ru: false, ..Default::default() };
+        let cfg = build_with(Settings::default(), none.clone());
         assert!(cfg["route"].get("rule_set").is_none());
 
-        let split = SplitConfig { block_ads: true, ..Default::default() };
+        let split = SplitConfig { block_ads: true, ..none };
         let cfg = build_with(Settings::default(), split);
         let sets = cfg["route"]["rule_set"].as_array().unwrap();
         assert_eq!(sets.len(), 1);

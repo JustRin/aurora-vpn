@@ -463,7 +463,10 @@ export const zh: Record<keyof typeof ru, string> = {
     "路由器、打印机、NAS 和 localhost 一律直连。除非确有必要，否则不要关闭 —— 否则家庭网络里的设备将无法访问。",
   "route.bypassRu": "俄罗斯站点绕开 VPN",
   "route.bypassRuDesc":
-    "geosite/geoip 的 ru 列表中的域名和地址直连。可加快访问本地服务，并减少人机验证。",
+    "俄罗斯的域名和地址直连。最重要的是，俄罗斯服务看不到服务器 IP：它们必须识别 VPN，被发现的服务器会对所有人封锁。同时更快，也没有人机验证。",
+  "route.ruApps": "俄罗斯应用绕开 VPN",
+  "route.ruAppsDesc":
+    "VK、Yandex、Ozon、Wildberries、银行、Gosuslugi 和 MAX 完全不经过 VPN。比网站列表更可靠：应用即使通过境外地址也无法得知服务器 IP。在「仅选中的应用」模式下无需开启。",
   "route.bypassCn": "中国站点绕开 VPN",
   "route.bypassCnDesc": "对 geosite/geoip 的 cn 列表做同样处理。",
   "route.blockAds": "拦截广告与追踪器",

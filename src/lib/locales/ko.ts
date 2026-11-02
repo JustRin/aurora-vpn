@@ -470,7 +470,10 @@ export const ko: Record<keyof typeof ru, string> = {
     "공유기, 프린터, NAS, localhost는 직접 연결됩니다. 의도가 없다면 끄지 마세요 — 집 안의 기기에 닿지 않게 됩니다.",
   "route.bypassRu": "러시아 사이트는 VPN 우회",
   "route.bypassRuDesc":
-    "geosite/geoip의 ru 목록에 있는 도메인과 주소가 직접 연결됩니다. 국내 서비스가 빨라지고 캡차도 줄어듭니다.",
+    "러시아 도메인과 주소는 직접 연결됩니다. 무엇보다 러시아 서비스가 서버 IP를 보지 못합니다. 이들은 VPN을 탐지해야 하며, 발견된 서버는 모두에게 차단됩니다. 더 빠르고 캡차도 없습니다.",
+  "route.ruApps": "러시아 앱은 VPN 우회",
+  "route.ruAppsDesc":
+    "VK, Yandex, Ozon, Wildberries, 은행, Gosuslugi, MAX는 VPN을 전혀 거치지 않습니다. 사이트 목록보다 확실해서, 앱이 해외 주소를 통해서도 서버 IP를 알아낼 수 없습니다. 「선택한 앱만」 모드에서는 필요 없습니다.",
   "route.bypassCn": "중국 사이트는 VPN 우회",
   "route.bypassCnDesc": "geosite/geoip의 cn 목록에 같은 처리를 합니다.",
   "route.blockAds": "광고와 추적기 차단",

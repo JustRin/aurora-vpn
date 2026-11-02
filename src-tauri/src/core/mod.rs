@@ -8,6 +8,7 @@ pub mod log;
 pub mod process;
 pub mod rules;
 pub mod ruleset;
+pub mod veil;
 #[cfg(not(target_os = "android"))]
 pub mod xray;
 

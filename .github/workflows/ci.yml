@@ -64,6 +64,10 @@ jobs:
       - name: Engine tests
         run: cargo test --manifest-path engine/Cargo.toml
 
+      # Свой протокол: клиент живёт в движке, сервер собирается из того же крейта.
+      - name: Veil tests
+        run: cargo test --manifest-path veil/Cargo.toml
+
   # Нативный клиент на Slint: собирается только под Windows и живёт своим
   # крейтом, поэтому и проверяется отдельно от Tauri-части.
   native-check:

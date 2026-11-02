@@ -138,6 +138,8 @@ export function protocolLabel(protocol: string): string {
       return "AmneziaWG";
     case "masque":
       return "MASQUE";
+    case "veil":
+      return "Veil";
     case "tuic":
       return "TUIC";
     default:
@@ -164,6 +166,7 @@ export function transportLabel(
   if (protocol === "amneziawg") return "WireGuard · obfs";
   // MASQUE always runs over TLS; what tells two servers apart is HTTP.
   if (protocol === "masque") return masqueHttp2(alpn) ? "TLS · HTTP/2" : "TLS · HTTP/3";
+  if (protocol === "veil") return "TLS · HTTP/2";
   const sec =
     security === "reality"
       ? "REALITY"

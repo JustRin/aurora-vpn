@@ -123,6 +123,33 @@ struct PackagesResponse {
     packages: Vec<PackageInfo>,
 }
 
+#[derive(Serialize)]
+struct ProtectPayload {
+    fd: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProtectResponse {
+    protected: bool,
+    vpn: bool,
+}
+
+/// Вывести сокет движка Veil из VPN (`VpnService.protect`). Блокирует поток до
+/// ответа Kotlin — движок зовёт это не из своего рантайма. Пока VPN нет,
+/// выводить нечего; отказ при поднятом VPN срывает дозвон, иначе петля.
+pub fn protect(app: &AppHandle, fd: i32) -> std::io::Result<()> {
+    let handle = plugin(app).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let resp: ProtectResponse = handle
+        .0
+        .run_mobile_plugin("protect", ProtectPayload { fd })
+        .map_err(|e| std::io::Error::other(format!("protect: {e}")))?;
+    if resp.vpn && !resp.protected {
+        return Err(std::io::Error::other("VpnService.protect отказал — дозвон ушёл бы в собственный туннель"));
+    }
+    Ok(())
+}
+
 /// Ask the OS for VPN consent. Shows the system dialog on first use and
 /// resolves once the user answers; instant on every subsequent call.
 ///

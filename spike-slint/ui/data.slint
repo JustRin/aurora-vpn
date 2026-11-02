@@ -400,7 +400,8 @@ export global Draft {
 
     // Протоколы с UUID / с паролем и те, у кого вообще есть транспорт.
     // 6 — MASQUE: свой транспорт, всегда TLS. 7 и 8 — AmneziaWG и WARP: их
-    // ключи и обфускация приходят набором, протокол не сменить.
+    // ключи и обфускация приходят набором, протокол не сменить. 9 — Veil:
+    // пароль и путь приходят ссылкой с сервера, правится только имя и адрес.
     out property <bool> needs-uuid: protocol == 0 || protocol == 1 || protocol == 5;
     out property <bool> needs-password: protocol >= 2 && protocol <= 6;
     out property <bool> has-transport: protocol <= 3;

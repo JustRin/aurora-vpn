@@ -1,0 +1,22 @@
+[Unit]
+Description=Veil — туннель Aurora VPN за сайтом
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=veil
+Group=veil
+ExecStart=/usr/local/bin/veil-server run -c /etc/veil/config.json
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/etc/veil
+# /var/lib/veil: subId, которым выдан Veil из подписок 3x-ui.
+StateDirectory=veil
+
+[Install]
+WantedBy=multi-user.target

@@ -156,6 +156,7 @@ const snapshot: Snapshot = {
     bypassRu: true,
     bypassCn: false,
     blockAds: false,
+    ruAppsDirect: true,
   },
   status: {
     state: "disconnected",

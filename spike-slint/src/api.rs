@@ -197,8 +197,26 @@ fn nodes_for_core(state: &AppState) -> Result<Vec<ServerNode>> {
             return Err(AppError::msg(AWG_CORE_MISSING));
         }
     }
+    if nodes.iter().any(ServerNode::needs_aura) && !core_runs_aura(state) {
+        nodes.retain(|n| !n.needs_aura());
+        if nodes.is_empty() {
+            return Err(AppError::msg(VEIL_NEEDS_AURA));
+        }
+    }
     Ok(nodes)
 }
+
+/// Veil знает только aura-engine: на sing-box его узел уронил бы весь конфиг.
+#[cfg(not(target_os = "android"))]
+fn core_runs_aura(state: &AppState) -> bool {
+    state.core.lock().engine() == crate::core::process::Engine::Aura
+}
+#[cfg(target_os = "android")]
+fn core_runs_aura(_: &AppState) -> bool {
+    false
+}
+
+const VEIL_NEEDS_AURA: &str = "серверам Veil нужен движок Aura — включите его в настройках      (на Android Veil пока не работает)";
 
 /// Say which AmneziaWG nodes [`nodes_for_core`] is about to leave out.
 fn warn_about_awg_core(app: &AppHandle) {
@@ -2500,8 +2518,10 @@ async fn probe_delays(
 ) -> Option<HashMap<String, Option<u32>>> {
     let (nodes, active_id, settings, exe, work_dir, rule_set_dir) = {
         let state = app.state();
-        // Один узел, который ядро не примет, сорвал бы замер для всех.
-        let nodes = nodes_for_core(state).ok()?;
+        // Один узел, который ядро не примет, сорвал бы замер для всех. Замер
+        // всегда ведёт sing-box, поэтому Veil в него не попадает и при Aura.
+        let mut nodes = nodes_for_core(state).ok()?;
+        nodes.retain(|n| !n.needs_aura());
         if nodes.is_empty() {
             return None;
         }

@@ -541,6 +541,7 @@ fn protocol_label(protocol: Protocol) -> &'static str {
         Protocol::Wireguard => "WARP",
         Protocol::Amneziawg => "AmneziaWG",
         Protocol::Masque => "MASQUE",
+        Protocol::Veil => "Veil",
     }
 }
 
@@ -557,6 +558,7 @@ fn transport_label(node: &ServerNode) -> String {
             let http = if has("h2") && !has("h3") { "HTTP/2" } else { "HTTP/3" };
             return format!("TLS · {http}");
         }
+        Protocol::Veil => return "TLS · HTTP/2".into(),
         _ => {}
     }
     let sec = match node.security {

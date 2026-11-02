@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 use crate::common::{invalid, BoxStream, Target};
-use crate::config::InboundOpts;
+use crate::config::{InboundOpts, UserOpts};
 use crate::engine::Context;
 use crate::router::Meta;
 
@@ -17,13 +17,15 @@ pub async fn serve(opts: &InboundOpts, ctx: Arc<Context>) -> io::Result<()> {
     let host = if opts.listen.is_empty() { "127.0.0.1" } else { &opts.listen };
     let listener = TcpListener::bind((host, opts.listen_port)).await?;
     crate::info!("inbound", "mixed слушает {host}:{}", opts.listen_port);
+    let inbound = Arc::new(Inbound { tag: opts.tag.clone(), users: opts.users.clone() });
     tokio::spawn(async move {
         loop {
             let Ok((stream, peer)) = listener.accept().await else { continue };
             let ctx = ctx.clone();
+            let inbound = inbound.clone();
             tokio::spawn(async move {
                 let _ = stream.set_nodelay(true);
-                if let Err(e) = handle(stream, peer, ctx).await {
+                if let Err(e) = handle(stream, peer, ctx, &inbound).await {
                     crate::debug!("inbound", "{peer}: {e}");
                 }
             });
@@ -32,19 +34,43 @@ pub async fn serve(opts: &InboundOpts, ctx: Arc<Context>) -> io::Result<()> {
     Ok(())
 }
 
-async fn handle(stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io::Result<()> {
-    let mut first = [0u8; 1];
-    stream.peek(&mut first).await?;
-    if first[0] == 5 {
-        socks5(stream, peer, ctx).await
-    } else {
-        http(stream, peer, ctx).await
+/// Тег входа и его пользователи. Без пользователей вход открыт, как раньше.
+struct Inbound {
+    tag: String,
+    users: Vec<UserOpts>,
+}
+
+impl Inbound {
+    fn allows(&self, username: &[u8], password: &[u8]) -> bool {
+        self.users.iter().any(|u| u.username.as_bytes() == username && u.password.as_bytes() == password)
+    }
+
+    /// `Proxy-Authorization: Basic base64(логин:пароль)`.
+    fn allows_basic(&self, header: Option<&str>) -> bool {
+        use base64::Engine;
+        let Some(encoded) = header.and_then(|h| h.trim().strip_prefix("Basic ").or_else(|| h.trim().strip_prefix("basic "))) else {
+            return false;
+        };
+        let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(encoded.trim()) else { return false };
+        let Some(colon) = raw.iter().position(|b| *b == b':') else { return false };
+        self.allows(&raw[..colon], &raw[colon + 1..])
     }
 }
 
-fn meta(peer: SocketAddr, target: Target) -> Meta {
+async fn handle(stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>, inbound: &Inbound) -> io::Result<()> {
+    let mut first = [0u8; 1];
+    stream.peek(&mut first).await?;
+    if first[0] == 5 {
+        socks5(stream, peer, ctx, inbound).await
+    } else {
+        http(stream, peer, ctx, inbound).await
+    }
+}
+
+fn meta(peer: SocketAddr, target: Target, inbound: &str) -> Meta {
     Meta {
         network: "tcp",
+        inbound: (!inbound.is_empty()).then(|| inbound.to_string()),
         source: Some(peer),
         domain: target.domain().map(str::to_string),
         destination: Some(target),
@@ -52,12 +78,33 @@ fn meta(peer: SocketAddr, target: Target) -> Meta {
     }
 }
 
-async fn socks5(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io::Result<()> {
+async fn socks5(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>, inbound: &Inbound) -> io::Result<()> {
+    let tag = inbound.tag.as_str();
     let mut head = [0u8; 2];
     stream.read_exact(&mut head).await?;
     let mut methods = vec![0u8; head[1] as usize];
     stream.read_exact(&mut methods).await?;
-    stream.write_all(&[5, 0]).await?;
+    if inbound.users.is_empty() {
+        stream.write_all(&[5, 0]).await?;
+    } else {
+        // RFC 1929: логин и пароль. Клиент без этого метода не пройдёт.
+        if !methods.contains(&2) {
+            stream.write_all(&[5, 0xff]).await?;
+            return Err(invalid("socks: клиент не предлагает вход по паролю"));
+        }
+        stream.write_all(&[5, 2]).await?;
+        let mut ver_len = [0u8; 2];
+        stream.read_exact(&mut ver_len).await?;
+        let mut username = vec![0u8; ver_len[1] as usize];
+        stream.read_exact(&mut username).await?;
+        let mut password = vec![0u8; stream.read_u8().await? as usize];
+        stream.read_exact(&mut password).await?;
+        if !inbound.allows(&username, &password) {
+            stream.write_all(&[1, 1]).await?;
+            return Err(invalid("socks: неверный логин или пароль"));
+        }
+        stream.write_all(&[1, 0]).await?;
+    }
 
     let mut req = [0u8; 4];
     stream.read_exact(&mut req).await?;
@@ -66,10 +113,10 @@ async fn socks5(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> i
         1 => {
             stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
             let client: BoxStream = Box::new(stream);
-            ctx.handle_tcp(client, meta(peer, target), false).await;
+            ctx.handle_tcp(client, meta(peer, target, tag), false).await;
             Ok(())
         }
-        3 => udp_associate(stream, peer, ctx).await,
+        3 => udp_associate(stream, peer, ctx, tag).await,
         _ => {
             stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
             Ok(())
@@ -95,7 +142,7 @@ async fn read_socks_target(stream: &mut TcpStream, atyp: u8) -> io::Result<Targe
 }
 
 /// UDP ASSOCIATE: одна клиентская точка и по сессии на адрес назначения.
-async fn udp_associate(mut control: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io::Result<()> {
+async fn udp_associate(mut control: TcpStream, peer: SocketAddr, ctx: Arc<Context>, tag: &str) -> io::Result<()> {
     let local = control.local_addr()?;
     let socket = Arc::new(UdpSocket::bind(SocketAddr::new(local.ip(), 0)).await?);
     let bound = socket.local_addr()?;
@@ -107,18 +154,22 @@ async fn udp_associate(mut control: TcpStream, peer: SocketAddr, ctx: Arc<Contex
         let mut sessions: std::collections::HashMap<Target, Arc<dyn crate::common::PacketConn>> = Default::default();
         let mut guards = Vec::new();
         let mut buf = vec![0u8; 64 * 1024];
+        // Порт ассоциации увидит любой процесс на этой машине: служим только
+        // тому, кто написал первым, — это клиент, получивший ответ на TCP.
+        let mut owner: Option<SocketAddr> = None;
         loop {
             let (n, client) = socket.recv_from(&mut buf).await?;
-            if n < 4 || buf[2] != 0 {
+            if n < 4 || buf[2] != 0 || owner.is_some_and(|o| o != client) {
                 continue;
             }
+            owner = Some(client);
             let Some((target, used)) = Target::read_socks(&buf[3..n]) else { continue };
             let payload = &buf[3 + used..n];
             if let Some(conn) = sessions.get(&target) {
                 let _ = conn.send(payload, &target).await;
                 continue;
             }
-            let mut m = meta(peer, target.clone());
+            let mut m = meta(peer, target.clone(), tag);
             m.network = "udp";
             let crate::engine::UdpOpen::Session(route) = ctx.open_udp(payload, &mut m).await else { continue };
             let conn = route.conn.clone();
@@ -150,7 +201,8 @@ async fn udp_associate(mut control: TcpStream, peer: SocketAddr, ctx: Arc<Contex
     }
 }
 
-async fn http(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io::Result<()> {
+async fn http(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>, inbound: &Inbound) -> io::Result<()> {
+    let tag = inbound.tag.as_str();
     let mut buf = vec![0u8; 8192];
     let mut filled = 0;
     let head_end = loop {
@@ -173,6 +225,18 @@ async fn http(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io:
     let request_line = lines.next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
     let (method, uri, version) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or("HTTP/1.1"));
+    if !inbound.users.is_empty() {
+        let auth = head
+            .split("\r\n")
+            .find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("proxy-authorization")))
+            .map(|(_, value)| value);
+        if !inbound.allows_basic(auth) {
+            stream
+                .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"proxy\"\r\nContent-Length: 0\r\n\r\n")
+                .await?;
+            return Ok(());
+        }
+    }
 
     if method.eq_ignore_ascii_case("CONNECT") {
         let Some((host, port)) = uri.rsplit_once(':') else {
@@ -183,7 +247,7 @@ async fn http(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io:
         stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
         let leftover = buf[head_end..filled].to_vec();
         let client: BoxStream = Box::new(Prefixed::new(stream, leftover));
-        ctx.handle_tcp(client, meta(peer, target), false).await;
+        ctx.handle_tcp(client, meta(peer, target, tag), false).await;
         return Ok(());
     }
 
@@ -212,7 +276,7 @@ async fn http(mut stream: TcpStream, peer: SocketAddr, ctx: Arc<Context>) -> io:
     let mut prefix = rewritten.into_bytes();
     prefix.extend_from_slice(&buf[head_end..filled]);
     let client: BoxStream = Box::new(Prefixed::new(stream, prefix));
-    ctx.handle_tcp(client, meta(peer, target), false).await;
+    ctx.handle_tcp(client, meta(peer, target, tag), false).await;
     Ok(())
 }
 

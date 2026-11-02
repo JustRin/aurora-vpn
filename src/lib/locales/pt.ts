@@ -484,7 +484,10 @@ export const pt: Record<keyof typeof ru, string> = {
     "Roteador, impressoras, NAS e localhost vão direto. Desligue apenas de propósito — do contrário os dispositivos da sua rede ficam inalcançáveis.",
   "route.bypassRu": "Sites russos fora da VPN",
   "route.bypassRuDesc":
-    "Domínios e endereços das listas geosite/geoip ru vão direto. Agiliza o acesso a serviços locais e elimina captchas.",
+    "Domínios e endereços russos vão direto. Acima de tudo, os serviços russos não veem o IP do servidor: eles são obrigados a detectar VPN, e um servidor detectado é bloqueado para todos. Também fica mais rápido e sem captchas.",
+  "route.ruApps": "Apps russos fora da VPN",
+  "route.ruAppsDesc":
+    "VK, Yandex, Ozon, Wildberries, bancos, Gosuslugi e MAX funcionam totalmente fora da VPN. Mais seguro que a lista de sites: o app não consegue descobrir o IP do servidor nem por um endereço estrangeiro. Desnecessário no modo “Só os escolhidos”.",
   "route.bypassCn": "Sites chineses fora da VPN",
   "route.bypassCnDesc": "O mesmo para a lista geosite/geoip cn.",
   "route.blockAds": "Bloquear anúncios e rastreadores",

@@ -17,6 +17,8 @@ use crate::ruleset::RuleSet;
 #[derive(Default)]
 pub struct Meta {
     pub network: &'static str,
+    /// Тег входа, через который пришло соединение; пустой тег — `None`.
+    pub inbound: Option<String>,
     pub source: Option<std::net::SocketAddr>,
     pub destination: Option<Target>,
     pub domain: Option<String>,
@@ -137,6 +139,7 @@ struct Matcher {
     ip_is_private: bool,
     protocols: Vec<String>,
     query_types: Vec<u16>,
+    inbounds: HashSet<String>,
     clash_mode: Option<String>,
     /// Правило ссылается на набор, которого нет: не срабатывает никогда.
     broken: bool,
@@ -184,6 +187,7 @@ impl Matcher {
             ip_is_private: rule.ip_is_private,
             protocols,
             query_types: rule.query_type.iter().filter_map(|q| query_type(q)).collect(),
+            inbounds: rule.inbound.iter().cloned().collect(),
             clash_mode: (!rule.clash_mode.is_empty()).then(|| rule.clash_mode.clone()),
             broken,
         }
@@ -204,6 +208,9 @@ impl Matcher {
             return false;
         }
         if !self.query_types.is_empty() && !meta.query_type.is_some_and(|q| self.query_types.contains(&q)) {
+            return false;
+        }
+        if !self.inbounds.is_empty() && !meta.inbound.as_ref().is_some_and(|i| self.inbounds.contains(i)) {
             return false;
         }
 
@@ -410,6 +417,20 @@ mod tests {
         assert_eq!(route(&r, meta_domain("a.blocked.ru")).await, "proxy");
         assert_eq!(route(&r, meta_domain("yandex.ru")).await, "direct");
         assert_eq!(route(&r, meta_domain("example.com")).await, "proxy");
+    }
+
+    #[tokio::test]
+    async fn inbound_pins_a_listener_to_its_outbound() {
+        let r = router(
+            r#"[{"inbound":"in-0","outbound":"out-0"},{"inbound":["in-1"],"outbound":"out-1"}]"#,
+            "block",
+            "Rule",
+        );
+        let via = |tag: Option<&str>| Meta { inbound: tag.map(str::to_string), ..meta_domain("example.com") };
+        assert_eq!(route(&r, via(Some("in-0"))).await, "out-0");
+        assert_eq!(route(&r, via(Some("in-1"))).await, "out-1");
+        assert_eq!(route(&r, via(Some("in-9"))).await, "block");
+        assert_eq!(route(&r, via(None)).await, "block");
     }
 
     #[tokio::test]

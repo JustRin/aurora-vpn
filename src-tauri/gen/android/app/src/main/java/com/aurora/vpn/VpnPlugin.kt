@@ -30,6 +30,11 @@ class StartArgs {
 }
 
 @InvokeArg
+class ProtectArgs {
+    var fd: Int = -1
+}
+
+@InvokeArg
 class WatchArgs {
     lateinit var channel: Channel
 }
@@ -116,6 +121,20 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         val intent = Intent(activity, AuroraVpnService::class.java)
             .putExtra(AuroraVpnService.EXTRA_CONFIG_PATH, args.configPath)
         ContextCompat.startForegroundService(activity, intent)
+    }
+
+    /**
+     * Veil: сокет встроенного движка мимо VPN, иначе его дозвон до сервера ушёл
+     * бы в собственный туннель. `vpn` — поднят ли туннель: пока его нет,
+     * выводить нечего, и отказ protect() Rust ошибкой не считает.
+     */
+    @Command
+    fun protect(invoke: Invoke) {
+        val args = invoke.parseArgs(ProtectArgs::class.java)
+        val service = VpnState.service
+        val vpn = service != null && VpnState.phase != Phase.IDLE
+        val protected = args.fd >= 0 && service?.protect(args.fd) == true
+        invoke.resolve(JSObject().put("protected", protected).put("vpn", vpn))
     }
 
     @Command

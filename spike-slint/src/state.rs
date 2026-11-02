@@ -241,7 +241,12 @@ impl AppState {
             }
         }
         let subs: Vec<Subscription> = store.load("subscriptions");
-        let split = crate::core::rules::normalize_split(store.load("split"));
+        let mut split = crate::core::rules::normalize_split(store.load("split"));
+        // «Россия напрямую» включается у всех один раз: с ней российские
+        // приложения не видят IP сервера и не сдают его в блокировку.
+        if split.guard_ru() {
+            let _ = store.save("split", &split);
+        }
         let ui: UiState = store.load("ui");
         let warp: WarpAccount = store.load("warp");
         let engine_overrides: HashMap<String, String> = store.load("engines");
@@ -319,9 +324,16 @@ impl AppState {
             let settings = self.settings.read();
             (settings.core_engine, settings.tunnel_mode == TunnelMode::Tun)
         };
+        // Veil знает только Aura: выбранный Veil-сервер включает его на это
+        // подключение, какой бы движок ни стоял в настройках.
+        let veil = {
+            let active = self.resolve_active_id();
+            self.nodes.read().iter().any(|n| n.id == active && n.needs_aura())
+        };
+        let want_aura = wanted == CoreEngine::Aura || veil;
         let wintun = crate::app::locate_wintun();
-        let fallback = wanted == CoreEngine::Aura && tun && wintun.is_none();
-        let engine = if wanted == CoreEngine::Aura && !fallback { Engine::Aura } else { Engine::SingBox };
+        let fallback = want_aura && tun && wintun.is_none();
+        let engine = if want_aura && !fallback { Engine::Aura } else { Engine::SingBox };
         self.core.lock().use_engine(engine, wintun);
         fallback
     }

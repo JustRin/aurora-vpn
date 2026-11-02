@@ -208,6 +208,39 @@ fn parse_vless(rest: &str) -> Result<ServerNode> {
     Ok(node)
 }
 
+/// Veil — свой туннель Aurora:
+/// `veil://пароль@домен:443?path=/api/…&sni=домен&fp=chrome#имя`.
+/// Адрес — домен сайта с настоящим сертификатом; работает только на движке Aura.
+fn parse_veil(rest: &str) -> Result<ServerNode> {
+    let p = split_uri(rest)?;
+    if p.userinfo.is_empty() {
+        return Err(AppError::msg("в ссылке veil:// отсутствует пароль"));
+    }
+    let get = |k: &str| p.query.get(k).map(String::as_str).unwrap_or("");
+    if !get("path").starts_with('/') {
+        return Err(AppError::msg("в ссылке veil:// нет пути туннеля (path)"));
+    }
+    let mut node = ServerNode {
+        id: new_id(),
+        protocol: Protocol::Veil,
+        address: p.host,
+        port: p.port,
+        password: pct(&p.userinfo),
+        name: p.fragment,
+        path: get("path").to_string(),
+        sni: get("sni").to_string(),
+        fingerprint: get("fp").to_string(),
+        security: Security::Tls,
+        allow_insecure: matches!(get("allowinsecure"), "1" | "true")
+            || matches!(get("insecure"), "1" | "true"),
+        ..Default::default()
+    };
+    if node.name.is_empty() {
+        node.name = fallback_name(&node);
+    }
+    Ok(node)
+}
+
 fn parse_trojan(rest: &str) -> Result<ServerNode> {
     let p = split_uri(rest)?;
     if p.userinfo.is_empty() {
@@ -1064,6 +1097,7 @@ pub fn parse_link(raw: &str) -> Result<ServerNode> {
         "ss" => parse_shadowsocks(rest),
         "hysteria2" | "hy2" => parse_hysteria2(rest),
         "tuic" => parse_tuic(rest),
+        "veil" => parse_veil(rest),
         "warp" => parse_warp(rest),
         "wireguard" | "wg" => parse_wireguard(rest),
         "vpn" => parse_amnezia_link(rest),
@@ -1209,6 +1243,21 @@ mod tests {
         assert_eq!(n.public_key, "PUBKEY");
         assert_eq!(n.flow, "xtls-rprx-vision");
         assert_eq!(n.name, "Токио"); // fragment is percent-decoded
+    }
+
+    #[test]
+    fn parses_a_veil_link() {
+        let link = "veil://Zk4Jv0f1kQx2n8Lr7Yb3pT6sW9aE5hC1uM0dG2oI4yR@example.com:443?path=%2Fapi%2Fv1%2Fsync%2Fk3x9q&sni=example.com&fp=chrome#%D0%9D%D0%9B";
+        let n = parse_link(link).unwrap();
+        assert_eq!(n.protocol, Protocol::Veil);
+        assert_eq!(n.address, "example.com");
+        assert_eq!(n.port, 443);
+        assert_eq!(n.password, "Zk4Jv0f1kQx2n8Lr7Yb3pT6sW9aE5hC1uM0dG2oI4yR");
+        assert_eq!(n.path, "/api/v1/sync/k3x9q");
+        assert_eq!(n.security, Security::Tls);
+        assert_eq!(n.name, "НЛ");
+        assert!(parse_link("veil://pw@example.com:443?sni=example.com").is_err(), "без path");
+        assert!(parse_link("veil://@example.com:443?path=/x").is_err(), "без пароля");
     }
 
     #[test]

@@ -8,6 +8,7 @@ src-tauri/target/
 # Сборка нативного клиента: там же промежуточная папка установщика.
 spike-slint/target/
 engine/target/
+veil/target/
 engine/tests/bench-last.json
 # The Android project under gen/android IS tracked (Kotlin service, manifest,
 # gradle); only regenerated schema dumps stay out.

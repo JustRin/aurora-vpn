@@ -249,6 +249,8 @@ fn nodes_for_core(state: &AppState) -> Result<Vec<ServerNode>> {
             return Err(AppError::msg(AWG_CORE_MISSING));
         }
     }
+    // Узлы Veil везёт встроенный движок (core/veil.rs); без его порта
+    // config.rs их в документ sing-box не пустит.
     Ok(nodes)
 }
 
@@ -271,18 +273,40 @@ fn warn_about_awg_core(app: &AppHandle) {
     }
 }
 
-/// No second engine on Android: nodes that need Xray are carried by sing-box
-/// with the extra layer dropped (`can_fall_back_to_singbox`), the rest fail
-/// with a readable log line. Building libxray is tracked separately.
+/// No Xray on Android: nodes that need it are carried by sing-box with the
+/// extra layer dropped (`can_fall_back_to_singbox`), the rest fail with a
+/// readable log line. The second engine here is aura-engine for Veil nodes;
+/// its ports go into the document but not into `xray_ports`, whose probe
+/// knocks without the password those listeners require.
 #[cfg(target_os = "android")]
-fn start_xray_if_needed(_app: &AppHandle) -> Result<HashMap<String, u16>> {
-    Ok(HashMap::new())
+fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
+    let nodes = {
+        let state = app.state::<AppState>();
+        let nodes = effective_nodes(&state);
+        nodes
+    };
+    crate::core::veil::start(app, &nodes)
+}
+
+/// The second engines of a desktop run: Xray for the nodes only it speaks and
+/// aura-engine for Veil. Veil's ports go into the document but not into
+/// `xray_ports`, whose probe knocks without the password those listeners need.
+#[cfg(not(target_os = "android"))]
+fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
+    let mut ports = start_xray(app)?;
+    let nodes = {
+        let state = app.state::<AppState>();
+        let nodes = effective_nodes(&state);
+        nodes
+    };
+    ports.extend(crate::core::veil::start(app, &nodes)?);
+    Ok(ports)
 }
 
 /// Start the Xray engine if any node needs it, and report the loopback ports it
 /// listens on. Returns an empty map when sing-box can handle everything.
 #[cfg(not(target_os = "android"))]
-fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
+fn start_xray(app: &AppHandle) -> Result<HashMap<String, u16>> {
     let (mut nodes, log_level) = {
         let state = app.state::<AppState>();
         let nodes = effective_nodes(&state);
@@ -814,6 +838,7 @@ fn shutdown(app: &AppHandle, message: &str) {
     if let Some(engine) = state.xray.lock().as_mut() {
         engine.stop();
     }
+    crate::core::veil::stop(app);
     let _ = std::fs::remove_file(&state.paths.pid_file);
     *state.clash.write() = None;
     *state.balancer.lock() = None;
@@ -1454,7 +1479,12 @@ fn spawn_rule_set_retry(
         dir
     };
     tauri::async_runtime::spawn(async move {
-        let proxy = format!("http://127.0.0.1:{mixed_port}");
+        let proxy = {
+            let state = app.state::<AppState>();
+            let settings = state.settings.read().clone();
+            let url = config::local_proxy_url(&Settings { mixed_port, ..settings }, &route_secret(&state));
+            url
+        };
         let outcome = ruleset::ensure_via(&missing, &dir, Some(&proxy)).await;
         if outcome.available.is_empty() {
             return;
@@ -2325,9 +2355,16 @@ fn warp_info(state: &AppState) -> WarpInfo {
 ///
 /// Через него регистрация идёт тем же путём, что и трафик пользователя, — а
 /// напрямую клиентский API Cloudflare пускают не все сети.
+/// Пароль локального входа — секрет панели работающего ядра. После того как
+/// приложение подхватило туннель, поднятый виджетом, это секрет из его
+/// документа, а не `state.secret`.
+fn route_secret(state: &AppState) -> String {
+    state.clash.read().as_ref().map(|api| api.secret().to_string()).unwrap_or_else(|| state.secret.clone())
+}
+
 fn warp_route(state: &AppState) -> Option<String> {
     let connected = state.status.read().state == ConnState::Connected;
-    connected.then(|| format!("http://127.0.0.1:{}", state.settings.read().mixed_port))
+    connected.then(|| config::local_proxy_url(&state.settings.read(), &route_secret(state)))
 }
 
 /// The account, registering one on first use.

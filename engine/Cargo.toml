@@ -49,6 +49,9 @@ h3-quinn = "0.0.10"
 bytes = "1"
 http = "1"
 
+# Свой протокол Veil: клиентская половина. Сервер собирается из того же крейта.
+aura-veil = { path = "../veil" }
+
 brotli-decompressor = "5"
 flate2 = "1"
 regex-lite = "0.1"

@@ -169,6 +169,10 @@ impl CoreSupervisor {
         self.wintun = wintun;
     }
 
+    pub fn engine(&self) -> Engine {
+        self.engine
+    }
+
     /// The binary actually spawned — sing-box has to name it in a routing rule
     /// to keep the second engine's own traffic out of the tunnel.
     pub fn exe(&self) -> &Path {

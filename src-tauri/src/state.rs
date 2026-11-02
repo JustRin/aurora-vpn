@@ -188,6 +188,8 @@ pub struct AppState {
     /// sing-box cannot speak are dialled through it.
     #[cfg(not(target_os = "android"))]
     pub xray: Mutex<Option<CoreSupervisor>>,
+    /// Движок, который везёт узлы Veil (`core/veil.rs`).
+    pub veil: Mutex<Option<aura_engine::Engine>>,
     pub clash: RwLock<Option<ClashApi>>,
     pub status: RwLock<Status>,
     pub traffic: RwLock<Traffic>,
@@ -223,7 +225,12 @@ impl AppState {
         }
         let nodes: Vec<ServerNode> = store.load("servers");
         let subs: Vec<Subscription> = store.load("subscriptions");
-        let split = crate::core::rules::normalize_split(store.load("split"));
+        let mut split = crate::core::rules::normalize_split(store.load("split"));
+        // «Россия напрямую» включается у всех один раз: с ней российские
+        // приложения не видят IP сервера и не сдают его в блокировку.
+        if split.guard_ru() {
+            let _ = store.save("split", &split);
+        }
         let ui: UiState = store.load("ui");
         let warp: WarpAccount = store.load("warp");
         let engine_overrides: HashMap<String, String> = store.load("engines");
@@ -286,6 +293,7 @@ impl AppState {
             engine_overrides: RwLock::new(engine_overrides),
             xray_ports: RwLock::new(HashMap::new()),
             xray_rejected: RwLock::new(HashSet::new()),
+            veil: Mutex::new(None),
             clash: RwLock::new(None),
             status: RwLock::new(status),
             traffic: RwLock::new(Traffic::default()),

@@ -74,6 +74,7 @@ pub async fn delay(ctx: &Arc<Context>, tag: &str, url: &str, timeout_ms: u32) ->
                 insecure: false,
                 fingerprint: "chrome".to_string(),
                 reality: None,
+                pq_advertise: false,
             };
             Box::new(crate::tls::handshake(stream, &cfg).await?)
         } else {

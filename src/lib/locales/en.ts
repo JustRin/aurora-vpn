@@ -482,7 +482,10 @@ export const en: Record<keyof typeof ru, string> = {
     "Router, printers, NAS and localhost go directly. Disable this only deliberately — otherwise devices on your home network will become unreachable.",
   "route.bypassRu": "Russian sites bypass VPN",
   "route.bypassRuDesc":
-    "Domains and addresses from the geosite/geoip ru lists go directly. Speeds up access to local services and removes captchas.",
+    "Russian domains and addresses go direct. Above all, Russian services never see the server's IP: they are required to detect VPNs, and a server they spot gets blocked for everyone. Faster too, and no captchas.",
+  "route.ruApps": "Russian apps bypass VPN",
+  "route.ruAppsDesc":
+    "VK, Yandex, Ozon, Wildberries, banks, Gosuslugi and MAX run entirely outside the VPN. Stronger than the site list: an app cannot learn the server's IP even through a foreign address. Not needed in “Only selected” mode.",
   "route.bypassCn": "Chinese sites bypass VPN",
   "route.bypassCnDesc": "The same for the geosite/geoip cn list.",
   "route.blockAds": "Block ads and trackers",

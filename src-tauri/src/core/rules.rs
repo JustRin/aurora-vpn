@@ -15,6 +15,44 @@ use std::net::IpAddr;
 
 use crate::settings::SplitConfig;
 
+/// «Россия напрямую» без гео-наборов. geosite/geoip качаются с GitHub, и пока
+/// их нет на диске, правило по наборам не ставится вовсе — а российское
+/// приложение в туннеле показывает своему серверу IP нашего. Крупные платформы
+/// с 2026 года обязаны такие адреса выявлять, и IP сервера после этого
+/// блокируют. Этот список работает всегда: зоны РФ и домены российских
+/// сервисов вне этих зон.
+pub const RU_DIRECT_SUFFIXES: &[&str] = &[
+    "ru", "su", "xn--p1ai", "xn--d1acj3b", "xn--80adxhks", "moscow", "tatar",
+    "yandex.net", "yandex.com", "yandex.cloud", "yastatic.net", "yandexcloud.net", "ya.cc",
+    "vk.com", "vk.me", "vk.link", "vkontakte.com", "userapi.com", "vkuser.net", "vkuseraudio.net",
+    "vkuservideo.net", "vk-portal.net", "vk-cdn.net", "mycdn.me", "my.com", "mradx.net",
+    "avito.st", "2gis.com", "okko.tv", "ivi.tv",
+];
+
+/// Android: российские приложения целиком мимо туннеля. Надёжнее списка
+/// доменов: приложение может спросить свой IP у зарубежного сервера, и тогда
+/// доменное правило его не поймает. Пакеты, которых нет на устройстве,
+/// VpnService пропускает сам.
+pub const RU_PACKAGES: &[&str] = &[
+    // VK
+    "com.vkontakte.android", "com.vk.im", "com.vk.vkvideo", "com.uma.musicvk", "ru.ok.android",
+    "ru.mail.mailapp", "ru.mail.cloud", "ru.vk.store", "ru.oneme.app", "ru.zen.android",
+    // Яндекс
+    "ru.yandex.searchplugin", "com.yandex.browser", "ru.yandex.taxi", "ru.yandex.yandexmaps",
+    "ru.yandex.yandexnavi", "ru.yandex.market", "ru.yandex.music", "ru.yandex.disk", "ru.yandex.mail",
+    "ru.kinopoisk", "com.yandex.bank", "ru.foodfox.client", "ru.yandex.key",
+    // Маркетплейсы и сервисы
+    "ru.ozon.app.android", "ru.ozon.fintech.finance", "com.wildberries.ru", "com.avito.android",
+    "ru.dublgis.dgismobile", "ru.rutube.app", "ru.hh.android", "ru.cian.main",
+    // Банки и платежи
+    "ru.sberbankmobile", "ru.sberbank.sberbankid", "com.idamob.tinkoff.android",
+    "ru.vtb24.mobilebanking.android", "ru.alfabank.mobile.android",
+    "ru.gazprombank.android.mobilebank.app", "ru.raiffeisennews", "ru.nspk.mirpay",
+    // Государство и операторы связи
+    "ru.rostel", "com.gnivts.selfemployed", "ru.mts.mymts", "ru.beeline.services",
+    "ru.megafon.mlk", "ru.tele2.mytele2",
+];
+
 #[derive(Debug, PartialEq, Eq)]
 enum Entry {
     Domain(String),

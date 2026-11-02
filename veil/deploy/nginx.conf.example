@@ -1,0 +1,37 @@
+# Veil за nginx вместо Caddy. Не проверено на живом сервере: рекомендуемый
+# путь — Caddy из install.sh. nginx проксирует h2 к бэкенду только через
+# grpc_pass — обычный proxy_pass говорит с ним по HTTP/1.1, и туннель не поедет.
+#
+# PATH_ИЗ_КОНФИГА — значение "path" из /etc/veil/config.json.
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    root /var/www/example.com;
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location = PATH_ИЗ_КОНФИГА {
+        grpc_pass grpc://127.0.0.1:8443;
+        grpc_set_header X-Forwarded-For $remote_addr;
+        grpc_read_timeout 1h;
+        grpc_send_timeout 1h;
+        client_body_timeout 1h;
+        client_max_body_size 0;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com;
+    return 301 https://$host$request_uri;
+}

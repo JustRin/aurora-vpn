@@ -30,7 +30,7 @@ use crate::{AppWindow, Conf, Data, Draft, Ui};
 /// WARP принадлежат аккаунту, а обфускация AmneziaWG приходит из конфигурации
 /// сервера одним набором. Но в списке они быть должны — иначе узел, которого
 /// в нём нет, сохранялся бы из редактора как VLESS.
-const PROTOCOLS: [Protocol; 9] = [
+const PROTOCOLS: [Protocol; 10] = [
     Protocol::Vless,
     Protocol::Vmess,
     Protocol::Trojan,
@@ -40,6 +40,7 @@ const PROTOCOLS: [Protocol; 9] = [
     Protocol::Masque,
     Protocol::Amneziawg,
     Protocol::Wireguard,
+    Protocol::Veil,
 ];
 const NETWORKS: [Network; 5] = [
     Network::Tcp,
@@ -405,6 +406,9 @@ fn read_split(ui: &AppWindow, current: &SplitConfig) -> SplitConfig {
         bypass_ru: conf.get_bypass_ru(),
         bypass_cn: conf.get_bypass_cn(),
         block_ads: conf.get_block_ads(),
+        // На Windows форма их не показывает: держим как были.
+        ru_apps_direct: current.ru_apps_direct,
+        ru_guard_applied: current.ru_guard_applied,
     }
 }
 

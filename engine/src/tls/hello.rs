@@ -38,6 +38,8 @@ pub struct HelloParams<'a> {
     pub session_id: [u8; 32],
     pub x25519_pub: [u8; 32],
     pub mlkem_pub: Option<&'a [u8]>,
+    /// См. `TlsConfig::pq_advertise`.
+    pub pq_advertise: bool,
 }
 
 /// Значения GREASE из RFC 8701: 0x0a0a, 0x1a1a … 0xfafa.
@@ -119,6 +121,10 @@ fn ech_grease_ext(rng: &mut impl RngCore) -> Vec<u8> {
 }
 
 const SIG_CHROME: &[u16] = &[0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601];
+/// ML-DSA-44/65/87: Chromium 2026 объявляет их перед классическими (снято с
+/// живого браузера на NL, 2026-11-02). Сервер с таким сертификатом не
+/// встречается, так что это только отпечаток.
+const SIG_CHROME_MLDSA: &[u16] = &[0x0904, 0x0905, 0x0906];
 const SIG_FIREFOX: &[u16] = &[0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0203, 0x0201];
 const SIG_SAFARI: &[u16] = &[0x0403, 0x0804, 0x0401, 0x0503, 0x0203, 0x0805, 0x0805, 0x0501, 0x0806, 0x0601, 0x0201];
 
@@ -163,6 +169,7 @@ fn chrome(p: &HelloParams<'_>, rng: &mut impl RngCore) -> (Vec<u16>, Vec<Vec<u8>
     }
     let g_group = grease(&mut r);
     let g_version = grease(&mut r);
+    let g_sig = grease(&mut r);
 
     let ciphers = vec![
         g_cipher, 0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c,
@@ -170,9 +177,12 @@ fn chrome(p: &HelloParams<'_>, rng: &mut impl RngCore) -> (Vec<u16>, Vec<Vec<u8>
     ];
 
     let mut groups = vec![g_group];
-    if p.mlkem_pub.is_some() {
+    if p.mlkem_pub.is_some() || p.pq_advertise {
         groups.push(X25519_MLKEM768);
     }
+    let mut sigs = vec![g_sig];
+    sigs.extend_from_slice(SIG_CHROME_MLDSA);
+    sigs.extend_from_slice(SIG_CHROME);
     groups.extend_from_slice(&[X25519, SECP256R1, SECP384R1]);
 
     let mut shares = vec![(g_group, vec![0u8])];
@@ -189,7 +199,7 @@ fn chrome(p: &HelloParams<'_>, rng: &mut impl RngCore) -> (Vec<u16>, Vec<Vec<u8>
         ext(11, &[1, 0]),
         ext(35, &[]),
         ext(5, &[1, 0, 0, 0, 0]),
-        ext(13, &u16_list(SIG_CHROME)),
+        ext(13, &u16_list(&sigs)),
         ext(18, &[]),
         key_share_ext(&shares),
         ext(45, &[1, 1]),
@@ -333,6 +343,7 @@ mod tests {
             session_id: [9; 32],
             x25519_pub: [1; 32],
             mlkem_pub: mlkem,
+            pq_advertise: false,
         }
     }
 
@@ -378,6 +389,59 @@ mod tests {
         assert!(with.len() > 1500, "{}", with.len());
         assert!(without.len() < 1000, "{}", without.len());
         extensions(&with);
+    }
+
+    /// Тело расширения по id.
+    fn ext_body(hello: &[u8], id: u16) -> Vec<u8> {
+        let mut i = 4 + 2 + 32;
+        i += 1 + 32;
+        i += 2 + u16::from_be_bytes([hello[i], hello[i + 1]]) as usize;
+        i += 1 + hello[i] as usize;
+        i += 2;
+        while i < hello.len() {
+            let t = u16::from_be_bytes([hello[i], hello[i + 1]]);
+            let l = u16::from_be_bytes([hello[i + 2], hello[i + 3]]) as usize;
+            if t == id {
+                return hello[i + 4..i + 4 + l].to_vec();
+            }
+            i += 4 + l;
+        }
+        panic!("нет расширения {id}");
+    }
+
+    fn u16s(body: &[u8]) -> Vec<u16> {
+        body[2..].chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
+    }
+
+    #[test]
+    fn chrome_matches_current_chromium_without_the_big_key() {
+        let alpn = vec!["h2".to_string(), "http/1.1".to_string()];
+        let is_grease = |v: u16| v & 0x0f0f == 0x0a0a;
+        let mut p = params(Profile::Chrome, &alpn, None);
+        p.pq_advertise = true;
+        let hello = build(&p);
+        // Подписи как у Chromium 2026: GREASE, ML-DSA, затем классические.
+        let sigs = u16s(&ext_body(&hello, 13));
+        assert!(is_grease(sigs[0]));
+        assert_eq!(&sigs[1..4], SIG_CHROME_MLDSA);
+        assert_eq!(&sigs[4..], SIG_CHROME);
+        // Группа ML-KEM объявлена, ключа к ней нет — hello в одном сегменте.
+        let groups = u16s(&ext_body(&hello, 10));
+        assert!(is_grease(groups[0]));
+        assert_eq!(&groups[1..], &[X25519_MLKEM768, X25519, SECP256R1, SECP384R1]);
+        let shares = ext_body(&hello, 51);
+        let mut i = 2;
+        let mut share_groups = Vec::new();
+        while i < shares.len() {
+            share_groups.push(u16::from_be_bytes([shares[i], shares[i + 1]]));
+            i += 4 + u16::from_be_bytes([shares[i + 2], shares[i + 3]]) as usize;
+        }
+        assert!(!share_groups.contains(&X25519_MLKEM768));
+        assert!(share_groups.contains(&X25519));
+        assert!(hello.len() + 5 < 1000, "{}", hello.len());
+        // Без флага группы прежние: чужие серверы на OpenSSL 3.5 не ответят HRR.
+        let plain = build(&params(Profile::Chrome, &alpn, None));
+        assert!(!u16s(&ext_body(&plain, 10)).contains(&X25519_MLKEM768));
     }
 
     #[test]

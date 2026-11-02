@@ -21,6 +21,9 @@ pub enum Protocol {
     /// MASQUE: IP packets over HTTP/3 or HTTP/2 (RFC 9484 CONNECT-IP). Only
     /// Xray dials it, so it always takes the loopback hand-off.
     Masque,
+    /// Veil, Aurora's own tunnel: HTTP/2 POST streams to a real website behind
+    /// Caddy or nginx. Only aura-engine speaks it; see [`ServerNode::needs_aura`].
+    Veil,
 }
 
 impl Protocol {
@@ -35,6 +38,7 @@ impl Protocol {
             Protocol::Wireguard => "wireguard",
             Protocol::Amneziawg => "amneziawg",
             Protocol::Masque => "masque",
+            Protocol::Veil => "veil",
         }
     }
 }
@@ -309,6 +313,13 @@ impl ServerNode {
             || self.protocol == Protocol::Masque
     }
 
+    /// Whether only aura-engine can dial this node. sing-box would refuse the
+    /// unknown outbound type along with the whole document, so callers either
+    /// run aura-engine or leave the node out.
+    pub fn needs_aura(&self) -> bool {
+        self.protocol == Protocol::Veil
+    }
+
     /// Whether the node renders into `endpoints` rather than `outbounds`.
     ///
     /// sing-box dropped the `wireguard` outbound in 1.13; the protocol lives on
@@ -377,7 +388,8 @@ impl ServerNode {
     fn tls_block(&self) -> Option<Value> {
         // hysteria2/tuic are QUIC-based and always need a TLS block, even when
         // the share link omits `security=tls`.
-        let forced = matches!(self.protocol, Protocol::Hysteria2 | Protocol::Tuic);
+        // Veil is HTTP/2 to a website: TLS is the disguise itself.
+        let forced = matches!(self.protocol, Protocol::Hysteria2 | Protocol::Tuic | Protocol::Veil);
         if self.security == Security::None && !forced {
             return None;
         }
@@ -560,6 +572,11 @@ impl ServerNode {
             // Never reached either: `needs_xray` hands MASQUE to the Xray
             // engine, and sing-box only sees its loopback SOCKS port.
             Protocol::Masque => {}
+            // aura-engine's own type; only that core is ever given it.
+            Protocol::Veil => {
+                o.insert("password".into(), json!(self.password));
+                o.insert("path".into(), json!(self.path));
+            }
         }
 
         if let Some(tls) = self.tls_block() {

@@ -66,6 +66,10 @@ image = { version = "0.25", default-features = false, features = [
   "webp",
 ] }
 
+# Veil: ни sing-box, ни libbox его не знают — узлы везёт свой движок внутри
+# процесса (core/veil.rs), на всех платформах.
+aura-engine = { path = "../engine" }
+
 [target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "0.13", features = ["json"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }

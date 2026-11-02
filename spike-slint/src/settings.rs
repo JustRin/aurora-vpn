@@ -299,9 +299,19 @@ pub struct SplitConfig {
     /// Keep LAN/loopback traffic off the tunnel. Turning this off usually breaks
     /// printers, NAS and router admin pages.
     pub bypass_private: bool,
+    /// Российские сайты мимо туннеля. Не только скорость: крупные российские
+    /// платформы обязаны выявлять VPN и видят IP сервера, если их трафик идёт
+    /// через туннель, — после этого сервер блокируют для всех.
     pub bypass_ru: bool,
     pub bypass_cn: bool,
     pub block_ads: bool,
+    /// Android: известные российские приложения целиком мимо туннеля
+    /// ([`crate::core::rules::RU_PACKAGES`]). В режиме «только выбранные» не
+    /// действует: там в туннеле и так лишь то, что выбрал пользователь.
+    pub ru_apps_direct: bool,
+    /// Разовый переезд ноября 2026: защита от утечки IP включается у всех один
+    /// раз, дальше выбор пользователя не трогаем.
+    pub ru_guard_applied: bool,
 }
 
 impl Default for SplitConfig {
@@ -315,16 +325,20 @@ impl Default for SplitConfig {
             proxy_ips: Vec::new(),
             block_domains: Vec::new(),
             bypass_private: true,
-            bypass_ru: false,
+            bypass_ru: true,
             bypass_cn: false,
             block_ads: false,
+            ru_apps_direct: true,
+            // false и у нового файла: serde берёт недостающие поля отсюда, и
+            // только так переезд сработает для старых файлов без этого поля.
+            ru_guard_applied: false,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Balancer, Settings};
+    use super::{Balancer, Settings, SplitConfig};
 
     #[test]
     fn ui_preferences_do_not_touch_the_tunnel() {
@@ -375,9 +389,40 @@ mod tests {
         let mut untouched = Settings::default();
         assert!(!untouched.migrate());
     }
+
+    #[test]
+    fn russian_bypass_is_switched_on_once() {
+        // Старый файл: тумблер выключен, поля-маркера нет.
+        let mut old: SplitConfig =
+            serde_json::from_str(r#"{"bypassRu": false, "ruAppsDirect": false}"#).unwrap();
+        assert!(old.guard_ru());
+        assert!(old.bypass_ru && old.ru_apps_direct && old.ru_guard_applied);
+        // Пользователь выключил снова — второй раз не включаем.
+        old.bypass_ru = false;
+        let stored = serde_json::to_string(&old).unwrap();
+        let mut again: SplitConfig = serde_json::from_str(&stored).unwrap();
+        assert!(!again.guard_ru());
+        assert!(!again.bypass_ru);
+        // Новая установка приходит с включённой защитой.
+        let mut fresh = SplitConfig::default();
+        assert!(fresh.bypass_ru && fresh.ru_apps_direct);
+        assert!(fresh.guard_ru());
+    }
 }
 
 impl SplitConfig {
+    /// Включить защиту от утечки IP, если её ещё ни разу не включали. Возвращает,
+    /// изменилось ли что-то, — тогда файл стоит перезаписать.
+    pub fn guard_ru(&mut self) -> bool {
+        if self.ru_guard_applied {
+            return false;
+        }
+        self.bypass_ru = true;
+        self.ru_apps_direct = true;
+        self.ru_guard_applied = true;
+        true
+    }
+
     /// Enabled rules that match by executable name.
     pub fn active_names(&self) -> Vec<String> {
         self.apps

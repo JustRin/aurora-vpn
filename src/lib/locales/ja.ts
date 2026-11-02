@@ -478,7 +478,10 @@ export const ja: Record<keyof typeof ru, string> = {
     "ルーター、プリンター、NAS、localhost は直接つながります。意図がないかぎり無効にしないでください。家庭内の機器に届かなくなります。",
   "route.bypassRu": "ロシアのサイトは VPN を迂回",
   "route.bypassRuDesc":
-    "geosite/geoip の ru リストにあるドメインとアドレスが直接つながります。国内サービスが速くなり、キャプチャも減ります。",
+    "ロシアのドメインとアドレスは直接つながります。何より、ロシアのサービスにサーバーの IP が見えません。各社は VPN の検出を義務づけられており、見つかったサーバーは全員に対してブロックされます。速くなり、キャプチャも出ません。",
+  "route.ruApps": "ロシアのアプリは VPN を迂回",
+  "route.ruAppsDesc":
+    "VK、Yandex、Ozon、Wildberries、銀行、Gosuslugi、MAX は VPN をまったく通りません。サイトのリストより確実で、アプリが海外のアドレス経由でもサーバーの IP を知ることはできません。「選んだアプリのみ」モードでは不要です。",
   "route.bypassCn": "中国のサイトは VPN を迂回",
   "route.bypassCnDesc": "geosite/geoip の cn リストについて同じことを行います。",
   "route.blockAds": "広告とトラッカーをブロック",

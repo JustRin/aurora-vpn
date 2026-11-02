@@ -537,6 +537,7 @@ impl Dns {
                 insecure: false,
                 fingerprint: "chrome".to_string(),
                 reality: None,
+                pq_advertise: false,
             };
             stream = Box::new(crate::tls::handshake(stream, &cfg).await?);
         }
@@ -560,6 +561,7 @@ impl Dns {
             insecure: false,
             fingerprint: "chrome".to_string(),
             reality: None,
+            pq_advertise: false,
         };
         let mut stream = crate::tls::handshake(stream, &cfg).await?;
         let head = format!(

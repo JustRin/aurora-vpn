@@ -384,7 +384,7 @@ struct ServerHello {
 fn parse_server_hello(msg: &[u8]) -> io::Result<ServerHello> {
     let bad = || invalid("tls: разбор ServerHello");
     if msg.get(2..34).ok_or_else(bad)? == HRR_RANDOM {
-        return Err(invalid("tls: сервер запросил HelloRetryRequest"));
+        return Err(io::Error::other(Retry::HelloRetry));
     }
     let sid = *msg.get(34).ok_or_else(bad)? as usize;
     let mut i = 35 + sid;
@@ -452,6 +452,7 @@ pub async fn handshake(mut io: BoxStream, cfg: &TlsConfig) -> io::Result<Tls13St
         session_id,
         x25519_pub,
         mlkem_pub: mlkem_share.as_deref(),
+        pq_advertise: cfg.pq_advertise,
     });
 
     // REALITY прячет в session_id зашифрованную метку. AAD — весь hello с нулями

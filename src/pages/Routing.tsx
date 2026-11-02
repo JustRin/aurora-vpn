@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal, StringList, ToggleRow } from "../components/ui";
 import { api, errText } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { IS_ANDROID } from "../lib/platform";
 import { useStore } from "../store";
 
 export function Routing() {
@@ -46,9 +47,17 @@ export function Routing() {
         <ToggleRow
           label={t("route.bypassRu")}
           desc={t("route.bypassRuDesc")}
-          checked={split.bypassRu ?? false}
+          checked={split.bypassRu ?? true}
           onChange={(bypassRu) => void saveSplit({ bypassRu })}
         />
+        {IS_ANDROID && (
+          <ToggleRow
+            label={t("route.ruApps")}
+            desc={t("route.ruAppsDesc")}
+            checked={split.ruAppsDirect ?? true}
+            onChange={(ruAppsDirect) => void saveSplit({ ruAppsDirect })}
+          />
+        )}
         <ToggleRow
           label={t("route.bypassCn")}
           desc={t("route.bypassCnDesc")}

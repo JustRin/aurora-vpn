@@ -25,6 +25,9 @@ pub struct Upstream {
     pub port: u16,
     pub tls: Option<TlsConfig>,
     pub transport: Transport,
+    /// Сервер ответил HRR на PQ-группу без ключа: дальше этому узлу её не
+    /// объявляем. Один флаг на узел, как `post_quantum` у REALITY.
+    pub pq_rejected: std::sync::atomic::AtomicBool,
 }
 
 fn decode_public_key(text: &str) -> Option<[u8; 32]> {
@@ -70,6 +73,7 @@ pub fn tls_config(opts: &TlsOpts, server: &str, default_alpn: &[&str]) -> Result
         insecure: opts.insecure,
         fingerprint: opts.utls.as_ref().filter(|u| u.enabled).map(|u| u.fingerprint.clone()).unwrap_or_default(),
         reality,
+        pq_advertise: false,
     })
 }
 
@@ -120,7 +124,7 @@ impl Upstream {
         if o.multiplex.as_ref().is_some_and(|m| m["enabled"].as_bool().unwrap_or(false)) {
             return Err("multiplex пока не поддержан".to_string());
         }
-        Ok(Self { server: o.server.clone(), port: o.server_port, tls, transport })
+        Ok(Self { server: o.server.clone(), port: o.server_port, tls, transport, pq_rejected: Default::default() })
     }
 
     pub async fn addrs(&self) -> io::Result<Vec<SocketAddr>> {
@@ -141,8 +145,16 @@ impl Upstream {
     /// TLS-слой с повторным дозвоном по двум известным поводам: отказ короткому
     /// hello у REALITY и сервер без TLS 1.3.
     async fn tls_layer(&self, cfg: &TlsConfig) -> io::Result<BoxStream> {
+        use std::sync::atomic::Ordering;
         let mut attempt = 0;
         loop {
+            let plain;
+            let cfg = if cfg.pq_advertise && self.pq_rejected.load(Ordering::Relaxed) {
+                plain = TlsConfig { pq_advertise: false, ..cfg.clone() };
+                &plain
+            } else {
+                cfg
+            };
             let tcp = self.tcp().await?;
             match tls::handshake(tcp, cfg).await {
                 Ok(stream) => return Ok(Box::new(stream)),
@@ -154,6 +166,10 @@ impl Upstream {
                     Some(Retry::NeedTls12) if cfg.reality.is_none() => {
                         let tcp = self.tcp().await?;
                         return tls::connect_rustls(tcp, cfg).await;
+                    }
+                    Some(Retry::HelloRetry) if cfg.pq_advertise => {
+                        crate::info!("tls", "{}: сервер просит HRR на PQ-группу — дальше без неё (в Caddy нужен `curves x25519`)", self.server);
+                        self.pq_rejected.store(true, Ordering::Relaxed);
                     }
                     _ => return Err(e),
                 },

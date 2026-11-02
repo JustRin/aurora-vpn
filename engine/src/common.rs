@@ -194,6 +194,26 @@ fn bind_bypass(raw: std::os::windows::io::RawSocket, v6: bool) -> io::Result<()>
     }
 }
 
+/// Android: сокет движка выводит из VPN сам VpnService (`protect`), иначе дозвон
+/// до сервера уйдёт в собственный туннель и замкнётся в петлю. Хук ставит
+/// приложение; без него (ПК, стенд) ничего не происходит. Ошибка хука срывает
+/// дозвон: лучше отказ, чем петля.
+#[cfg(unix)]
+pub type Protector = std::sync::Arc<dyn Fn(i32) -> io::Result<()> + Send + Sync>;
+
+#[cfg(unix)]
+static PROTECTOR: std::sync::RwLock<Option<Protector>> = std::sync::RwLock::new(None);
+
+#[cfg(unix)]
+pub fn set_socket_protector(protector: Option<Protector>) {
+    *PROTECTOR.write().unwrap_or_else(|e| e.into_inner()) = protector;
+}
+
+#[cfg(unix)]
+fn protector() -> Option<Protector> {
+    PROTECTOR.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 pub async fn tcp_connect(addr: SocketAddr) -> io::Result<TcpStream> {
     let socket = if addr.is_ipv4() { TcpSocket::new_v4()? } else { TcpSocket::new_v6()? };
     #[cfg(windows)]
@@ -203,6 +223,13 @@ pub async fn tcp_connect(addr: SocketAddr) -> io::Result<TcpStream> {
         if !addr.ip().is_loopback() {
             bind_bypass(socket.as_raw_socket(), addr.is_ipv6())?;
         }
+    }
+    #[cfg(unix)]
+    if let Some(protect) = protector().filter(|_| !addr.ip().is_loopback()) {
+        use std::os::fd::AsRawFd;
+        // Хук ходит в Kotlin и ждёт ответа: не на потоке рантайма.
+        let fd = socket.as_raw_fd();
+        tokio::task::spawn_blocking(move || protect(fd)).await.map_err(io::Error::other)??;
     }
     let stream = tokio::time::timeout(DIAL_TIMEOUT, socket.connect(addr))
         .await
@@ -219,6 +246,11 @@ pub fn udp_std_socket(v6: bool) -> io::Result<std::net::UdpSocket> {
     {
         use std::os::windows::io::AsRawSocket;
         bind_bypass(socket.as_raw_socket(), v6)?;
+    }
+    #[cfg(unix)]
+    if let Some(protect) = protector() {
+        use std::os::fd::AsRawFd;
+        protect(socket.as_raw_fd())?;
     }
     let any: SocketAddr = if v6 { "[::]:0".parse().unwrap() } else { "0.0.0.0:0".parse().unwrap() };
     socket.bind(&any.into())?;

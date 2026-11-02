@@ -6,6 +6,7 @@ pub mod hysteria2;
 pub mod shadowsocks;
 pub mod socks;
 pub mod trojan;
+pub mod veil;
 pub mod vless;
 pub mod vmess;
 pub mod xudp;
@@ -76,6 +77,7 @@ fn build_one(o: &OutboundOpts) -> Result<Arc<dyn Outbound>, String> {
         "shadowsocks" => Arc::new(shadowsocks::Shadowsocks::new(o)?),
         "vmess" => Arc::new(vmess::Vmess::new(o)?),
         "hysteria2" => Arc::new(hysteria2::Hysteria2::new(o)?),
+        "veil" => Arc::new(veil::Veil::new(o)?),
         other => return Err(format!("протокол {other} пока не поддержан")),
     })
 }

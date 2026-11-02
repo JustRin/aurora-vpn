@@ -82,6 +82,16 @@ pub struct InboundOpts {
     pub auto_route: bool,
     pub strict_route: bool,
     pub stack: String,
+    /// `mixed`: логин и пароль. На Android 127.0.0.1 общий для всех приложений,
+    /// и открытый прокси нашёл бы любой сканер VPN.
+    pub users: Vec<UserOpts>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct UserOpts {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -101,6 +111,8 @@ pub struct OutboundOpts {
     pub packet_encoding: String,
     pub username: String,
     pub version: String,
+    /// Veil: путь туннеля на сайте.
+    pub path: String,
     pub tls: Option<TlsOpts>,
     pub transport: Option<TransportOpts>,
     pub multiplex: Option<Value>,
@@ -210,6 +222,10 @@ pub struct RuleOpts {
     pub rule_set: Vec<String>,
     #[serde(deserialize_with = "listable")]
     pub query_type: Vec<String>,
+    /// Тег входа, как у sing-box: на Android сайдкар Veil так привязывает
+    /// каждый loopback-порт к своему узлу.
+    #[serde(deserialize_with = "listable")]
+    pub inbound: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

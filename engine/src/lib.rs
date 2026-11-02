@@ -31,6 +31,8 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 pub use log::LogSink;
+#[cfg(unix)]
+pub use common::{set_socket_protector, Protector};
 
 pub const VERSION_LINE: &str = concat!("aura-engine version ", env!("CARGO_PKG_VERSION"));
 

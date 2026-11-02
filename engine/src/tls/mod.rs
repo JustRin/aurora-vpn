@@ -35,6 +35,12 @@ pub struct TlsConfig {
     pub insecure: bool,
     pub fingerprint: String,
     pub reality: Option<RealityConfig>,
+    /// Объявить X25519MLKEM768 в supported_groups без самого ключа: отпечаток
+    /// (JA3/JA4) как у современного Chrome, а hello остаётся в одном сегменте.
+    /// Только для своего сервера (Veil за Caddy): Go выбирает группу, для
+    /// которой ключ прислан, а OpenSSL 3.5 с PQ в приоритете ответил бы HRR,
+    /// которого этот клиент не умеет.
+    pub pq_advertise: bool,
 }
 
 /// Исходы рукопожатия, которые лечатся новым дозвоном.
@@ -44,6 +50,8 @@ pub enum Retry {
     RealityWantsPostQuantum,
     /// Сервер ответил без TLS 1.3 — нужен rustls.
     NeedTls12,
+    /// Сервер выбрал объявленную без ключа PQ-группу и просит HRR.
+    HelloRetry,
 }
 
 impl fmt::Display for Retry {
@@ -51,6 +59,7 @@ impl fmt::Display for Retry {
         match self {
             Retry::RealityWantsPostQuantum => f.write_str("reality: сервер отверг короткий hello"),
             Retry::NeedTls12 => f.write_str("сервер не поддерживает TLS 1.3"),
+            Retry::HelloRetry => f.write_str("сервер запросил HelloRetryRequest"),
         }
     }
 }
