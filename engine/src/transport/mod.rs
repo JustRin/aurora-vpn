@@ -9,7 +9,7 @@ use std::task::{ready, Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::common::{other, tcp_connect, BoxStream};
+use crate::common::{other, tcp_connect_any, BoxStream};
 use crate::config::{OutboundOpts, TlsOpts, TransportOpts};
 use crate::tls::{self, retry_reason, RealityConfig, Retry, Tls13Stream, TlsConfig};
 
@@ -132,14 +132,11 @@ impl Upstream {
     }
 
     async fn tcp(&self) -> io::Result<BoxStream> {
-        let mut last = None;
-        for addr in self.addrs().await?.into_iter().take(3) {
-            match tcp_connect(addr).await {
-                Ok(stream) => return Ok(Box::new(stream)),
-                Err(e) => last = Some(e),
-            }
+        let addrs = self.addrs().await?;
+        if addrs.is_empty() {
+            return Err(other(format!("{}: нет адресов", self.server)));
         }
-        Err(last.unwrap_or_else(|| other(format!("{}: нет адресов", self.server))))
+        Ok(Box::new(tcp_connect_any(addrs).await?))
     }
 
     /// TLS-слой с повторным дозвоном по двум известным поводам: отказ короткому

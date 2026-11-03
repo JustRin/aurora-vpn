@@ -314,7 +314,9 @@ pub async fn resolve_server(host: &str, port: u16) -> io::Result<Vec<SocketAddr>
     if let Ok(ip) = host.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>() {
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
-    resolve_direct(host, port).await
+    let dns = global()?;
+    let ips = dns.lookup_server(host).await?;
+    Ok(ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect())
 }
 
 pub async fn resolve_direct(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
@@ -443,18 +445,41 @@ impl Dns {
 
     /// Адреса имени через конкретный сервер: для дозвона самого движка.
     pub async fn lookup_via(&self, tag: &str, name: &str) -> io::Result<Vec<IpAddr>> {
+        self.lookup(tag, name, self.ipv4_only).await
+    }
+
+    /// Адреса нашего сервера — обеих семей даже при `ipv4_only`: тот запрет про
+    /// туннель, а к серверу идём мимо него. IPv4 сервера в РФ режут поадресно,
+    /// IPv6 того же сервера при этом живёт; дозвон IPv4 всё равно пробует первым.
+    pub async fn lookup_server(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+        self.lookup(&self.default_resolver, name, false).await
+    }
+
+    async fn lookup(&self, tag: &str, name: &str, ipv4_only: bool) -> io::Result<Vec<IpAddr>> {
         let server = self.servers.get(tag).ok_or_else(|| other(format!("dns: сервера {tag} нет")))?.clone();
         if matches!(server.upstream, Upstream::Local) {
             let addrs = tokio::net::lookup_host((name, 0u16)).await?;
             return Ok(addrs.map(|a| a.ip()).collect());
         }
+        let ask = |qtype| {
+            let server = &server;
+            async move {
+                let query = encode_query(name, qtype, self.next_id.fetch_add(1, Ordering::Relaxed));
+                self.exchange_cached(server, &query, name, qtype).await
+            }
+        };
+        // Оба типа разом: пустой AAAA в кэш не ложится, и поочерёдно он добавлял
+        // бы круг до DNS к каждому дозвону.
+        let replies = if ipv4_only {
+            vec![ask(QTYPE_A).await]
+        } else {
+            let (a, aaaa) = tokio::join!(ask(QTYPE_A), ask(QTYPE_AAAA));
+            vec![a, aaaa]
+        };
         let mut out = Vec::new();
-        let types: &[u16] = if self.ipv4_only { &[QTYPE_A] } else { &[QTYPE_A, QTYPE_AAAA] };
         let mut last = None;
-        for &qtype in types {
-            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-            let query = encode_query(name, qtype, id);
-            match self.exchange_cached(&server, &query, name, qtype).await {
+        for reply in replies {
+            match reply {
                 Ok(reply) => {
                     if let Some((ips, _)) = parse_answers(&reply) {
                         out.extend(ips);
@@ -665,6 +690,39 @@ mod tests {
         let mut ptr = vec![0u8; 12];
         ptr.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1]);
         assert!(parse_question(&ptr).is_none());
+    }
+
+    /// При `ipv4_only` (IPv6 туннеля выключен) адрес нашего сервера всё равно
+    /// приходит обеих семей, IPv4 первым; чужие имена — только IPv4.
+    #[tokio::test]
+    async fn server_address_comes_in_both_families_under_ipv4_only() {
+        let upstream = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let upstream_addr = upstream.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 512];
+            while let Ok((n, from)) = upstream.recv_from(&mut buf).await {
+                let Some((_, qtype, end)) = parse_question(&buf[..n]) else { continue };
+                let ip: IpAddr = if qtype == QTYPE_AAAA { "::1".parse().unwrap() } else { "192.0.2.1".parse().unwrap() };
+                let _ = upstream.send_to(&answer_with_ip(&buf[..n], end, ip, 60), from).await;
+            }
+        });
+        let opts = DnsOpts {
+            servers: vec![DnsServerOpts {
+                kind: "udp".into(),
+                tag: "direct".into(),
+                server: upstream_addr.ip().to_string(),
+                server_port: upstream_addr.port(),
+                ..Default::default()
+            }],
+            strategy: "ipv4_only".into(),
+            ..Default::default()
+        };
+        let rules = DnsRules::new(&[], &HashMap::new(), Arc::new(RwLock::new(String::new())));
+        let dns = Dns::new(&opts, "direct", rules).unwrap();
+
+        assert_eq!(dns.lookup_via("direct", "veil.test").await.unwrap(), ["192.0.2.1".parse::<IpAddr>().unwrap()]);
+        let ips = dns.lookup_server("veil.test").await.unwrap();
+        assert_eq!(ips, ["192.0.2.1".parse::<IpAddr>().unwrap(), "::1".parse().unwrap()]);
     }
 
     #[test]

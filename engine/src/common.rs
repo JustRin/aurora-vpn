@@ -238,6 +238,71 @@ pub async fn tcp_connect(addr: SocketAddr) -> io::Result<TcpStream> {
     Ok(stream)
 }
 
+/// Через сколько стартует дозвон по следующему адресу, пока предыдущий молчит.
+const ATTEMPT_DELAY: Duration = Duration::from_millis(250);
+
+/// Дозвон по списку адресов «счастливыми глазами» (RFC 8305): следующий адрес
+/// стартует, если предыдущие молчат 250 мс или уже отказали, побеждает первый
+/// ответивший. IPv4 сервера в РФ режут поадресно — SYN пропадает молча, и
+/// поочерёдный дозвон ждал бы весь `DIAL_TIMEOUT`, хотя IPv6 того же сервера жив.
+pub async fn tcp_connect_any(addrs: Vec<SocketAddr>) -> io::Result<TcpStream> {
+    race(addrs, tcp_connect).await
+}
+
+async fn race<T, F, Fut>(addrs: Vec<SocketAddr>, dial: F) -> io::Result<T>
+where
+    T: Send + 'static,
+    F: Fn(SocketAddr) -> Fut,
+    Fut: std::future::Future<Output = io::Result<T>> + Send + 'static,
+{
+    let mut queue = interleave(addrs).into_iter().take(4);
+    let mut attempts = tokio::task::JoinSet::new();
+    let mut last = None;
+    loop {
+        if attempts.is_empty() {
+            match queue.next() {
+                Some(addr) => {
+                    attempts.spawn(dial(addr));
+                }
+                None => return Err(last.unwrap_or_else(|| other("нет адресов для дозвона"))),
+            }
+        }
+        tokio::select! {
+            done = attempts.join_next() => match done {
+                Some(Ok(Ok(stream))) => return Ok(stream),
+                Some(Ok(Err(e))) => {
+                    last = Some(e);
+                    if let Some(addr) = queue.next() {
+                        attempts.spawn(dial(addr));
+                    }
+                }
+                Some(Err(e)) => last = Some(io::Error::other(e)),
+                None => {}
+            },
+            _ = tokio::time::sleep(ATTEMPT_DELAY) => {
+                if let Some(addr) = queue.next() {
+                    attempts.spawn(dial(addr));
+                }
+            }
+        }
+    }
+}
+
+/// Семьи вперемешку, начиная с семьи первого адреса: два IPv4 подряд не должны
+/// оттянуть IPv6.
+fn interleave(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    let first_v6 = addrs.first().is_some_and(SocketAddr::is_ipv6);
+    let (mut same, mut other): (Vec<_>, Vec<_>) = addrs.into_iter().partition(|a| a.is_ipv6() == first_v6);
+    same.reverse();
+    other.reverse();
+    let mut out = Vec::with_capacity(same.len() + other.len());
+    while !same.is_empty() || !other.is_empty() {
+        out.extend(same.pop());
+        out.extend(other.pop());
+    }
+    out
+}
+
 pub fn udp_std_socket(v6: bool) -> io::Result<std::net::UdpSocket> {
     let domain = if v6 { socket2::Domain::IPV6 } else { socket2::Domain::IPV4 };
     let socket = socket2::Socket::new(domain, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
@@ -325,6 +390,53 @@ mod tests {
         for data in [&[][..], &[1, 2][..], &[3, 200, 1][..], &[9, 9, 9][..]] {
             assert!(Target::read_socks(data).is_none());
         }
+    }
+
+    #[test]
+    fn families_are_interleaved() {
+        let a: Vec<SocketAddr> = ["1.1.1.1:1", "2.2.2.2:1", "[::1]:1", "[::2]:1", "3.3.3.3:1"]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        let got: Vec<String> = interleave(a).iter().map(ToString::to_string).collect();
+        assert_eq!(got, ["1.1.1.1:1", "[::1]:1", "2.2.2.2:1", "[::2]:1", "3.3.3.3:1"]);
+    }
+
+    /// IPv4 молчит (как SYN на перекрытый адрес), IPv6 отвечает: дозвон не ждёт
+    /// таймаута первого. Дозвон подменён: под живым TUN на машине любой адрес
+    /// «отвечает» сразу.
+    #[tokio::test]
+    async fn silent_address_does_not_stall_the_dial() {
+        let silent: SocketAddr = "192.0.2.1:443".parse().unwrap();
+        let live: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        let dial = move |addr: SocketAddr| async move {
+            if addr == silent {
+                std::future::pending::<()>().await;
+            }
+            Ok(addr)
+        };
+        let started = std::time::Instant::now();
+        assert_eq!(race(vec![silent, live], dial).await.unwrap(), live);
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+
+        // Отказ — следующий адрес сразу, без задержки.
+        let refuse = |addr: SocketAddr| async move {
+            if addr.is_ipv4() {
+                return Err(io::Error::from(io::ErrorKind::ConnectionRefused));
+            }
+            Ok(addr)
+        };
+        let started = std::time::Instant::now();
+        assert_eq!(race(vec![silent, live], refuse).await.unwrap(), live);
+        assert!(started.elapsed() < ATTEMPT_DELAY, "{:?}", started.elapsed());
+
+        let error = race(vec![silent], refuse).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
+        assert!(tcp_connect_any(Vec::new()).await.is_err());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local = listener.local_addr().unwrap();
+        assert_eq!(tcp_connect_any(vec![local]).await.unwrap().peer_addr().unwrap(), local);
     }
 
     #[test]
