@@ -201,7 +201,18 @@ pub async fn fetch(cfg: &SubConfig, sub_id: &str, user_agent: Option<&str>) -> i
     })
     .await
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "подписка: панель не ответила"))??;
-    parse_response(&raw).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "подписка: ответ панели не разобрать"))
+    let fetched =
+        parse_response(&raw).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "подписка: ответ панели не разобрать"))?;
+    answered(fetched)
+}
+
+/// 5xx — панель лежит или перезапускается (мост Caddy на её месте отвечает
+/// 502), а не «такой подписки нет»: по нему доступ к Veil не снимаем.
+fn answered(f: Fetched) -> io::Result<Fetched> {
+    if f.status >= 500 {
+        return Err(io::Error::other(format!("подписка: панель ответила {}", f.status)));
+    }
+    Ok(f)
 }
 
 fn parse_response(raw: &[u8]) -> Option<Fetched> {
@@ -320,6 +331,9 @@ mod tests {
         assert_eq!(parse_response(chunked).unwrap().body, b"abcde");
         let gone = parse_response(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").unwrap();
         assert!(!gone.alive());
+        assert!(answered(gone).is_ok());
+        let restarting = parse_response(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n").unwrap();
+        assert!(answered(restarting).is_err());
         assert_eq!(parse_upstream("http://127.0.0.1:2097/subs/").unwrap().port, 2097);
         assert!(parse_upstream("https://x/").is_err());
     }
