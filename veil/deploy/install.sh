@@ -109,6 +109,27 @@ http://:2097 {
 		}
 	}
 }
+
+# Подписка 3x-ui на родном порту 2096: iptables перенаправляет его сюда
+# (veil-sub-2096), /subs/* идёт через veil-server, остальное — в панель как было.
+$DOMAIN:2443 {
+	tls {
+		curves x25519 secp256r1 secp384r1
+	}
+	@subs path /subs/*
+	handle @subs {
+		reverse_proxy h2c://$LISTEN
+	}
+	handle {
+		reverse_proxy https://127.0.0.1:2096 {
+			header_up Host $DOMAIN
+			transport http {
+				tls_insecure_skip_verify
+				tls_server_name $DOMAIN
+			}
+		}
+	}
+}
 ROUTE
 )"
 fi
@@ -180,6 +201,15 @@ $BRIDGE
 CADDY
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 systemctl reload caddy || systemctl restart caddy
+
+# Старые ссылки на подписку (:2096) тоже через veil-server: перенаправление
+# внешнего 2096 на Caddy, сама панель остаётся на месте.
+if [ "$XUI" = 1 ]; then
+  install -m 0755 "$HERE/xui-sub-redirect.sh" /usr/local/sbin/veil-sub-2096
+  install -m 0644 "$HERE/veil-sub-2096.service" /etc/systemd/system/veil-sub-2096.service
+  systemctl daemon-reload
+  systemctl enable --now veil-sub-2096 >/dev/null
+fi
 
 # ---- итог
 echo

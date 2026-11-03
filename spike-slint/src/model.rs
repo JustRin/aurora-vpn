@@ -272,6 +272,19 @@ impl Default for ServerNode {
     }
 }
 
+/// Flow, который понимает sing-box: только Vision. Вариант Xray
+/// `xtls-rprx-vision-udp443` для клиента тот же Vision — суффикс лишь снимает
+/// блокировку QUIC внутри самого Xray. Любое другое значение sing-box отверг
+/// бы вместе со всем документом («unsupported flow»), и из-за одного узла из
+/// бесплатного пула не подключался бы ни один сервер. Такой узел уходит без
+/// flow: он сам не заработает, но остальных не уронит.
+fn core_flow(flow: &str) -> Option<&'static str> {
+    match flow {
+        "xtls-rprx-vision" | "xtls-rprx-vision-udp443" => Some("xtls-rprx-vision"),
+        _ => None,
+    }
+}
+
 /// Отпечатки uTLS, которые понимает ядро.
 ///
 /// Список фильтруется не для красоты: на незнакомом отпечатке sing-box
@@ -524,8 +537,10 @@ impl ServerNode {
             Protocol::Vless => {
                 o.insert("uuid".into(), json!(self.uuid));
                 // `flow` is only meaningful over a real TLS/REALITY handshake.
-                if !self.flow.is_empty() && self.security != Security::None {
-                    o.insert("flow".into(), json!(self.flow));
+                if self.security != Security::None {
+                    if let Some(flow) = core_flow(&self.flow) {
+                        o.insert("flow".into(), json!(flow));
+                    }
                 }
                 o.insert("packet_encoding".into(), json!("xudp"));
             }
@@ -878,6 +893,22 @@ mod tests {
         let out = node.to_outbound("t", "");
         assert!(out.get("obfs").is_none());
         assert!(out.get("server_ports").is_none());
+    }
+
+    #[test]
+    fn only_flows_the_core_knows_reach_it() {
+        let with = |flow: &str| ServerNode {
+            protocol: Protocol::Vless,
+            security: Security::Tls,
+            flow: flow.into(),
+            ..Default::default()
+        };
+        let out = |flow: &str| with(flow).to_outbound("t", "").get("flow").cloned();
+        assert_eq!(out("xtls-rprx-vision"), Some(json!("xtls-rprx-vision")));
+        // Так их раздают узлы из бесплатного пула: sing-box отверг бы весь конфиг.
+        assert_eq!(out("xtls-rprx-vision-udp443"), Some(json!("xtls-rprx-vision")));
+        assert_eq!(out("xtls-rprx-direct"), None);
+        assert_eq!(out(""), None);
     }
 
     #[test]
