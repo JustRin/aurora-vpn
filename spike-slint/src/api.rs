@@ -2257,7 +2257,7 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
     };
 
     let fetch = async {
-        // У пула FREE адреса нет — есть восемь списков, сведённых в один, и
+        // У пула FREE адреса нет — есть списки двух репозиториев, сведённые в один, и
         // тарифа с заголовками тоже нет. Списки сами просят обновлять их раз в час.
         if is_free {
             let pool = free::fetch().await?;
@@ -2540,6 +2540,11 @@ fn free_port() -> Option<u16> {
         .map(|addr| addr.port())
 }
 
+/// Сколько узлов замер дёргает одновременно. Все разом нельзя: один пул FREE —
+/// тысячи узлов, и столько дозвонов в один миг переполняют таблицу NAT
+/// домашнего роутера.
+const PROBE_PARALLEL: usize = 64;
+
 /// Задержки, измеренные собственным ядром, поднятым на время замера.
 ///
 /// Рукопожатием TCP это не меряется, и дело не только в Hysteria2 с TUIC, у
@@ -2619,6 +2624,7 @@ async fn probe_delays(
     let mut measured = HashMap::new();
     if api.wait_ready(Duration::from_secs(10)).await.is_ok() {
         let tags: HashMap<String, String> = built.tags.into_iter().collect();
+        let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(PROBE_PARALLEL));
         let mut tasks = Vec::new();
         for node in &nodes {
             if !ids.is_empty() && !ids.contains(&node.id) {
@@ -2629,7 +2635,9 @@ async fn probe_delays(
             };
             let (api, url, id) = (api.clone(), probe.latency_url.clone(), node.id.clone());
             let tx = tx.clone();
+            let gate = gate.clone();
             tasks.push(tokio::spawn(async move {
+                let _permit = gate.acquire_owned().await;
                 let value = api.delay(&tag, &url, 5000).await.unwrap_or(None);
                 // Каждое измерение уходит на экран сразу, не дожидаясь соседей.
                 let _ = tx.send((id.clone(), value));
@@ -2733,6 +2741,7 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
     let probed: Option<HashMap<String, Option<u32>>> = None;
 
     // Probe concurrently; a serial sweep over 40 nodes would take a minute.
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(PROBE_PARALLEL));
     let mut tasks = Vec::new();
     for (id, host, port) in targets {
         let api = api.clone();
@@ -2740,16 +2749,20 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
         let url = url.clone();
         let ready = probed.as_ref().and_then(|values| values.get(&id).copied());
         let tx = tx.clone();
+        let gate = gate.clone();
         tasks.push(tokio::spawn(async move {
-            let value = match (api, tag, ready) {
-                // Ядро-замерщик уже ответило за этот узел — и уже показало.
-                (_, _, Some(value)) => return (id, value),
-                (Some(api), Some(tag), _) => api.delay(&tag, &url, 5000).await.unwrap_or(None),
+            // Ядро-замерщик уже ответило за этот узел — и уже показало.
+            if let Some(value) = ready {
+                return (id, value);
+            }
+            let _permit = gate.acquire_owned().await;
+            let value = match (api, tag) {
+                (Some(api), Some(tag)) => api.delay(&tag, &url, 5000).await.unwrap_or(None),
                 // Ядро поднято, но этого узла в его конфиге нет — список
                 // сменился уже после подключения. Мерить самим нечем: в режиме
                 // TUN рукопожатие TCP принимает сам туннель, у себя в памяти, и
                 // до любого сервера мира получается честные с виду 1–10 мс.
-                (Some(_), None, _) => None,
+                (Some(_), None) => None,
                 _ => ping(&host, port, Duration::from_secs(5)).await,
             };
             let _ = tx.send((id.clone(), value));

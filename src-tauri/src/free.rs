@@ -1,10 +1,10 @@
 //! FREE: один пул публичных серверов, собранный из открытых списков.
 //!
-//! Серверы чужие и бесплатные — их выкладывает репозиторий
-//! igareck/vpn-configs-for-russia, и живут они часами: одни умирают, другие
-//! появляются. Поэтому пул — это подписка особого рода: вместо одного адреса у
-//! неё восемь списков, и обновляется она не по общему расписанию подписок, а
-//! ровно в начале каждого часа.
+//! Серверы чужие и бесплатные — их выкладывают репозитории
+//! igareck/vpn-configs-for-russia и Hidashimora/free-vpn-anti-rkn, и живут они
+//! часами: одни умирают, другие появляются. Поэтому пул — это подписка особого
+//! рода: вместо одного адреса у неё три десятка списков, и обновляется она не
+//! по общему расписанию подписок, а ровно в начале каждого часа.
 //!
 //! Отказаться можно в любой момент — пул удаляется как обычная подписка и
 //! уносит свои серверы с собой.
@@ -21,28 +21,63 @@ use crate::model::ServerNode;
 /// Имя пула в списке — одинаковое на всех языках, как и у WARP.
 pub const NAME: &str = "FREE";
 
-/// Откуда берутся серверы. На эту же страницу ведёт окно согласия.
+/// Адрес подписки пула — главный из источников. Подписка с ним никогда не
+/// скачивается: признак пула — флаг `free`, а списки перечислены в [`SOURCES`].
 pub const SOURCE: &str = "https://github.com/igareck/vpn-configs-for-russia";
 
-/// Все списки репозитория, в которых лежат ссылки на прокси. Мосты TOR там же
-/// есть, но это не серверы.
-const LISTS: [&str; 8] = [
-    "BLACK_VLESS_RUS.txt",
-    "BLACK_VLESS_RUS_mobile.txt",
-    "BLACK_SS%2BAll_RUS.txt",
-    "BLACK_SS_WEAK_DPI_RUS.txt",
-    "Vless-Reality-White-Lists-Rus-Mobile.txt",
-    "WHITE-CIDR-RU-all.txt",
-    "WHITE-CIDR-RU-checked.txt",
-    "WHITE-SNI-RU-all.txt",
-];
+/// Один репозиторий со списками.
+struct Source {
+    /// Как подписывать список в ошибках.
+    label: &'static str,
+    /// Те же файлы на разных хостах. GitHub первый — обновляется раньше всех;
+    /// остальные — для сетей, где его притормаживают.
+    mirrors: &'static [&'static str],
+    lists: &'static [&'static str],
+}
 
-/// Те же файлы на разных хостах. GitHub первый — обновляется раньше всех;
-/// остальные — для сетей, где его притормаживают.
-const MIRRORS: [&str; 3] = [
-    "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main",
-    "https://gitlab.com/igareck/vpn-configs-for-russia/-/raw/main",
-    "https://raw.githack.com/igareck/vpn-configs-for-russia/main",
+/// Все источники пула. Порядок значим: из повторов остаётся экземпляр из
+/// источника, что стоит выше, и в этом же порядке узлы ложатся в список, а
+/// балансировщик их обходит.
+const SOURCES: [Source; 2] = [
+    Source {
+        label: "igareck",
+        mirrors: &[
+            "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main",
+            "https://gitlab.com/igareck/vpn-configs-for-russia/-/raw/main",
+            "https://raw.githack.com/igareck/vpn-configs-for-russia/main",
+        ],
+        // Все списки репозитория, в которых лежат ссылки на прокси. Мосты TOR
+        // там же есть, но это не серверы.
+        lists: &[
+            "BLACK_VLESS_RUS.txt",
+            "BLACK_VLESS_RUS_mobile.txt",
+            "BLACK_SS%2BAll_RUS.txt",
+            "BLACK_SS_WEAK_DPI_RUS.txt",
+            "Vless-Reality-White-Lists-Rus-Mobile.txt",
+            "WHITE-CIDR-RU-all.txt",
+            "WHITE-CIDR-RU-checked.txt",
+            "WHITE-SNI-RU-all.txt",
+        ],
+    },
+    // Укороченные (до 300 строк) выборки из 26 списков AvenCores/goida-vpn-configs,
+    // пересобираются раз в минуту. Списки 27–34 там же — выборки из igareck,
+    // которого пул и так берёт целиком, а N.2 — полные списки на тысячи строк.
+    // Первым — 26.1 «Обход SNI/CIDR»: единственный, собранный под РФ;
+    // остальные сборщики общемировые.
+    Source {
+        label: "Hidashimora",
+        mirrors: &[
+            "https://raw.githubusercontent.com/Hidashimora/free-vpn-anti-rkn/main/configs",
+            "https://hidashimora.github.io/free-vpn-anti-rkn/configs",
+            "https://raw.githack.com/Hidashimora/free-vpn-anti-rkn/main/configs",
+        ],
+        lists: &[
+            "26.1.txt", "1.1.txt", "2.1.txt", "3.1.txt", "4.1.txt", "5.1.txt", "6.1.txt",
+            "7.1.txt", "8.1.txt", "9.1.txt", "10.1.txt", "11.1.txt", "12.1.txt", "13.1.txt",
+            "14.1.txt", "15.1.txt", "16.1.txt", "17.1.txt", "18.1.txt", "19.1.txt", "20.1.txt",
+            "21.1.txt", "22.1.txt", "23.1.txt", "24.1.txt", "25.1.txt",
+        ],
+    },
 ];
 
 /// Как часто часовой круг смотрит на часы. Полминуты — и «ровно в 13:00»
@@ -78,15 +113,21 @@ pub async fn fetch() -> Result<Pool> {
 
     // Порядок задач — порядок списков: при повторе остаётся экземпляр из того
     // списка, что стоит выше, и так от обновления к обновлению.
-    let tasks: Vec<_> = LISTS
+    let tasks: Vec<_> = SOURCES
         .iter()
-        .map(|&name| (name, tokio::spawn(fetch_list(client.clone(), name))))
+        .flat_map(|source| source.lists.iter().map(move |&name| (source, name)))
+        .map(|(source, name)| {
+            let label = format!("{}/{}", source.label, name.replace("%2B", "+"));
+            (
+                label,
+                tokio::spawn(fetch_list(client.clone(), source.mirrors, name)),
+            )
+        })
         .collect();
 
     let mut nodes = Vec::new();
     let mut errors = Vec::new();
-    for (name, task) in tasks {
-        let label = name.replace("%2B", "+");
+    for (label, task) in tasks {
         match task.await {
             Ok(Ok(report)) => nodes.extend(report.nodes),
             Ok(Err(e)) => errors.push((label, e.to_string())),
@@ -119,9 +160,13 @@ pub async fn fetch() -> Result<Pool> {
 /// публичного списка, и сделать с ними пользователь ничего не может. А вот
 /// ответ без единого сервера — считается: так выглядит страница-заглушка
 /// провайдера, вернувшая «200 OK».
-async fn fetch_list(client: reqwest::Client, name: &'static str) -> Result<ParseReport> {
+async fn fetch_list(
+    client: reqwest::Client,
+    mirrors: &'static [&'static str],
+    name: &'static str,
+) -> Result<ParseReport> {
     let mut first_error = None;
-    for base in MIRRORS {
+    for base in mirrors {
         let attempt = async {
             let body = client
                 .get(format!("{base}/{name}"))
@@ -149,8 +194,8 @@ async fn fetch_list(client: reqwest::Client, name: &'static str) -> Result<Parse
 /// Оставить по одному экземпляру каждого сервера — тот, что встретился первым.
 ///
 /// Списки пересекаются сильно: мобильный — срез полного, а один и тот же сервер
-/// ходит по ним с разным отпечатком TLS, ALPN или порядком параметров. Из ~630
-/// строк серверов набирается ~140. Тот же ли это сервер, решает тот же ключ,
+/// ходит по ним с разным отпечатком TLS, ALPN или порядком параметров. Из ~5800
+/// строк серверов набирается ~4200. Тот же ли это сервер, решает тот же ключ,
 /// которым список серверов узнаёт их при импорте и обновлении подписок, — с
 /// адресом в нижнем регистре: имена хостов от регистра не зависят, а списки
 /// пишут их кто как.
@@ -244,5 +289,47 @@ mod tests {
     fn a_pool_never_fetched_is_due() {
         assert!(due("", Utc::now()));
         assert!(due("вчера", Utc::now()));
+    }
+
+    #[test]
+    fn no_list_is_fetched_twice() {
+        for source in &SOURCES {
+            let unique: HashSet<_> = source.lists.iter().collect();
+            assert_eq!(unique.len(), source.lists.len(), "{}", source.label);
+            assert!(!source.mirrors.is_empty(), "{}", source.label);
+        }
+    }
+
+    /// Собрать настоящий пул из сети и проверить, что жив каждый источник:
+    /// `cargo test free::tests::live_pool -- --ignored --nocapture`.
+    ///
+    /// Отдельный пустой список — не поломка: igareck временами выкладывает
+    /// файлы с «Количество: 0». Поломка — источник, от которого не пришло
+    /// ничего: сменились адреса или имена файлов.
+    #[tokio::test]
+    #[ignore = "ходит в сеть"]
+    async fn live_pool() {
+        let pool = fetch().await.expect("пул не собрался");
+        println!(
+            "узлов {}, повторов отсеяно {}, ошибок {}",
+            pool.nodes.len(),
+            pool.duplicates,
+            pool.errors.len()
+        );
+        for (list, why) in &pool.errors {
+            println!("  {list}: {why}");
+        }
+        for source in &SOURCES {
+            let failed = pool
+                .errors
+                .iter()
+                .filter(|(list, _)| list.starts_with(&format!("{}/", source.label)))
+                .count();
+            assert!(
+                failed < source.lists.len(),
+                "{}: не скачался ни один список",
+                source.label
+            );
+        }
     }
 }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Подписки 3x-ui на :2096 через veil-server (перенаправление на Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/veil-sub-2096 up
+ExecStop=/usr/local/sbin/veil-sub-2096 down
+
+[Install]
+WantedBy=multi-user.target

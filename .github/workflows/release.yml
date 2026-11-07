@@ -104,7 +104,10 @@ jobs:
             target: aarch64-apple-darwin
             core: darwin-arm64
             artifact: macos-arm64
-          - os: macos-latest
+          # Intel — на своём Intel-раннере, а не кросс-сборкой на arm64: пул
+          # macOS arm64 бывает переполнен, и 03.11 сборка v0.6.6 дважды так и
+          # не получила машину («not acquired by Runner… after multiple attempts»).
+          - os: macos-15-intel
             bundles: app
             target: x86_64-apple-darwin
             core: darwin-x64
@@ -160,7 +163,7 @@ jobs:
           CORE_TARGET: ${{ matrix.core }}
 
       # Как у Windows выше: sing-box с патчем REALITY поверх официального.
-      # Сборка на чистом Go, поэтому раннер arm64 собирает и darwin-x64.
+      # Сборка на чистом Go, поэтому любой раннер собирает любую darwin-цель.
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"

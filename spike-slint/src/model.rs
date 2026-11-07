@@ -460,10 +460,7 @@ impl ServerNode {
                 // v2rayN/3x-ui encode WebSocket early-data as `?ed=<bytes>` glued
                 // onto the path. sing-box wants it as separate options.
                 let (path, early) = split_early_data(&self.path);
-                t.insert(
-                    "path".into(),
-                    json!(if path.is_empty() { "/".to_string() } else { path }),
-                );
+                t.insert("path".into(), json!(core_path(&path)));
                 if !self.host.is_empty() {
                     t.insert("headers".into(), json!({ "Host": self.host }));
                 }
@@ -487,10 +484,7 @@ impl ServerNode {
             Network::Http => {
                 let mut t = Map::new();
                 t.insert("type".into(), json!("http"));
-                t.insert(
-                    "path".into(),
-                    json!(if self.path.is_empty() { "/".to_string() } else { self.path.clone() }),
-                );
+                t.insert("path".into(), json!(core_path(&self.path)));
                 if !self.host.is_empty() {
                     let hosts: Vec<String> = self
                         .host
@@ -510,10 +504,7 @@ impl ServerNode {
             Network::Httpupgrade => {
                 let mut t = Map::new();
                 t.insert("type".into(), json!("httpupgrade"));
-                t.insert(
-                    "path".into(),
-                    json!(if self.path.is_empty() { "/".to_string() } else { self.path.clone() }),
-                );
+                t.insert("path".into(), json!(core_path(&self.path)));
                 if !self.host.is_empty() {
                     t.insert("host".into(), json!(self.host));
                 }
@@ -547,10 +538,14 @@ impl ServerNode {
             Protocol::Vmess => {
                 o.insert("uuid".into(), json!(self.uuid));
                 o.insert("alter_id".into(), json!(self.alter_id));
-                let sec = if self.vmess_security.is_empty() {
-                    "auto".to_string()
+                // Шифрование VMess выбирает клиент, сервер примет любое, а
+                // незнакомое sing-box слово (`"null"` из публичных списков,
+                // `AUTO`) отвергло бы весь документ. Так что всё прочее — auto.
+                let sec = self.vmess_security.trim().to_ascii_lowercase();
+                let sec = if VMESS_SECURITIES.contains(&sec.as_str()) {
+                    sec.as_str()
                 } else {
-                    self.vmess_security.clone()
+                    "auto"
                 };
                 o.insert("security".into(), json!(sec));
                 o.insert("packet_encoding".into(), json!("xudp"));
@@ -559,7 +554,8 @@ impl ServerNode {
                 o.insert("password".into(), json!(self.password));
             }
             Protocol::Shadowsocks => {
-                o.insert("method".into(), json!(self.method));
+                let method = ss_method(&self.method).unwrap_or(&self.method);
+                o.insert("method".into(), json!(method));
                 o.insert("password".into(), json!(self.password));
             }
             Protocol::Hysteria2 => {
@@ -765,6 +761,75 @@ fn with_prefix(address: &str, bits: u8) -> String {
     }
 }
 
+/// Методы Shadowsocks, которые принимает sing-box. Незнакомый метод у одного
+/// узла валит весь документ, поэтому ссылку с другим отбрасывает уже разбор.
+const SS_METHODS: [&str; 18] = [
+    "none",
+    "aes-128-gcm",
+    "aes-192-gcm",
+    "aes-256-gcm",
+    "chacha20-ietf-poly1305",
+    "xchacha20-ietf-poly1305",
+    "2022-blake3-aes-128-gcm",
+    "2022-blake3-aes-256-gcm",
+    "2022-blake3-chacha20-poly1305",
+    "aes-128-ctr",
+    "aes-192-ctr",
+    "aes-256-ctr",
+    "aes-128-cfb",
+    "aes-192-cfb",
+    "aes-256-cfb",
+    "rc4-md5",
+    "chacha20-ietf",
+    "xchacha20",
+];
+
+/// Шифрования VMess, которые принимает sing-box.
+const VMESS_SECURITIES: [&str; 6] = [
+    "auto",
+    "none",
+    "zero",
+    "aes-128-gcm",
+    "chacha20-poly1305",
+    "aes-128-cfb",
+];
+
+/// Метод Shadowsocks именем sing-box. Xray и панели на нём пишут
+/// `chacha20-poly1305`, `xchacha20-poly1305` и `plain` — sing-box этих слов не
+/// знает. `None` — метода нет ни под каким именем.
+pub fn ss_method(raw: &str) -> Option<&'static str> {
+    let lower = raw.trim().to_ascii_lowercase();
+    let name = match lower.as_str() {
+        "chacha20-poly1305" => "chacha20-ietf-poly1305",
+        "xchacha20-poly1305" => "xchacha20-ietf-poly1305",
+        "plain" => "none",
+        other => other,
+    };
+    SS_METHODS.iter().copied().find(|&m| m == name)
+}
+
+/// Путь транспорта для sing-box: пустой — `/`, а `%` без двух шестнадцатеричных
+/// цифр следом — `%25`. sing-box разбирает путь как URL, и одинокий `%` (из
+/// ссылки с `path=%25`) для него ошибка, роняющая весь документ.
+fn core_path(path: &str) -> String {
+    if path.is_empty() {
+        return "/".into();
+    }
+    let bytes = path.as_bytes();
+    let mut out = String::with_capacity(path.len());
+    for (i, ch) in path.char_indices() {
+        let escape = ch == '%'
+            && !(bytes.get(i + 1).is_some_and(u8::is_ascii_hexdigit)
+                && bytes.get(i + 2).is_some_and(u8::is_ascii_hexdigit));
+        if escape {
+            out.push_str("%25");
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// `"/path?ed=2048"` → `("/path", Some(2048))`.
 fn split_early_data(path: &str) -> (String, Option<u32>) {
     let Some((base, query)) = path.split_once('?') else {
@@ -790,6 +855,44 @@ mod tests {
         assert_eq!(split_early_data("/ray"), ("/ray".into(), None));
         // A query string without `ed` must survive untouched.
         assert_eq!(split_early_data("/ray?x=1"), ("/ray?x=1".into(), None));
+    }
+
+    #[test]
+    fn a_stray_percent_in_the_path_is_escaped_for_the_core() {
+        assert_eq!(core_path(""), "/");
+        assert_eq!(core_path("%"), "%25");
+        assert_eq!(core_path("/a%zz/%4"), "/a%25zz/%254");
+        // Правильные экранирования и юникод остаются как есть.
+        assert_eq!(core_path("/a%2Fb/путь"), "/a%2Fb/путь");
+    }
+
+    #[test]
+    fn shadowsocks_methods_are_named_the_way_sing_box_expects() {
+        assert_eq!(ss_method("AES-256-GCM"), Some("aes-256-gcm"));
+        assert_eq!(
+            ss_method("chacha20-poly1305"),
+            Some("chacha20-ietf-poly1305")
+        );
+        assert_eq!(ss_method("plain"), Some("none"));
+        assert_eq!(ss_method("salsa20"), None);
+        assert_eq!(ss_method("\u{fffd}N\u{fffd}"), None);
+    }
+
+    #[test]
+    fn an_unknown_vmess_security_becomes_auto() {
+        let node = |scy: &str| ServerNode {
+            protocol: Protocol::Vmess,
+            address: "1.2.3.4".into(),
+            port: 443,
+            uuid: "u".into(),
+            vmess_security: scy.into(),
+            ..Default::default()
+        };
+        let sec = |scy: &str| node(scy).to_outbound("t", "dns")["security"].clone();
+        assert_eq!(sec("null"), "auto");
+        assert_eq!(sec(""), "auto");
+        assert_eq!(sec("AES-128-GCM"), "aes-128-gcm");
+        assert_eq!(sec("zero"), "zero");
     }
 
     #[test]

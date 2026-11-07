@@ -58,6 +58,11 @@ fn split_uri(rest: &str) -> Result<UriParts> {
 
     let (host, port) = split_host_port(hostport)?;
 
+    // Публичные сборщики выдирают ссылки из HTML и оставляют разделитель
+    // экранированным: `security=reality&amp;pbk=…`. Без раскодирования ключ
+    // превращается в `amp;pbk`, и узел REALITY остаётся без ключа. Буквально
+    // `&amp;` внутри значения не бывает: `&` там пишется как `%26`.
+    let query_str = query_str.replace("&amp;", "&");
     let mut query = HashMap::new();
     for pair in query_str.split('&').filter(|p| !p.is_empty()) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
@@ -449,6 +454,21 @@ fn parse_shadowsocks(rest: &str) -> Result<ServerNode> {
         let (h, p) = split_host_port(hostport)?;
         (m.to_string(), pw.to_string(), h, p)
     };
+
+    // Сборщики публичных списков выдают и VLESS под схемой `ss://`: UUID,
+    // прочитанный как base64, превращается в мусорный «метод». Такой узел
+    // ядро не примет, а заодно с ним отвергло бы и весь документ.
+    let Some(method) = crate::model::ss_method(&method) else {
+        let shown = if method.chars().all(|c| c.is_ascii_graphic()) {
+            method.as_str()
+        } else {
+            "?"
+        };
+        return Err(AppError::msg(format!(
+            "ss:// с неизвестным методом шифрования «{shown}»"
+        )));
+    };
+    let method = method.to_string();
 
     let mut node = ServerNode {
         id: new_id(),
@@ -1243,6 +1263,34 @@ mod tests {
         assert_eq!(n.public_key, "PUBKEY");
         assert_eq!(n.flow, "xtls-rprx-vision");
         assert_eq!(n.name, "Токио"); // fragment is percent-decoded
+    }
+
+    #[test]
+    fn a_vless_link_under_the_ss_scheme_is_rejected() {
+        // Так в публичных списках выглядит VLESS, которому сборщик сменил схему.
+        let link = "ss://cd3bb7d9-7df3-4644-ac05-c260990ac277@66.90.104.42:2083\
+                    ?mode=gun&security=none&encryption=none&type=grpc&serviceName=vless#S2";
+        assert!(parse_link(link).is_err());
+        // А метод под именем Xray переводится в имя sing-box.
+        let sip002 = format!(
+            "ss://{}@1.2.3.4:8388#x",
+            URL_SAFE_NO_PAD.encode("chacha20-poly1305:secret")
+        );
+        assert_eq!(parse_link(&sip002).unwrap().method, "chacha20-ietf-poly1305");
+    }
+
+    #[test]
+    fn reads_a_link_with_html_escaped_separators() {
+        // Так ссылки приходят из публичных сборщиков, вытащивших их из HTML.
+        let link = "vless://47d9b534-8a0a-4bd2-90f1-1d6ade14427e@150.241.101.80:8443\
+                    ?security=reality&amp;encryption=none&amp;pbk=PUBKEY&amp;sid=ab12\
+                    &amp;fp=chrome&amp;type=tcp&amp;sni=yandex.ru#NL";
+        let n = parse_link(link).unwrap();
+        assert_eq!(n.security, Security::Reality);
+        assert_eq!(n.public_key, "PUBKEY");
+        assert_eq!(n.short_id, "ab12");
+        assert_eq!(n.sni, "yandex.ru");
+        assert_eq!(n.fingerprint, "chrome");
     }
 
     #[test]

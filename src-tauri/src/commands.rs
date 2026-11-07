@@ -2577,7 +2577,7 @@ pub async fn refresh_subscription(app: AppHandle, id: String) -> Result<ImportRe
     };
 
     let fetch = async {
-        // У пула FREE адреса нет — есть восемь списков, сведённых в один, и
+        // У пула FREE адреса нет — есть списки двух репозиториев, сведённые в один, и
         // тарифа с заголовками тоже нет. Списки сами просят обновлять их раз в час.
         if is_free {
             let pool = free::fetch().await?;
@@ -2841,6 +2841,9 @@ pub async fn delete_subscription(app: AppHandle, id: String) -> Result<()> {
 
 // ---------------------------------------------------------------- latency
 
+/// How many nodes a latency sweep dials at once.
+const PROBE_PARALLEL: usize = 64;
+
 /// Time a bare TCP handshake to the node. Used when the core is down, where the
 /// Clash API is unavailable — it measures reachability, not proxy throughput.
 async fn tcp_ping(host: &str, port: u16, timeout: Duration) -> Option<u32> {
@@ -2869,12 +2872,17 @@ pub async fn test_latency(app: AppHandle, ids: Vec<String>) -> Result<HashMap<St
     };
 
     // Probe concurrently; a serial sweep over 40 nodes would take a minute.
+    // But not all at once: the FREE pool alone is thousands of nodes, and as
+    // many simultaneous dials overflow a home router's NAT table.
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(PROBE_PARALLEL));
     let mut tasks = Vec::new();
     for (id, host, port) in targets {
         let api = api.clone();
         let tag = tags.get(&id).cloned();
         let url = url.clone();
+        let gate = gate.clone();
         tasks.push(tokio::spawn(async move {
+            let _permit = gate.acquire_owned().await;
             let value = match (api, tag) {
                 (Some(api), Some(tag)) => api.delay(&tag, &url, 5000).await.unwrap_or(None),
                 _ => tcp_ping(&host, port, Duration::from_secs(5)).await,
