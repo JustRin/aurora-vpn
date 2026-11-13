@@ -16,6 +16,7 @@ use crate::core::clash::ClashApi;
 use crate::core::config::{self, BuildInput, TAG_PROXY};
 use crate::core::geoip;
 use crate::core::log::LogLine;
+use crate::core::probe;
 use crate::core::ruleset;
 #[cfg(not(target_os = "android"))]
 use crate::core::process::{CoreSupervisor, Engine};
@@ -403,12 +404,23 @@ fn build_and_write(
     *state.tags.write() = built.tags.iter().cloned().collect();
     *state.candidates.write() = built.candidates.clone();
 
+    // Замерочный вход — только у sing-box: Aura мерит тёплым соединением сама.
+    let mut json = built.json;
+    let mut access = None;
+    #[cfg(not(target_os = "android"))]
+    if state.core.lock().engine() == crate::core::process::Engine::SingBox {
+        if let Some(port) = free_port() {
+            let tags: Vec<String> = built.tags.iter().map(|(_, tag)| tag.clone()).collect();
+            let granted = probe::ProbeAccess::new(port);
+            probe::install(&mut json, &tags, &granted);
+            access = Some(granted);
+        }
+    }
+    *state.probe.write() = access;
+
     std::fs::create_dir_all(&state.paths.work_dir)?;
-    std::fs::write(
-        &state.paths.config_file,
-        serde_json::to_vec_pretty(&built.json)?,
-    )?;
-    Ok(built.json)
+    std::fs::write(&state.paths.config_file, serde_json::to_vec_pretty(&json)?)?;
+    Ok(json)
 }
 
 /// Sample the counters once a second and turn them into a rate.
@@ -1344,7 +1356,7 @@ async fn connect_inner(app: AppHandle) -> Result<()> {
         let state = app.state();
         state.secret.clone()
     };
-    let api = ClashApi::new(clash_port, &secret);
+    let api = ClashApi::new(clash_port, &secret).with_probe(app.state().probe.read().clone());
 
     if let Err(detail) = await_control_plane(&app, &api).await {
         shutdown(&app, &detail);
@@ -2591,7 +2603,7 @@ async fn probe_delays(
     let secret = uuid::Uuid::new_v4().to_string();
     let cache_path = work_dir.join("probe-cache.db");
 
-    let built = config::build(&BuildInput {
+    let mut built = config::build(&BuildInput {
         nodes: &nodes,
         active_id: &active_id,
         settings: &probe,
@@ -2609,6 +2621,12 @@ async fn probe_delays(
     })
     .ok()?;
 
+    // Замер по тёплому соединению (core/probe.rs): тот же вход, что и у рабочего
+    // ядра, только здесь он есть всегда — замерщик всегда sing-box.
+    let access = probe::ProbeAccess::new(free_port()?);
+    let all_tags: Vec<String> = built.tags.iter().map(|(_, tag)| tag.clone()).collect();
+    probe::install(&mut built.json, &all_tags, &access);
+
     let config_path = work_dir.join("probe.json");
     let work_dir_cache = cache_path.clone();
     std::fs::create_dir_all(&work_dir).ok()?;
@@ -2620,7 +2638,7 @@ async fn probe_delays(
         return None;
     }
 
-    let api = ClashApi::new(probe.clash_port, &secret);
+    let api = ClashApi::new(probe.clash_port, &secret).with_probe(Some(access));
     let mut measured = HashMap::new();
     if api.wait_ready(Duration::from_secs(10)).await.is_ok() {
         let tags: HashMap<String, String> = built.tags.into_iter().collect();

@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::core::probe::{Probe, ProbeAccess};
 use crate::error::{AppError, Result};
 
 #[derive(Clone)]
@@ -16,6 +17,7 @@ pub struct ClashApi {
     base: String,
     secret: String,
     http: reqwest::Client,
+    probe: Option<std::sync::Arc<ProbeAccess>>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -44,8 +46,15 @@ struct DelayResponse {
 }
 
 impl ClashApi {
+    /// Подключить замерочный вход ядра (core/probe.rs): задержки пойдут через него.
+    pub fn with_probe(mut self, access: Option<ProbeAccess>) -> Self {
+        self.probe = access.map(std::sync::Arc::new);
+        self
+    }
+
     pub fn new(port: u16, secret: &str) -> Self {
         Self {
+            probe: None,
             base: format!("http://127.0.0.1:{port}"),
             secret: secret.to_string(),
             http: crate::net::http_builder()
@@ -112,6 +121,15 @@ impl ClashApi {
     /// Measure a single outbound. `Ok(None)` means the node answered but failed
     /// the probe, which the UI shows as "недоступен" rather than an error toast.
     pub async fn delay(&self, tag: &str, url: &str, timeout_ms: u32) -> Result<Option<u32>> {
+        // Тёплый замер, если у ядра есть замерочный вход: панель ядра мерит и
+        // дозвон до узла, и рукопожатие, и из-за этого завышает пинг вдвое-втрое.
+        if let Some(access) = &self.probe {
+            match crate::core::probe::warm_delay(access, tag, url, timeout_ms).await {
+                Probe::Ms(ms) => return Ok(Some(ms)),
+                Probe::Dead => return Ok(None),
+                Probe::Unavailable => {}
+            }
+        }
         let encoded = urlencode(tag);
         let response = self
             .request(

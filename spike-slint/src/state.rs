@@ -187,6 +187,8 @@ pub struct AppState {
     #[cfg(not(target_os = "android"))]
     pub xray: Mutex<Option<CoreSupervisor>>,
     pub clash: RwLock<Option<ClashApi>>,
+    /// Замерочный вход запущенного sing-box (core/probe.rs); у Aura его нет.
+    pub probe: RwLock<Option<crate::core::probe::ProbeAccess>>,
     pub status: RwLock<Status>,
     pub traffic: RwLock<Traffic>,
 
@@ -308,6 +310,7 @@ impl AppState {
             xray_ports: RwLock::new(HashMap::new()),
             xray_rejected: RwLock::new(HashSet::new()),
             clash: RwLock::new(None),
+            probe: RwLock::new(None),
             status: RwLock::new(status),
             traffic: RwLock::new(Traffic::default()),
             session: AtomicU64::new(0),

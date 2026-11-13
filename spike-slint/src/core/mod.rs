@@ -5,6 +5,7 @@ pub mod clash;
 pub mod config;
 pub mod geoip;
 pub mod log;
+pub mod probe;
 #[cfg(not(target_os = "android"))]
 pub mod process;
 pub mod rules;
