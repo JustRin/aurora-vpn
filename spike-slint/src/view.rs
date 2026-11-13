@@ -7,6 +7,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
@@ -42,6 +43,22 @@ pub struct View {
     pub expanded: Option<std::collections::HashSet<String>>,
     /// История скоростей для графика: те же отсчёты, что рисует TrafficGraph.
     pub graph: crate::Graph,
+    /// Строки списка в порядке `nodes` — ровно то, что лежит в `Data.nodes`.
+    /// Держится рядом, чтобы замер одного узла правил одну строку, а не
+    /// пересобирал четыре тысячи.
+    rows: Vec<crate::ServerNode>,
+    /// id узла → его номер в `nodes` и `rows`.
+    index: HashMap<String, usize>,
+    /// Модели живут между перерисовками: их обновляют по месту, а не
+    /// подменяют целиком. Подмена заставляет разметку выбросить и пересоздать
+    /// все строки, а на тысячах узлов это и есть лаг.
+    nodes_model: Option<Rc<VecModel<crate::ServerNode>>>,
+    groups_model: Option<Rc<VecModel<crate::NodeGroup>>>,
+    /// Серверы раздела — по ключу раздела (id подписки, у своих — пустая строка).
+    group_models: HashMap<String, Rc<VecModel<crate::ServerNode>>>,
+    /// Где строка узла лежит в раскрытом разделе: ключ раздела и номер строки.
+    /// У свёрнутых разделов строк в модели нет, и записей тут тоже.
+    slots: HashMap<String, (String, usize)>,
 }
 
 thread_local! {
@@ -82,14 +99,23 @@ pub fn apply(ui: &AppWindow, event: Event) {
             render_subs(ui);
         }
         Event::Latency(latency) => {
-            with(|view| {
+            let ids: Vec<String> = latency.keys().cloned().collect();
+            let big = with(|view| {
                 // Пришло значение — узел домерян, что бы в нём ни было.
                 for id in latency.keys() {
                     view.measuring.remove(id);
                 }
                 view.latency.extend(latency);
+                ids.len() * 4 >= view.nodes.len() || view.nodes_model.is_none()
             });
-            render_nodes(ui);
+            // Обход приносит значения пачками по несколько десятков: трогать
+            // надо только эти строки. Целиком список пересобирается, когда
+            // обновилась заметная его часть.
+            if big {
+                render_nodes(ui);
+            } else {
+                patch_rows(ui, &ids);
+            }
         }
         Event::Measuring(ids) => {
             with(|view| view.measuring = ids);
@@ -296,33 +322,131 @@ pub fn render_traffic(ui: &AppWindow) {
 
 // ------------------------------------------------------------------- узлы
 
+/// Пересобрать `rows` и `index` по текущим узлам.
+fn rebuild_rows(view: &mut View) {
+    let rows: Vec<crate::ServerNode> = view
+        .nodes
+        .iter()
+        .map(|node| {
+            node_row(
+                node,
+                view.latency.get(&node.id).copied().flatten(),
+                view.countries.get(&node.address),
+                view.measuring.contains(&node.id),
+            )
+        })
+        .collect();
+    view.index = view
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(at, node)| (node.id.clone(), at))
+        .collect();
+    view.rows = rows;
+}
+
+/// Привести модель к списку, меняя только отличающиеся строки. Подмена модели
+/// целиком выбрасывает все строки на экране; здесь разметка получает
+/// уведомления лишь о тех, что действительно изменились.
+fn sync_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {
+    if model.row_count() != rows.len() {
+        model.set_vec(rows);
+        return;
+    }
+    for (at, row) in rows.into_iter().enumerate() {
+        if model.row_data(at).as_ref() != Some(&row) {
+            model.set_row_data(at, row);
+        }
+    }
+}
+
+/// «37 / 111» на кнопке: видно, что обход идёт, и сколько осталось.
+fn progress_text(view: &View) -> String {
+    let left = view.measuring.len();
+    if left == 0 {
+        return String::new();
+    }
+    let total = view.nodes.len();
+    format!("{} / {}", total.saturating_sub(left), total)
+}
+
 pub fn render_nodes(ui: &AppWindow) {
     let data = ui.global::<Data>();
-    let rows: Vec<crate::ServerNode> = with(|view| {
-        view.nodes
-            .iter()
-            .map(|node| {
-                node_row(
-                    node,
-                    view.latency.get(&node.id).copied().flatten(),
-                    view.countries.get(&node.address),
-                    view.measuring.contains(&node.id),
-                )
-            })
-            .collect()
+    let (model, fresh, rows, progress) = with(|view| {
+        rebuild_rows(view);
+        let (model, fresh) = match &view.nodes_model {
+            Some(model) => (model.clone(), false),
+            None => {
+                let model = Rc::new(VecModel::default());
+                view.nodes_model = Some(model.clone());
+                (model, true)
+            }
+        };
+        (model, fresh, view.rows.clone(), progress_text(view))
     });
-    data.set_nodes(ModelRc::new(VecModel::from(rows)));
-    // «37 / 111» на кнопке: видно, что обход идёт, и сколько осталось.
-    data.set_test_progress(
-        with(|view| {
-            let left = view.measuring.len();
-            (left > 0).then(|| format!("{} / {}", view.nodes.len() - left, view.nodes.len()))
-        })
-        .unwrap_or_default()
-        .into(),
-    );
+    if fresh {
+        data.set_nodes(ModelRc::from(model.clone()));
+    }
+    sync_model(&model, rows);
+    data.set_test_progress(progress.into());
     render_groups(ui);
     render_active(ui);
+}
+
+/// Обновить несколько строк, не трогая остальные: приходит пачка замеров, и
+/// пересобирать из-за неё весь список незачем.
+fn patch_rows(ui: &AppWindow, ids: &[String]) {
+    type GroupSlot = Option<(Rc<VecModel<crate::ServerNode>>, usize)>;
+    let patched = with(|view| {
+        if view.rows.len() != view.nodes.len() {
+            return None;
+        }
+        let model = view.nodes_model.clone()?;
+        let mut patches: Vec<(usize, crate::ServerNode, GroupSlot)> = Vec::with_capacity(ids.len());
+        for id in ids {
+            let Some(&at) = view.index.get(id) else { continue };
+            let node = &view.nodes[at];
+            let row = node_row(
+                node,
+                view.latency.get(&node.id).copied().flatten(),
+                view.countries.get(&node.address),
+                view.measuring.contains(&node.id),
+            );
+            view.rows[at] = row.clone();
+            let group = view.slots.get(id).and_then(|(key, row_at)| {
+                view.group_models.get(key).map(|group| (group.clone(), *row_at))
+            });
+            patches.push((at, row, group));
+        }
+        Some((model, patches, progress_text(view)))
+    });
+    let Some((model, patches, progress)) = patched else {
+        render_nodes(ui);
+        return;
+    };
+    for (at, row, group) in patches {
+        if let Some((group, row_at)) = group {
+            if row_at < group.row_count() {
+                group.set_row_data(row_at, row.clone());
+            }
+        }
+        if at < model.row_count() {
+            model.set_row_data(at, row);
+        }
+    }
+    ui.global::<Data>().set_test_progress(progress.into());
+    render_active(ui);
+}
+
+/// Один раздел списка серверов, как его видит экран.
+struct Section {
+    key: String,
+    sub: crate::SubInfo,
+    expanded: bool,
+    /// Узлы раздела: номера в `nodes`. Строки в модель попадают только у
+    /// раскрытого — свёрнутому они не нужны, а на четырёх тысячах это сотни
+    /// тысяч живых элементов впустую.
+    members: Vec<usize>,
 }
 
 /// Серверы, разложенные по подпискам.
@@ -331,7 +455,11 @@ pub fn render_nodes(ui: &AppWindow) {
 /// отодвигать ими подписки незачем. Узел, чья подписка уже удалена, тоже
 /// считается своим — иначе он пропал бы с экрана, оставшись в списке.
 pub fn render_groups(ui: &AppWindow) {
-    let rows: Vec<crate::NodeGroup> = with(|view| {
+    type Job = (Rc<VecModel<crate::ServerNode>>, Vec<crate::ServerNode>);
+    let (groups_model, fresh, sections, jobs): (_, _, Vec<Section>, Vec<Job>) = with(|view| {
+        if view.rows.len() != view.nodes.len() {
+            rebuild_rows(view);
+        }
         let known: std::collections::HashSet<&str> =
             view.subs.iter().map(|sub| sub.id.as_str()).collect();
         // Функцией, а не замыканием: время жизни ответа привязано к узлу, а
@@ -353,46 +481,91 @@ pub fn render_groups(ui: &AppWindow) {
             Some(open) => open.contains(id),
             None => id == active_group,
         };
-        let rows_of = |id: &str| -> Vec<crate::ServerNode> {
-            view.nodes
-                .iter()
-                .filter(|node| sub_of(node, &known) == id)
-                .map(|node| {
-                    node_row(
-                        node,
-                        view.latency.get(&node.id).copied().flatten(),
-                        view.countries.get(&node.address),
-                        view.measuring.contains(&node.id),
-                    )
-                })
-                .collect()
-        };
+        let mut members: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (at, node) in view.nodes.iter().enumerate() {
+            members.entry(sub_of(node, &known)).or_default().push(at);
+        }
 
-        let mut groups: Vec<crate::NodeGroup> = view
+        let mut sections: Vec<Section> = view
             .subs
             .iter()
-            .map(|sub| crate::NodeGroup {
+            .map(|sub| Section {
+                key: sub.id.clone(),
                 sub: sub_row(sub),
                 expanded: is_open(&sub.id),
-                nodes: ModelRc::new(VecModel::from(rows_of(&sub.id))),
+                members: members.remove(sub.id.as_str()).unwrap_or_default(),
             })
             .collect();
 
-        let own = rows_of("");
+        let own = members.remove("").unwrap_or_default();
         if !own.is_empty() {
-            groups.push(crate::NodeGroup {
+            sections.push(Section {
+                key: String::new(),
                 sub: crate::SubInfo {
                     name: tr(|l| l.own_group.clone()).into(),
                     foot: own_foot(own.len()).into(),
                     ..Default::default()
                 },
                 expanded: is_open(""),
-                nodes: ModelRc::new(VecModel::from(own)),
+                members: own,
             });
         }
-        groups
+
+        // Модели разделов заводятся по требованию и выбрасываются вместе с
+        // разделом. Рядом пишется, где в них лежит каждая строка: по этому
+        // замер одного узла находит свою строку без поиска.
+        view.slots.clear();
+        let mut jobs: Vec<Job> = Vec::with_capacity(sections.len());
+        for section in &sections {
+            let model = view
+                .group_models
+                .entry(section.key.clone())
+                .or_insert_with(|| Rc::new(VecModel::default()))
+                .clone();
+            let rows: Vec<crate::ServerNode> = if section.expanded {
+                section.members.iter().map(|&at| view.rows[at].clone()).collect()
+            } else {
+                Vec::new()
+            };
+            if section.expanded {
+                for (row_at, &at) in section.members.iter().enumerate() {
+                    let id = view.nodes[at].id.clone();
+                    view.slots.insert(id, (section.key.clone(), row_at));
+                }
+            }
+            jobs.push((model, rows));
+        }
+        view.group_models
+            .retain(|key, _| sections.iter().any(|section| &section.key == key));
+
+        let fresh = view.groups_model.is_none();
+        let groups_model = view
+            .groups_model
+            .get_or_insert_with(|| Rc::new(VecModel::<crate::NodeGroup>::default()))
+            .clone();
+        (groups_model, fresh, sections, jobs)
     });
-    ui.global::<Data>().set_groups(ModelRc::new(VecModel::from(rows)));
+
+    // Сперва строки, потом разделы: раскрытый раздел не должен успеть
+    // показать пустой список.
+    let mut models = Vec::with_capacity(jobs.len());
+    for (model, rows) in jobs {
+        sync_model(&model, rows);
+        models.push(model);
+    }
+    let groups: Vec<crate::NodeGroup> = sections
+        .into_iter()
+        .zip(models)
+        .map(|(section, model)| crate::NodeGroup {
+            sub: section.sub,
+            expanded: section.expanded,
+            nodes: ModelRc::from(model),
+        })
+        .collect();
+    if fresh {
+        ui.global::<Data>().set_groups(ModelRc::from(groups_model.clone()));
+    }
+    sync_model(&groups_model, groups);
 }
 
 /// «3 сервера» — подпись раздела своих серверов: срока и трафика у них нет.

@@ -781,36 +781,56 @@ export component NodeGroupSection inherits VerticalLayout {
     // Не лэйаут: строки расставлены вручную, потому что под перетаскиванием им
     // надо разъезжаться, а лэйаут положениями своих детей ни с кем не делится.
     // Высота у всех одна, так что место — это номер, умноженный на шаг.
-    if root.group.expanded: Rectangle {
+    //
+    // Живых строк ровно столько, сколько влезает в окно, плюс запас: на пуле в
+    // четыре тысячи серверов полный набор — это сотня тысяч элементов, и окно
+    // замирало на любой перерисовке. Строка — это «слот», а какому серверу он
+    // сейчас принадлежит, говорит `idx`: при прокрутке слоты переезжают на
+    // другие серверы, а не создаются заново.
+    if root.group.expanded: rows-box := Rectangle {
         vertical-stretch: 0;
         height: root.group.nodes.length * root.row-pitch - 8px + 4px;
-        for node[i] in root.group.nodes: NodeRow {
+        // Первая строка, что ещё может быть на экране: верх коробки в
+        // координатах окна уходит в минус по мере прокрутки.
+        property <int> first: clamp(
+            Math.floor(-self.absolute-position.y / root.row-pitch) - 3,
+            0,
+            max(0, root.group.nodes.length - 1));
+        property <int> count: clamp(
+            Math.ceil(Ui.win-h / root.row-pitch) + 8,
+            0,
+            max(0, root.group.nodes.length - self.first));
+        for slot in rows-box.count: NodeRow {
+            property <int> idx: rows-box.first + slot;
+            property <ServerNode> item: root.group.nodes[self.idx];
             x: 14px;
-            y: root.slot-of(i) * root.row-pitch;
+            y: root.slot-of(self.idx) * root.row-pitch;
             width: parent.width - 14px;
-            animate y { duration: 140ms; easing: ease-out; }
-            node: node;
-            active: node.id == root.active-id;
-            routed: node.id == root.routed-id;
-            dragging: root.drag-from == i;
-            select => { root.select(node.id); }
-            copy-link => { root.copy-link(node.id); }
-            edit => { root.edit(node.id); }
-            remove => { root.remove-node(node.id); }
+            // Пока список не тянут, строки на новых местах появляются сразу:
+            // иначе при прокрутке слоты «ехали» бы к своим серверам.
+            animate y { duration: root.drag-from >= 0 ? 140ms : 0ms; easing: ease-out; }
+            node: self.item;
+            active: self.item.id == root.active-id;
+            routed: self.item.id == root.routed-id;
+            dragging: root.drag-from == self.idx;
+            select => { root.select(self.item.id); }
+            copy-link => { root.copy-link(self.item.id); }
+            edit => { root.edit(self.item.id); }
+            remove => { root.remove-node(self.item.id); }
             drag-start(at) => {
-                root.drag-from = i;
-                root.drag-to = i;
+                root.drag-from = self.idx;
+                root.drag-to = self.idx;
                 root.drag-press-y = at;
             }
             drag-move(at) => {
                 root.drag-to = clamp(
-                    i + Math.round((at - root.drag-press-y) / root.row-pitch),
+                    self.idx + Math.round((at - root.drag-press-y) / root.row-pitch),
                     0,
                     root.group.nodes.length - 1);
             }
             drag-end => {
                 if (root.drag-from >= 0 && root.drag-to != root.drag-from) {
-                    root.reorder(node.id, root.drag-to);
+                    root.reorder(self.item.id, root.drag-to);
                 }
                 root.drag-from = -1;
                 root.drag-to = -1;

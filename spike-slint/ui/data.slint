@@ -328,6 +328,9 @@ export global Ui {
     // координатах окна, `group-drop-to` — раздел, в который он попал. Разделы
     // разной высоты, и часть свёрнута, поэтому номер не вычисляется шагом, как
     // у строк: каждый раздел сам отвечает, попал ли указатель в него.
+    // Высота окна: по ней длинные списки (тысячи серверов) решают, сколько строк
+    // держать живыми. Выставляет AppWindow.
+    in-out property <length> win-h: 900px;
     in-out property <int> group-drag: -1;
     in-out property <length> group-drag-y;
     in-out property <int> group-drop-to: -1;

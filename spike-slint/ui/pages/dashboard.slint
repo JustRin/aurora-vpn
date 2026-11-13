@@ -4,7 +4,7 @@
 import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider, SectionTitle } from "../theme.slint";
 import { Btn, Dot, Chip, Alert, Empty, ScrollArea, Switch, ModalShell, ModalFoot } from "../widgets.slint";
 import { SubCard, BalancerRow } from "../cards.slint";
-import { Data, Conf, Ui } from "../data.slint";
+import { Data, Conf, Ui, ServerNode } from "../data.slint";
 import { Str } from "../i18n.slint";
 
 // .picker: выбор сервера прямо в шапке героя. Переключение на ходу не рвёт
@@ -110,7 +110,7 @@ component ServerPicker inherits Rectangle {
                 background: Theme.sheen;
             }
             VerticalLayout {
-                ScrollArea {
+                sa := ScrollArea {
                     pad: 6px;
                     vertical-stretch: 1;
                     // Стратегии — отдельными пунктами над серверами, как «Auto»
@@ -138,18 +138,39 @@ component ServerPicker inherits Rectangle {
                             SectionTitle { text: Str.nav-servers-caps; }
                         }
                     }
-                    for node in Data.nodes: row := Rectangle {
+                    // Серверов бывает несколько тысяч (пул FREE), и строка у каждого
+                    // — два десятка элементов. Живыми держатся только те, что
+                    // видны в меню, плюс запас; остальные — просто место в ленте.
+                    // «Слот» переезжает с сервера на сервер вместе с прокруткой.
+                    list := Rectangle {
+                        vertical-stretch: 0;
+                        height: Data.nodes.length * 48px;
+                        // Сколько строк ленты уже ушло выше видимой части меню.
+                        property <int> first: clamp(
+                            Math.floor((sa.absolute-position.y - self.absolute-position.y) / 48px) - 2,
+                            0,
+                            max(0, Data.nodes.length - 1));
+                        property <int> count: clamp(
+                            Math.ceil(sa.height / 48px) + 5,
+                            0,
+                            max(0, Data.nodes.length - self.first));
+                    for slot in list.count: row := Rectangle {
+                        property <int> idx: list.first + slot;
+                        property <ServerNode> node: Data.nodes[row.idx];
+                        x: 0px;
+                        y: row.idx * 48px;
+                        width: parent.width;
                         height: 48px;
                         border-radius: 8px;
                         // Подсвечен ровно один пункт: сервер — при ручном выборе,
                         // при балансировщике его строка, а серверу — «сейчас».
-                        property <bool> on: Conf.balancer == 0 && node.id == Data.active-id;
+                        property <bool> on: Conf.balancer == 0 && row.node.id == Data.active-id;
                         background: row.on
                             ? Theme.accent-soft
                             : (item.has-hover ? Theme.panel-hover : #00000000);
                         item := TouchArea {
                             clicked => {
-                                Data.select-server(node.id);
+                                Data.select-server(row.node.id);
                                 menu.close();
                             }
                         }
@@ -181,22 +202,22 @@ component ServerPicker inherits Rectangle {
                                 spacing: 1px;
                                 horizontal-stretch: 1;
                                 Text {
-                                    text: node.name;
+                                    text: row.node.name;
                                     overflow: elide;
                                     font-size: 13.5px * Theme.text-scale;
                                     font-weight: 550;
-                                    color: node.id == Data.active-id ? Theme.accent-text : Theme.text-dim;
+                                    color: row.node.id == Data.active-id ? Theme.accent-text : Theme.text-dim;
                                 }
                                 Text {
-                                    text: node.country == ""
-                                        ? "\{node.proto} · \{node.transport}"
-                                        : "\{node.country} · \{node.proto} · \{node.transport}";
+                                    text: row.node.country == ""
+                                        ? "\{row.node.proto} · \{row.node.transport}"
+                                        : "\{row.node.country} · \{row.node.proto} · \{row.node.transport}";
                                     overflow: elide;
                                     font-size: 11.5px * Theme.text-scale;
                                     color: Theme.text-muted;
                                 }
                             }
-                            if Conf.balancer != 0 && node.id == Data.active-id: VerticalLayout {
+                            if Conf.balancer != 0 && row.node.id == Data.active-id: VerticalLayout {
                                 alignment: center;
                                 Chip {
                                     label: Str.pick-now-chip;
@@ -205,19 +226,19 @@ component ServerPicker inherits Rectangle {
                             }
                             VerticalLayout {
                                 alignment: center;
-                                Dot { tier: node.tier; }
+                                Dot { tier: row.node.tier; }
                             }
                             VerticalLayout {
                                 alignment: center;
                                 Text {
-                                    text: node.latency;
+                                    text: row.node.latency;
                                     horizontal-alignment: right;
                                     min-width: 46px;
                                     font-size: 11.5px * Theme.text-scale;
                                     color: Theme.text-muted;
                                 }
                             }
-                            if Conf.balancer == 0 && node.id == Data.active-id: VerticalLayout {
+                            if Conf.balancer == 0 && row.node.id == Data.active-id: VerticalLayout {
                                 alignment: center;
                                 NavIcon {
                                     commands: Icons.check;
@@ -227,6 +248,7 @@ component ServerPicker inherits Rectangle {
                                 }
                             }
                         }
+                    }
                     }
                 }
                 Divider { }

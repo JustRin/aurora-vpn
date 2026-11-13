@@ -134,7 +134,10 @@ export component AppWindow inherits Window {
     // Rust немедленно перегенерирует пути — иначе до следующего тика график
     // рисуется в чужом масштабе и «уезжает».
     out property <length> graph-w: self.width - 292px;
-    init => { Data.graph-w = self.graph-w; }
+    init => {
+        Data.graph-w = self.graph-w;
+        Ui.win-h = self.height;
+    }
     changed graph-w => {
         Data.graph-w = self.graph-w;
         Data.regen();
@@ -164,7 +167,10 @@ export component AppWindow inherits Window {
     in property <image> ambient;
     callback ambient-resize();
     changed width => { root.ambient-resize(); }
-    changed height => { root.ambient-resize(); }
+    changed height => {
+        Ui.win-h = self.height;
+        root.ambient-resize();
+    }
     // Смена палитры — тоже повод пересобрать слой: заливку и цвета пятен Rust
     // берёт из Theme, а не из своих констант.
     property <int> palette: Theme.variant;
