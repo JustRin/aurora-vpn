@@ -23,6 +23,8 @@ use i_slint_backend_winit::{CustomApplicationHandler, EventResult};
 pub struct Shortcuts {
     /// Модификаторы приходят своим событием — winit не кладёт их в нажатие.
     mods: ModifiersState,
+    /// Окно на прошлом `Moved` торчало за пределы экранов. См. `repaint_all`.
+    clipped: bool,
 }
 
 impl CustomApplicationHandler for Shortcuts {
@@ -30,11 +32,34 @@ impl CustomApplicationHandler for Shortcuts {
         &mut self,
         _event_loop: &ActiveEventLoop,
         _window_id: WindowId,
-        _winit_window: Option<&Window>,
+        winit_window: Option<&Window>,
         slint_window: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
         match event {
+            // Окно ездит за край экрана и обратно: пока часть была за краем,
+            // GDI её не рисовал, а Slint перерисовывает только изменившееся.
+            // Пока окно хоть частично снаружи (и один раз при возвращении)
+            // перерисовываем его целиком.
+            WindowEvent::Moved(_) => {
+                if let (Some(winit_window), Some(slint_window)) = (winit_window, slint_window) {
+                    let clipped = sticks_out(winit_window);
+                    if clipped || self.clipped {
+                        repaint_all(slint_window);
+                    }
+                    self.clipped = clipped;
+                }
+                EventResult::Propagate
+            }
+            // Сон/блокировка/смена монитора: DWM мог выбросить поверхность окна,
+            // а приложение об этом не узнаёт. Фокус — самый дешёвый повод
+            // убедиться, что на экране не мусор.
+            WindowEvent::Focused(true) => {
+                if let Some(slint_window) = slint_window {
+                    repaint_all(slint_window);
+                }
+                EventResult::Propagate
+            }
             WindowEvent::ModifiersChanged(mods) => {
                 self.mods = mods.state();
                 EventResult::Propagate
@@ -101,4 +126,55 @@ fn latin(code: KeyCode) -> Option<&'static str> {
         KeyCode::KeyZ => "z",
         _ => return None,
     })
+}
+
+
+/// Окно не целиком лежит на каком-либо мониторе (хотя бы один угол снаружи).
+fn sticks_out(window: &Window) -> bool {
+    let (Ok(pos), size) = (window.outer_position(), window.outer_size()) else {
+        return false;
+    };
+    let monitors: Vec<_> = window
+        .available_monitors()
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            (p.x, p.y, p.x + s.width as i32, p.y + s.height as i32)
+        })
+        .collect();
+    if monitors.is_empty() {
+        return false;
+    }
+    let (w, h) = (size.width as i32, size.height as i32);
+    // Крайние пиксели: правый/нижний — последний внутри окна.
+    let corners = [
+        (pos.x, pos.y),
+        (pos.x + w - 1, pos.y),
+        (pos.x, pos.y + h - 1),
+        (pos.x + w - 1, pos.y + h - 1),
+    ];
+    corners.iter().any(|&(x, y)| {
+        !monitors.iter().any(|&(l, t, r, b)| x >= l && x < r && y >= t && y < b)
+    })
+}
+
+/// Перерисовать окно целиком, а не только то, что изменилось.
+///
+/// Софтверный рендер Slint держит собственный буфер и отдаёт GDI только
+/// «грязные» прямоугольники. Часть окна за краем экрана GDI отсекает — в
+/// поверхности DWM там остаётся пусто, — и когда окно возвращают, это место
+/// никто не перерисовывает: в буфере всё «уже нарисовано». Выглядит как
+/// прозрачные куски интерфейса, которые оживают только по мере обновления.
+fn repaint_all(window: &slint::Window) {
+    use i_slint_core::lengths::{LogicalPoint, LogicalRect, LogicalSize};
+    use i_slint_core::partial_renderer::DirtyRegion;
+    use slint::private_unstable_api::re_exports::WindowInner;
+
+    let size = window.size().to_logical(window.scale_factor());
+    if size.width <= 0.0 || size.height <= 0.0 {
+        return;
+    }
+    let all = LogicalRect::new(LogicalPoint::new(0.0, 0.0), LogicalSize::new(size.width, size.height));
+    WindowInner::from_pub(window).window_adapter().renderer().mark_dirty_region(DirtyRegion::from(all));
+    window.request_redraw();
 }

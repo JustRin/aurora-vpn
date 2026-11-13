@@ -580,6 +580,7 @@ dependencies = [
  "embed-resource",
  "flate2",
  "i-slint-backend-winit",
+ "i-slint-core",
  "image",
  "maxminddb",
  "parking_lot",

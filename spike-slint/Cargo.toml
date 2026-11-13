@@ -15,6 +15,10 @@ slint = "1"
 # Тот же winit-бэкенд, что уже внутри slint — прямой доступ ради
 # drag_window()/drag_resize_window() для безрамочного окна.
 i-slint-backend-winit = { version = "1.17", default-features = false }
+# Нужен только ради Renderer::mark_dirty_region: принудительная полная
+# перерисовка после того, как окно побывало за краем экрана (src/keys.rs).
+# Версия та же, что у slint в Cargo.lock, — отдельной копии ядра не появится.
+i-slint-core = { version = "=1.17.1", default-features = false }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 # Ядро приложения — то, что раньше жило в src-tauri/src и не знало про Tauri.
