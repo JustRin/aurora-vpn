@@ -153,6 +153,8 @@ export global Data {
     in-out property <bool> testing;      // идёт проверка задержки
     // «37 / 111», пока обход идёт. Пусто — обхода нет.
     in-out property <string> test-progress;
+    // Идёт проверка одного сервера, а не обход: счётчик «N / всего» не показываем.
+    in-out property <bool> test-single;
     in-out property <bool> refreshing;   // обновляются подписки
     in-out property <bool> connected: true;
     in-out property <bool> elevated: true;
@@ -221,6 +223,8 @@ export global Data {
     callback close-camera();
     callback next-camera();
     callback test-latency();
+    // Задержка одного сервера по id.
+    callback test-server(string);
     callback refresh-subs();
     callback refresh-sub(string);
     callback delete-sub(string);

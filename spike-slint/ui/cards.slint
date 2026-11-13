@@ -130,6 +130,8 @@ export component NodeRow inherits Rectangle {
     // строке сервера достаётся только отметка «сейчас».
     in property <bool> routed;
     callback select();
+    // Проверить задержку только этого сервера, не гоняя весь список.
+    callback ping();
     callback copy-link();
     callback edit();
     callback remove();
@@ -343,6 +345,20 @@ export component NodeRow inherits Rectangle {
             }
         }
 
+        // Пинг одного сервера — всегда на виду, а не под курсором: это
+        // действие, которым пользуются чаще остальных. Пока идёт любой замер,
+        // кнопка гаснет (одновременно два обхода делили бы одни и те же метки).
+        VerticalLayout {
+            alignment: center;
+            IconBtn {
+                icon: Icons.gauge;
+                ghost: true;
+                compact: true;
+                enabled: !Data.testing;
+                clicked => { root.ping(); }
+            }
+        }
+
         // .node-actions: проявляются под курсором.
         VerticalLayout {
             alignment: center;
@@ -520,6 +536,7 @@ export component NodeGroupSection inherits VerticalLayout {
     callback refresh();
     callback remove();
     callback select(string);
+    callback ping(string);
     callback copy-link(string);
     callback edit(string);
     callback remove-node(string);
@@ -814,6 +831,7 @@ export component NodeGroupSection inherits VerticalLayout {
             routed: self.item.id == root.routed-id;
             dragging: root.drag-from == self.idx;
             select => { root.select(self.item.id); }
+            ping => { root.ping(self.item.id); }
             copy-link => { root.copy-link(self.item.id); }
             edit => { root.edit(self.item.id); }
             remove => { root.remove-node(self.item.id); }

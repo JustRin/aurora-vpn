@@ -9,8 +9,32 @@ import { NodeGroupSection, BalancerRow } from "../cards.slint";
 import { Data, Conf, Ui, Draft } from "../data.slint";
 import { Str } from "../i18n.slint";
 
-export component ServersPage inherits ScrollArea {
-    pad: 28px;
+// Кнопка «Проверить задержку» — одна на три места страницы (шапка, строка
+// списка, плавающая панель), чтобы подпись и состояние не расходились.
+component LatencyBtn inherits Btn {
+    // Счётчик «37 / 111» — только у полного обхода: одиночная проверка сервера
+    // тоже занимает кнопку, но «4422 / 4423» про неё было бы враньём.
+    label: Data.testing && !Data.test-single && Data.test-progress != ""
+        ? Data.test-progress
+        : Str.dash-test-latency;
+    icon: Icons.gauge;
+    busy: Data.testing;
+    enabled: !Data.testing && Data.nodes.length > 0;
+    clicked => { Data.test-latency(); }
+}
+
+export component ServersPage inherits Rectangle {
+    // Страница — прокручиваемая область и плавающая панель поверх неё.
+    // Панель появляется, когда строка «Серверы · Обновить все» уехала за верх
+    // окна: обновил подписки — и проверка задержки под рукой, не надо
+    // мотать список вверх.
+    property <bool> stuck: Data.nodes.length > 0
+        && sect-row.absolute-position.y + sect-row.height < root.absolute-position.y + 6px;
+
+    sa := ScrollArea {
+        width: parent.width;
+        height: parent.height;
+        pad: 28px;
 
     // ------------------------------------------------------------ page head
     HorizontalLayout {
@@ -69,15 +93,9 @@ export component ServersPage inherits ScrollArea {
             horizontal-stretch: 0;
             HorizontalLayout {
                 spacing: 10px;
-                Btn {
-                    // Во время обхода — счётчик: «37 / 111». Иначе шесть секунд
-                    // тишины неотличимы от зависания.
-                    label: Data.test-progress == "" ? Str.dash-test-latency : Data.test-progress;
-                    icon: Icons.gauge;
-                    busy: Data.testing;
-                    enabled: !Data.testing && Data.nodes.length > 0;
-                    clicked => { Data.test-latency(); }
-                }
+                // Во время обхода — счётчик: «37 / 111». Иначе шесть секунд
+                // тишины неотличимы от зависания.
+                LatencyBtn { }
                 Btn {
                     label: "WARP";
                     icon: Icons.cloud;
@@ -130,7 +148,7 @@ export component ServersPage inherits ScrollArea {
     // Одним списком: подписка — заголовок раздела, её серверы раскрываются
     // под ним. Отдельной полосы карточек больше нет — на четвёртой подписке
     // она уезжала за край окна.
-    HorizontalLayout {
+    sect-row := HorizontalLayout {
         spacing: 10px;
         VerticalLayout {
             alignment: center;
@@ -140,6 +158,11 @@ export component ServersPage inherits ScrollArea {
                     ? "\{Str.nav-servers-caps} (\{Data.nodes.length})"
                     : Str.nav-servers-caps;
             }
+        }
+        // Рядом с «Обновить все»: обновил — и тут же проверил.
+        if Data.nodes.length > 0: LatencyBtn {
+            kind: "ghost";
+            small: true;
         }
         if Data.subs.length > 0: Btn {
             label: Str.srv-refresh-all;
@@ -178,6 +201,7 @@ export component ServersPage inherits ScrollArea {
             refresh => { Data.refresh-sub(group.sub.id); }
             remove => { Data.delete-sub(group.sub.id); }
             select(id) => { Data.select-server(id); }
+            ping(id) => { Data.test-server(id); }
             copy-link(id) => { Data.copy-link(id); }
             edit(id) => { Data.edit-server(id); }
             remove-node(id) => { Data.delete-server(id); }
@@ -195,6 +219,39 @@ export component ServersPage inherits ScrollArea {
             kind: "ghost";
             small: true;
             clicked => { Data.new-server(); }
+        }
+    }
+    }
+
+    // Плавающая панель: те же две кнопки, что в строке списка. Сплошная
+    // подложка — под ней едут строки, и просвечивать они не должны.
+    if root.stuck: Rectangle {
+        width: bar.preferred-width + 14px;
+        height: 42px;
+        x: parent.width - self.width - 30px;
+        y: 10px;
+        background: Theme.elevated-solid;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.border-strong;
+        // Свой перехват: щелчок мимо кнопок не должен выбирать строку под панелью.
+        TouchArea { }
+        bar := HorizontalLayout {
+            padding: 7px;
+            spacing: 6px;
+            LatencyBtn {
+                kind: "ghost";
+                small: true;
+            }
+            if Data.subs.length > 0: Btn {
+                label: Str.srv-refresh-all;
+                icon: Icons.refresh;
+                kind: "ghost";
+                small: true;
+                busy: Data.refreshing;
+                enabled: !Data.refreshing;
+                clicked => { Data.refresh-subs(); }
+            }
         }
     }
 }

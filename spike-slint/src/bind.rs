@@ -935,6 +935,36 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
         }
     });
 
+    // Один сервер: тот же замер, но по списку из одного id. Кнопки обхода на
+    // это время заняты (`testing`), а счётчик «N / всего» не показывается.
+    data.on_test_server({
+        let handle = handle.clone();
+        move |id| {
+            let handle = handle.clone();
+            let id = id.to_string();
+            handle.with_ui(|ui| {
+                let data = ui.global::<Data>();
+                if data.get_testing() {
+                    return;
+                }
+                data.set_test_single(true);
+                data.set_testing(true);
+            });
+            app::runtime().spawn(async move {
+                let reporter = handle.clone();
+                let result = api::test_latency(handle, vec![id]).await;
+                reporter.with_ui(move |ui| {
+                    let data = ui.global::<Data>();
+                    data.set_testing(false);
+                    data.set_test_single(false);
+                    if let Err(e) = result {
+                        view::toast(ui, "error", &e.to_string(), "");
+                    }
+                });
+            });
+        }
+    });
+
     // ---- редактор сервера -------------------------------------------------
     data.on_new_server({
         let weak = ui.as_weak();
