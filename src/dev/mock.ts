@@ -84,7 +84,7 @@ const snapshot: Snapshot = {
     theme: "dark",
     themeDark: true,
     themeBackground: "#0a0c12",
-    latencyUrl: "https://www.gstatic.com/generate_204",
+    latencyUrl: "http://www.gstatic.com/generate_204",
     balancer: "manual",
     balancerIntervalMin: 5,
     balancerToleranceMs: 100,

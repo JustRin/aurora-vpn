@@ -108,6 +108,13 @@ pub struct Settings {
     pub aura_default_applied: bool,
 }
 
+/// Адрес замера задержки. Именно http, не https: после дозвона до узла https
+/// стоит двух кругов до цели (рукопожатие TLS и сам запрос), http — одного, как
+/// у Hiddify и speedtest. С https число выходило вдвое больше настоящего пинга.
+pub const LATENCY_URL: &str = "http://www.gstatic.com/generate_204";
+/// Прежнее значение по умолчанию; `migrate` заменяет его на `LATENCY_URL`.
+const OLD_LATENCY_URL: &str = "https://www.gstatic.com/generate_204";
+
 /// Кто выбирает сервер. Стратегии описаны в core/balancer.rs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -156,7 +163,7 @@ impl Default for Settings {
             theme: "dark".into(),
             theme_dark: true,
             theme_background: "#0a0c12".into(),
-            latency_url: "https://www.gstatic.com/generate_204".into(),
+            latency_url: LATENCY_URL.into(),
             balancer: Balancer::Manual,
             balancer_interval_min: 3,
             balancer_tolerance_ms: 100,
@@ -259,6 +266,10 @@ impl Settings {
         if !self.aura_default_applied {
             self.aura_default_applied = true;
             self.core_engine = CoreEngine::Aura;
+            changed = true;
+        }
+        if self.latency_url == OLD_LATENCY_URL {
+            self.latency_url = LATENCY_URL.into();
             changed = true;
         }
         changed
@@ -403,6 +414,25 @@ mod tests {
 
         let mut untouched = Settings { aura_default_applied: true, ..Settings::default() };
         assert!(!untouched.migrate());
+    }
+
+    #[test]
+    fn the_latency_probe_moves_off_https_once() {
+        let mut old: Settings = serde_json::from_str(
+            r#"{"aura_default_applied": true, "latencyUrl": "https://www.gstatic.com/generate_204"}"#,
+        )
+        .unwrap();
+        old.aura_default_applied = true;
+        assert!(old.migrate());
+        assert_eq!(old.latency_url, super::LATENCY_URL);
+        assert!(!old.migrate());
+        // Свой адрес пользователя не трогаем.
+        let mut custom = Settings {
+            aura_default_applied: true,
+            latency_url: "https://example.com/ping".into(),
+            ..Settings::default()
+        };
+        assert!(!custom.migrate());
     }
 
     #[test]

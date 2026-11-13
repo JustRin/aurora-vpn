@@ -83,7 +83,7 @@ impl UrlTest {
             tag: o.tag.clone(),
             state: Arc::new(UrlTestState {
                 members: o.outbounds.clone(),
-                url: if o.url.is_empty() { "https://www.gstatic.com/generate_204".to_string() } else { o.url.clone() },
+                url: if o.url.is_empty() { "http://www.gstatic.com/generate_204".to_string() } else { o.url.clone() },
                 interval: Duration::from_secs(seconds(&o.interval, 180).max(30)),
                 idle: Duration::from_secs(seconds(&o.idle_timeout, 1800)),
                 tolerance: o.tolerance,

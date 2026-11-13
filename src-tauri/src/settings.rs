@@ -90,6 +90,13 @@ pub struct Settings {
     pub sub_auto_update_min: u32,
 }
 
+/// Адрес замера задержки. Именно http, не https: после дозвона до узла https
+/// стоит двух кругов до цели (рукопожатие TLS и сам запрос), http — одного, как
+/// у Hiddify и speedtest. С https число выходило вдвое больше настоящего пинга.
+pub const LATENCY_URL: &str = "http://www.gstatic.com/generate_204";
+/// Прежнее значение по умолчанию; `migrate` заменяет его на `LATENCY_URL`.
+const OLD_LATENCY_URL: &str = "https://www.gstatic.com/generate_204";
+
 /// Кто выбирает сервер. Стратегии описаны в core/balancer.rs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +143,7 @@ impl Default for Settings {
             theme: "dark".into(),
             theme_dark: true,
             theme_background: "#0a0c12".into(),
-            latency_url: "https://www.gstatic.com/generate_204".into(),
+            latency_url: LATENCY_URL.into(),
             balancer: Balancer::Manual,
             balancer_interval_min: 3,
             balancer_tolerance_ms: 100,
@@ -220,14 +227,19 @@ impl Settings {
     /// Переезд с тумблера «выбирать самый быстрый» на стратегии. Возвращает,
     /// изменилось ли что-то — тогда файл стоит перезаписать.
     pub fn migrate(&mut self) -> bool {
-        if !self.auto_select {
-            return false;
+        let mut changed = false;
+        if self.auto_select {
+            self.auto_select = false;
+            if self.balancer == Balancer::Manual {
+                self.balancer = Balancer::Fastest;
+            }
+            changed = true;
         }
-        self.auto_select = false;
-        if self.balancer == Balancer::Manual {
-            self.balancer = Balancer::Fastest;
+        if self.latency_url == OLD_LATENCY_URL {
+            self.latency_url = LATENCY_URL.into();
+            changed = true;
         }
-        true
+        changed
     }
 }
 

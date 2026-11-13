@@ -239,7 +239,7 @@ async fn route(req: &Request, ctx: &Arc<Context>) -> (u16, Value) {
             }
         }
         ("GET", ["proxies", tag, "delay"]) => {
-            let url = req.query.get("url").map(String::as_str).unwrap_or("https://www.gstatic.com/generate_204");
+            let url = req.query.get("url").map(String::as_str).unwrap_or("http://www.gstatic.com/generate_204");
             let timeout = req.query.get("timeout").and_then(|t| t.parse().ok()).unwrap_or(5000);
             match crate::probe::delay(ctx, tag, url, timeout).await {
                 Ok(delay) => (200, json!({ "delay": delay })),
