@@ -210,6 +210,25 @@ fn engine_bypass_rules(exe: &Path, extra: &[(&str, Value)]) -> Vec<Value> {
         .collect()
 }
 
+/// Is the node's address the server itself, or a decoy in front of it?
+///
+/// CDN nodes — most of the free pool — put a popular site or a shared
+/// Cloudflare IP in the address (`chatgpt.com`, `gcore.com`, `104.16.x.x`) and
+/// name their real server in SNI/Host. Xray's connection then carries that
+/// other name, so a "node address goes direct" rule never catches it — it only
+/// catches the user's own visits to chatgpt.com, which reach the site with the
+/// user's real IP. REALITY is the opposite case: the SNI is borrowed and the
+/// address is the server.
+fn address_is_the_server(node: &ServerNode) -> bool {
+    if node.security == crate::model::Security::Reality {
+        return true;
+    }
+    [&node.sni, &node.host]
+        .into_iter()
+        .filter(|name| !name.is_empty())
+        .all(|name| name.eq_ignore_ascii_case(&node.address))
+}
+
 /// Local, never remote: the file is already on disk by the time we get here.
 /// Какие пакеты Android отдать VpnService: `include_package` или
 /// `exclude_package`, вместе их VpnService.Builder не принимает. Российские
@@ -279,16 +298,31 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     // (the old core keeps routing while the new one comes up), and the lookup
     // for a node's hostname is made by the system resolver, not by Xray, so no
     // process rule can ever claim it.
+    //
+    // The resolver gets every hostname. The route only gets addresses that are
+    // the server itself: a CDN node's address is a decoy (see
+    // `address_is_the_server`), and steering it direct would carry the user's
+    // own visits to that site or shared IP around the tunnel.
     let mut xray_server_ips: Vec<String> = Vec::new();
     let mut xray_server_domains: Vec<String> = Vec::new();
+    let mut xray_route_domains: Vec<String> = Vec::new();
+    let push = |list: &mut Vec<String>, value: String| {
+        if !list.contains(&value) {
+            list.push(value);
+        }
+    };
     for node in nodes.iter().filter(|n| xray_ports.contains_key(&n.id)) {
-        let entry = match node.address.parse::<IpAddr>() {
-            Ok(IpAddr::V4(ip)) => (format!("{ip}/32"), &mut xray_server_ips),
-            Ok(IpAddr::V6(ip)) => (format!("{ip}/128"), &mut xray_server_ips),
-            Err(_) => (node.address.clone(), &mut xray_server_domains),
-        };
-        if !entry.1.contains(&entry.0) {
-            entry.1.push(entry.0);
+        let own = address_is_the_server(node);
+        match node.address.parse::<IpAddr>() {
+            Ok(IpAddr::V4(ip)) if own => push(&mut xray_server_ips, format!("{ip}/32")),
+            Ok(IpAddr::V6(ip)) if own => push(&mut xray_server_ips, format!("{ip}/128")),
+            Ok(_) => {}
+            Err(_) => {
+                push(&mut xray_server_domains, node.address.clone());
+                if own {
+                    push(&mut xray_route_domains, node.address.clone());
+                }
+            }
         }
     }
 
@@ -664,8 +698,8 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     if !xray_server_ips.is_empty() {
         rules.push(json!({ "ip_cidr": xray_server_ips, "outbound": TAG_DIRECT }));
     }
-    if !xray_server_domains.is_empty() {
-        rules.push(json!({ "domain": xray_server_domains, "outbound": TAG_DIRECT }));
+    if !xray_route_domains.is_empty() {
+        rules.push(json!({ "domain": xray_route_domains, "outbound": TAG_DIRECT }));
     }
 
     if tunnel_mode == TunnelMode::Tun {
@@ -1083,6 +1117,44 @@ mod tests {
 
         let dns = cfg["dns"]["rules"].as_array().unwrap();
         let lookup = dns.iter().find(|r| r["domain"] == json!(["example.com"])).unwrap();
+        assert_eq!(lookup["server"], json!(TAG_DNS_DIRECT));
+    }
+
+    #[test]
+    fn a_cdn_nodes_decoy_address_does_not_send_the_site_around_the_tunnel() {
+        // Seen live: a free-pool VLESS+xhttp node with address chatgpt.com and
+        // SNI on its own domain sent the user's chatgpt.com straight to the
+        // site, which saw the real IP and refused. Same for a shared Cloudflare IP.
+        let cdn = |id: &str, address: &str| ServerNode {
+            address: address.into(),
+            security: Security::Tls,
+            sni: "tyytout-cloudflare.royal-me.site".into(),
+            host: "out-cloudflare.royal-me.site".into(),
+            network: crate::model::Network::Xhttp,
+            ..node("Cdn", id)
+        };
+        let own_tls = ServerNode {
+            address: "vpn.example.net".into(),
+            security: Security::Tls,
+            sni: "vpn.example.net".into(),
+            ..node("Own", "o")
+        };
+        let nodes = vec![cdn("a", "chatgpt.com"), cdn("c", "104.16.7.70"), own_tls, node("Berlin", "b")];
+        let ports: HashMap<String, u16> =
+            [("a", 24150u16), ("c", 24151), ("o", 24152)].map(|(id, p)| (id.to_string(), p)).into();
+        let cfg = build_for_nodes(nodes, ports);
+
+        let rules = cfg["route"]["rules"].as_array().unwrap();
+        let routed: Vec<&Value> = rules.iter().filter(|r| r["outbound"] == json!(TAG_DIRECT)).collect();
+        let mentions = |needle: &str| routed.iter().any(|r| r.to_string().contains(needle));
+        assert!(!mentions("chatgpt.com"), "{routed:?}");
+        assert!(!mentions("104.16.7.70"), "{routed:?}");
+        assert!(mentions("vpn.example.net"), "{routed:?}");
+
+        // Xray still resolves the decoy name itself: the lookup must not ride
+        // the proxy that Xray is about to become.
+        let dns = cfg["dns"]["rules"].as_array().unwrap();
+        let lookup = dns.iter().find(|r| r["domain"].to_string().contains("chatgpt.com")).unwrap();
         assert_eq!(lookup["server"], json!(TAG_DNS_DIRECT));
     }
 

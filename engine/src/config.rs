@@ -242,6 +242,50 @@ pub struct ClashApiOpts {
     pub default_mode: String,
 }
 
+impl Config {
+    /// Программы, которые конфиг целиком отправляет напрямую, указав их путь:
+    /// сайдкар Xray и приложения, исключённые пользователем из VPN. Строгий
+    /// режим TUN не должен отрезать им выход мимо туннеля — Xray, например, сам
+    /// дозванивается до сервера, а из РФ тот доступен только по IPv6.
+    pub fn direct_process_paths(&self) -> Vec<String> {
+        let direct: Vec<&str> =
+            self.outbounds.iter().filter(|o| o.kind == "direct").map(|o| o.tag.as_str()).collect();
+        let mut paths: Vec<String> = Vec::new();
+        for rule in &self.route.rules {
+            let routes_direct =
+                matches!(rule.action.as_str(), "" | "route") && direct.contains(&rule.outbound.as_str());
+            if !routes_direct || !rule.only_matches_process() {
+                continue;
+            }
+            for path in &rule.process_path {
+                if !paths.contains(path) {
+                    paths.push(path.clone());
+                }
+            }
+        }
+        paths
+    }
+}
+
+impl RuleOpts {
+    /// Условие правила — только путь к программе: под него подпадает весь её
+    /// трафик, а не часть.
+    fn only_matches_process(&self) -> bool {
+        !self.process_path.is_empty()
+            && self.protocol.is_null()
+            && self.clash_mode.is_empty()
+            && !self.ip_is_private
+            && self.process_name.is_empty()
+            && self.domain.is_empty()
+            && self.domain_suffix.is_empty()
+            && self.domain_keyword.is_empty()
+            && self.ip_cidr.is_empty()
+            && self.rule_set.is_empty()
+            && self.query_type.is_empty()
+            && self.inbound.is_empty()
+    }
+}
+
 pub fn load(path: &std::path::Path) -> Result<Config, String> {
     let raw = std::fs::read(path).map_err(|e| format!("чтение {}: {e}", path.display()))?;
     serde_json::from_slice(&raw).map_err(|e| format!("разбор {}: {e}", path.display()))
@@ -280,6 +324,26 @@ mod tests {
             serde_json::from_str(r#"{"domain":"a.com","ip_cidr":["1.1.1.1/32","2.2.2.2/32"]}"#).unwrap();
         assert_eq!(rule.domain, vec!["a.com"]);
         assert_eq!(rule.ip_cidr.len(), 2);
+    }
+
+    #[test]
+    fn programs_sent_direct_by_path_are_listed() {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "outbounds":[{"type":"selector","tag":"proxy"},{"type":"direct","tag":"direct"}],
+                "route":{"rules":[
+                    {"action":"sniff"},
+                    {"process_path":["C:\\app\\xray.exe"],"outbound":"direct"},
+                    {"process_name":["xray.exe"],"outbound":"direct"},
+                    {"process_path":["C:\\app\\xray.exe"],"outbound":"direct"},
+                    {"process_path":["C:\\Games\\game.exe"],"action":"route","outbound":"direct"},
+                    {"process_path":["C:\\chrome.exe"],"outbound":"proxy"},
+                    {"process_path":["C:\\part.exe"],"domain_suffix":["ru"],"outbound":"direct"}
+                ]}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.direct_process_paths(), vec![r"C:\app\xray.exe".to_string(), r"C:\Games\game.exe".to_string()]);
     }
 
     #[test]

@@ -106,18 +106,21 @@ impl Drop for TunHandle {
     }
 }
 
+/// `exempt` — пути программ, которым строгий режим разрешает выход мимо туннеля
+/// (см. `Config::direct_process_paths`).
 #[cfg(windows)]
 pub async fn start(
     opts: &InboundOpts,
     ctx: Arc<Context>,
     auto_detect: bool,
     wintun: Option<&Path>,
+    exempt: &[String],
 ) -> Result<TunHandle, String> {
-    windows::start(opts, ctx, auto_detect, wintun).await
+    windows::start(opts, ctx, auto_detect, wintun, exempt).await
 }
 
 #[cfg(not(windows))]
-pub async fn start(_: &InboundOpts, _: Arc<Context>, _: bool, _: Option<&Path>) -> Result<TunHandle, String> {
+pub async fn start(_: &InboundOpts, _: Arc<Context>, _: bool, _: Option<&Path>, _: &[String]) -> Result<TunHandle, String> {
     Err("TUN на этой платформе пока не реализован".to_string())
 }
 

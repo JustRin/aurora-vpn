@@ -179,6 +179,16 @@ fn is_public(ip: IpAddr) -> bool {
     }
 }
 
+/// Адреса назначения: сперва IPv4, IPv6 — запасным. glibc ставит IPv6 первым, и
+/// весь трафик выходил бы с одного постоянного IPv6 сервера, который Google за
+/// недели с российскими клиентами записал не в Нидерланды (YouTube отвечает UA,
+/// вход в аккаунт — «Москва»). IPv4 у сервера свежий и числится по месту.
+fn ipv4_first(addrs: impl IntoIterator<Item = SocketAddr>) -> Vec<SocketAddr> {
+    let mut addrs: Vec<SocketAddr> = addrs.into_iter().collect();
+    addrs.sort_by_key(SocketAddr::is_ipv6);
+    addrs
+}
+
 /// Один сокет на обе семьи: [::] без IPV6_V6ONLY (на Windows он включён по
 /// умолчанию) принимает и IPv4 в обёртке. Без IPv6 на хосте — только IPv4.
 fn udp_socket() -> io::Result<(UdpSocket, bool)> {
@@ -618,7 +628,7 @@ impl Server {
     async fn resolve(state: &State, addr: &Addr) -> Result<Vec<SocketAddr>, Refused> {
         let all: Vec<SocketAddr> = match &addr.host {
             Host::Ip(ip) => vec![SocketAddr::new(*ip, addr.port)],
-            Host::Domain(d) => tokio::net::lookup_host((d.as_str(), addr.port)).await?.collect(),
+            Host::Domain(d) => ipv4_first(tokio::net::lookup_host((d.as_str(), addr.port)).await?),
         };
         let mut refused = None;
         let allowed: Vec<SocketAddr> = all
@@ -710,7 +720,7 @@ impl Server {
                                     Host::Domain(d) => tokio::net::lookup_host((d.as_str(), addr.port))
                                         .await
                                         .ok()
-                                        .and_then(|mut a| a.next())
+                                        .and_then(|a| ipv4_first(a).first().copied())
                                         .map(|s| s.ip()),
                                     Host::Ip(ip) => Some(*ip),
                                 };
@@ -782,5 +792,15 @@ mod tests {
         for ip in ["1.1.1.1", "8.8.8.8", "2a00:1450::1", "::ffff:8.8.8.8"] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
+    }
+
+    #[test]
+    fn ipv4_goes_first_and_order_within_a_family_holds() {
+        let got = ipv4_first(
+            ["[2a00:1450::1]:443", "142.250.1.1:443", "[2a00:1450::2]:443", "142.250.1.2:443"]
+                .map(|a| a.parse::<SocketAddr>().unwrap()),
+        );
+        let got: Vec<String> = got.iter().map(ToString::to_string).collect();
+        assert_eq!(got, ["142.250.1.1:443", "142.250.1.2:443", "[2a00:1450::1]:443", "[2a00:1450::2]:443"]);
     }
 }

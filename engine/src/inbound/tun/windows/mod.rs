@@ -56,6 +56,7 @@ pub async fn start(
     ctx: Arc<Context>,
     auto_detect: bool,
     wintun_dll: Option<&Path>,
+    exempt: &[String],
 ) -> Result<TunHandle, String> {
     let (v4, v6) = parse_addresses(&opts.address);
     if v4.is_none() && v6.is_none() {
@@ -103,9 +104,14 @@ pub async fn start(
         tokio::spawn(watch_interface(index, phys_v4.unwrap_or(0), phys_v6.unwrap_or(0)));
     }
 
+    // Туннель без IPv6 при строгом режиме закрывает публичный IPv6 вовсе — как
+    // sing-box («block ipv6» в sing-tun). Иначе IPv6 идёт мимо туннеля: DNS отдаёт
+    // только A, но браузер с DoH, кэш или явный адрес достают AAAA, и Google видит
+    // настоящий адрес абонента — у российских провайдеров IPv6 есть почти везде.
     let filters = if opts.strict_route {
-        wfp::Filters::block_outside_dns(index)
-            .map_err(|e| crate::warn!("tun", "strict_route: {e}; DNS может идти мимо туннеля"))
+        let block_v6 = v6.is_none();
+        wfp::Filters::strict(index, block_v6, exempt)
+            .map_err(|e| crate::warn!("tun", "strict_route: {e}; DNS и IPv6 могут идти мимо туннеля"))
             .ok()
     } else {
         None

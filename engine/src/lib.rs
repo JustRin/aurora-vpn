@@ -151,8 +151,10 @@ async fn boot(cfg: config::Config, wintun: Option<PathBuf>) -> Result<Option<inb
                     .map_err(|e| format!("{} :{}: {e}", inbound.kind, inbound.listen_port))?;
             }
             "tun" => {
-                let handle = inbound::tun::start(inbound, ctx.clone(), cfg.route.auto_detect_interface, wintun.as_deref())
-                    .await
+                let exempt = cfg.direct_process_paths();
+                let handle =
+                    inbound::tun::start(inbound, ctx.clone(), cfg.route.auto_detect_interface, wintun.as_deref(), &exempt)
+                        .await
                     .map_err(|e| format!("tun: {e}"))?;
                 tun = Some(handle);
             }
