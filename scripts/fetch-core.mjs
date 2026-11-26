@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, copyFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -126,11 +126,25 @@ async function download(url, dest) {
 async function extract(archive, into) {
   if (archive.endsWith(".zip")) {
     if (process.platform === "win32") {
-      execFileSync(
-        "powershell",
-        ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${into}' -Force`],
-        { stdio: "inherit" },
-      );
+      // На GitHub Actions шаг идёт под pwsh 7, который добавляет свои модули в PSModulePath:
+      // вызов Windows PowerShell 5.1 `Expand-Archive` подхватывает модуль от pwsh 7 и падает на
+      // 3-аргументной перегрузке `ExtractToDirectory`. Системный bsdtar в System32 распаковывает
+      // zip напрямую (в обход GNU tar из Git Bash и без PowerShell); запасной путь — прямой
+      // 2-аргументный вызов .NET `ZipFile`, работающий и в .NET Framework 4.8, и в .NET Core.
+      const sysTar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+      if (existsSync(sysTar)) {
+        execFileSync(sysTar, ["-xf", archive, "-C", into], { stdio: "inherit" });
+      } else {
+        execFileSync(
+          "powershell",
+          [
+            "-NoProfile",
+            "-Command",
+            "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory($env:ARCHIVE, $env:DEST)",
+          ],
+          { stdio: "inherit", env: { ...process.env, ARCHIVE: archive, DEST: into } },
+        );
+      }
     } else {
       execFileSync("unzip", ["-o", archive, "-d", into], { stdio: "inherit" });
     }
@@ -159,11 +173,13 @@ async function install({ label, url, exeStem, triple }) {
   try {
     const ext = url.endsWith(".tar.gz") ? "tar.gz" : "zip";
     const archive = path.join(work, `core.${ext}`);
+    const extracted = path.join(work, "out");
     await download(url, archive);
-    await extract(archive, work);
+    await mkdir(extracted);
+    await extract(archive, extracted);
 
     const exeName = process.platform === "win32" ? `${exeStem}.exe` : exeStem;
-    const found = await findBinary(work, exeName);
+    const found = await findBinary(extracted, exeName);
     if (!found) throw new Error(`в архиве не найден бинарник ${exeStem}`);
 
     await mkdir(OUT_DIR, { recursive: true });
