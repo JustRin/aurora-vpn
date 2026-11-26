@@ -18,10 +18,16 @@ pub struct WsOptions {
 }
 
 const MAX_HEADERS: usize = 16 * 1024;
-const RBUF: usize = 16 * 1024;
-const MAX_FRAME: usize = 16 * 1024;
+const RBUF: usize = 32 * 1024;
+const MAX_FRAME: usize = 32 * 1024;
 
-pub async fn connect(mut io: BoxStream, opts: &WsOptions, server: &str, upgrade_only: bool) -> io::Result<BoxStream> {
+pub async fn connect(io: BoxStream, opts: &WsOptions, server: &str, upgrade_only: bool) -> io::Result<BoxStream> {
+    tokio::time::timeout(crate::common::DIAL_TIMEOUT, connect_inner(io, opts, server, upgrade_only))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "ws: таймаут рукопожатия"))?
+}
+
+async fn connect_inner(mut io: BoxStream, opts: &WsOptions, server: &str, upgrade_only: bool) -> io::Result<BoxStream> {
     let host = if opts.host.is_empty() { server } else { &opts.host };
     let mut nonce = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut nonce);
@@ -188,8 +194,15 @@ fn encode_frame(opcode: u8, payload: &[u8], out: &mut Vec<u8>) {
     out.extend_from_slice(&mask);
     let start = out.len();
     out.extend_from_slice(payload);
-    for (i, byte) in out[start..].iter_mut().enumerate() {
-        *byte ^= mask[i & 3];
+    let mut chunks = out[start..].chunks_exact_mut(4);
+    for chunk in &mut chunks {
+        chunk[0] ^= mask[0];
+        chunk[1] ^= mask[1];
+        chunk[2] ^= mask[2];
+        chunk[3] ^= mask[3];
+    }
+    for (byte, m) in chunks.into_remainder().iter_mut().zip(mask) {
+        *byte ^= m;
     }
 }
 

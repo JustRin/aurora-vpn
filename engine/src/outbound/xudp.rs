@@ -17,11 +17,17 @@ const NETWORK_UDP: u8 = 2;
 pub struct XudpConn {
     halves: Halves,
     started: std::sync::atomic::AtomicBool,
+    /// Последний адрес собеседника: кадры `STATUS_KEEP` могут его опускать.
+    last_from: parking_lot::Mutex<Target>,
 }
 
 impl XudpConn {
     pub fn new(stream: BoxStream) -> Self {
-        Self { halves: Halves::new(stream), started: false.into() }
+        Self {
+            halves: Halves::new(stream),
+            started: false.into(),
+            last_from: parking_lot::Mutex::new(Target::new("0.0.0.0", 0)),
+        }
     }
 }
 
@@ -68,7 +74,6 @@ impl PacketConn for XudpConn {
 
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Target)> {
         let mut read = self.halves.read.lock().await;
-        let mut last_from = Target::new("0.0.0.0", 0);
         loop {
             let meta_len = read.read_u16().await? as usize;
             if !(4..=512).contains(&meta_len) {
@@ -79,7 +84,7 @@ impl PacketConn for XudpConn {
             let (status, has_data, from) =
                 parse_meta(&meta[..meta_len]).ok_or_else(|| invalid("xudp: метаданные"))?;
             if let Some(from) = from {
-                last_from = from;
+                *self.last_from.lock() = from;
             }
             if has_data {
                 let len = read.read_u16().await? as usize;
@@ -88,7 +93,7 @@ impl PacketConn for XudpConn {
                 }
                 read.read_exact(&mut buf[..len]).await?;
                 if status != STATUS_END {
-                    return Ok((len, last_from));
+                    return Ok((len, self.last_from.lock().clone()));
                 }
             }
             if status == STATUS_END {

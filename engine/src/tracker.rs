@@ -3,14 +3,15 @@
 //! Счётчики — на атомиках: запись в них идёт на каждый кусок данных, а сериализация
 //! списка нужна только когда приложение спрашивает.
 
-use std::collections::HashMap;
 use std::io;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fnv::FnvHashMap;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -20,7 +21,12 @@ use crate::router::Meta;
 
 pub struct ConnInfo {
     pub id: u64,
-    pub meta: Value,
+    pub network: &'static str,
+    pub source: Option<SocketAddr>,
+    pub dest_host: String,
+    pub dest_ip: Option<IpAddr>,
+    pub dest_port: u16,
+    pub process: String,
     pub chains: Vec<String>,
     pub rule: String,
     pub start: u64,
@@ -32,7 +38,7 @@ pub struct ConnInfo {
 #[derive(Default)]
 pub struct Tracker {
     next_id: AtomicU64,
-    conns: Mutex<HashMap<u64, Arc<ConnInfo>>>,
+    conns: Mutex<FnvHashMap<u64, Arc<ConnInfo>>>,
     pub up_total: AtomicU64,
     pub down_total: AtomicU64,
 }
@@ -74,26 +80,20 @@ impl Tracker {
         let (dest_host, dest_ip, dest_port) = match &meta.destination {
             Some(t) => (
                 t.domain().map(str::to_string).or_else(|| meta.domain.clone()).unwrap_or_default(),
-                t.ip().map(|ip| ip.to_string()).unwrap_or_default(),
+                t.ip(),
                 t.port,
             ),
-            None => (String::new(), String::new(), 0),
+            None => (String::new(), None, 0),
         };
-        let (src_ip, src_port) = meta.source.map(|s| (s.ip().to_string(), s.port())).unwrap_or_default();
         let process = meta.process.as_ref().and_then(Option::as_ref).map(|p| p.path.clone()).unwrap_or_default();
         let info = Arc::new(ConnInfo {
             id,
-            meta: json!({
-                "network": meta.network,
-                "type": "tun",
-                "sourceIP": src_ip,
-                "sourcePort": src_port.to_string(),
-                "destinationIP": dest_ip,
-                "destinationPort": dest_port.to_string(),
-                "host": dest_host,
-                "processPath": process,
-                "dnsMode": "normal",
-            }),
+            network: meta.network,
+            source: meta.source,
+            dest_host,
+            dest_ip,
+            dest_port,
+            process,
             chains,
             rule,
             start: now_secs(),
@@ -106,13 +106,27 @@ impl Tracker {
     }
 
     pub fn snapshot(&self) -> Value {
-        let conns = self.conns.lock();
-        let list: Vec<Value> = conns
-            .values()
+        // Снимаем ссылки под замком, а JSON собираем уже без него, чтобы
+        // опрос `/connections` не задерживал открытие и закрытие соединений.
+        let snapshot: Vec<Arc<ConnInfo>> = self.conns.lock().values().cloned().collect();
+        let list: Vec<Value> = snapshot
+            .iter()
             .map(|c| {
+                let (src_ip, src_port) = c.source.map(|s| (s.ip().to_string(), s.port())).unwrap_or_default();
+                let dest_ip = c.dest_ip.map(|ip| ip.to_string()).unwrap_or_default();
                 json!({
                     "id": c.id.to_string(),
-                    "metadata": c.meta,
+                    "metadata": {
+                        "network": c.network,
+                        "type": "tun",
+                        "sourceIP": src_ip,
+                        "sourcePort": src_port.to_string(),
+                        "destinationIP": dest_ip,
+                        "destinationPort": c.dest_port.to_string(),
+                        "host": c.dest_host,
+                        "processPath": c.process,
+                        "dnsMode": "normal",
+                    },
                     "upload": c.up.load(Ordering::Relaxed),
                     "download": c.down.load(Ordering::Relaxed),
                     "start": rfc3339(c.start),

@@ -16,12 +16,13 @@ use crate::router::{load_rule_sets, Action, Decision, DnsRules, Meta, Router};
 use crate::sniff;
 use crate::tracker::{ConnGuard, Counted, Tracker};
 
-/// Хватает на hello и на заголовок HTTP. Клиент, молчащий дольше, — протокол, где
-/// первым говорит сервер: ждать его дальше значит заставлять ждать пользователя.
-const SNIFF_BYTES: usize = 2048;
-const SNIFF_TIMEOUT: Duration = Duration::from_millis(200);
-/// Буфер перекачки на направление: память на соединение прямо зависит от него.
-const RELAY_BUF: usize = 16 * 1024;
+/// Хватает на постквантовый ClientHello Chrome (ML-KEM ~1.5–2 КБ) и заголовок HTTP.
+/// Клиент, молчащий дольше, — протокол, где первым говорит сервер: ждать его дальше
+/// значит заставлять ждать пользователя.
+const SNIFF_BYTES: usize = 4096;
+const SNIFF_TIMEOUT: Duration = Duration::from_millis(100);
+/// Буфер перекачки на направление (как 32 КБ у sing-box: ровно две записи TLS 1.3).
+const RELAY_BUF: usize = 32 * 1024;
 const FIRST_DATA_BYTES: usize = 4096;
 const FIRST_DATA_WAIT: Duration = Duration::from_millis(20);
 
@@ -79,10 +80,25 @@ pub fn clear() {
 /// Подсмотреть начало потока. Прочитанное остаётся в `prefix` и уйдёт на сервер.
 pub async fn sniff_stream<R: AsyncRead + Unpin>(stream: &mut R, meta: &mut Meta, prefix: &mut Vec<u8>) {
     let mut buf = vec![0u8; SNIFF_BYTES];
-    let Ok(Ok(n)) = tokio::time::timeout(SNIFF_TIMEOUT, stream.read(&mut buf)).await else {
+    let deadline = tokio::time::Instant::now() + SNIFF_TIMEOUT;
+    let Ok(Ok(mut filled)) = tokio::time::timeout_at(deadline, stream.read(&mut buf)).await else {
         return;
     };
-    buf.truncate(n);
+    if filled == 0 {
+        return;
+    }
+    // Постквантовый ClientHello часто приходит двумя TCP-сегментами: если видна
+    // запись TLS Handshake, дочитываем её до конца в пределах того же дедлайна.
+    if filled >= 5 && buf[0] == 22 && buf[1] == 3 {
+        let want = (5 + (usize::from(buf[3]) << 8 | usize::from(buf[4]))).min(SNIFF_BYTES);
+        while filled < want {
+            match tokio::time::timeout_at(deadline, stream.read(&mut buf[filled..want])).await {
+                Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+                Ok(Ok(n)) => filled += n,
+            }
+        }
+    }
+    buf.truncate(filled);
     let found = sniff::tls(&buf).or_else(|| sniff::http(&buf));
     if let Some(found) = found {
         meta.protocol = Some(found.protocol);

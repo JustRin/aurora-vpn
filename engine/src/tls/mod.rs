@@ -129,6 +129,11 @@ pub fn rustls_config(insecure: bool, alpn: &[String]) -> Result<rustls::ClientCo
 pub async fn connect_rustls(io: BoxStream, cfg: &TlsConfig) -> io::Result<BoxStream> {
     let config = rustls_config(cfg.insecure, &cfg.alpn).map_err(io::Error::other)?;
     let name = ServerName::try_from(cfg.sni.clone()).map_err(|e| invalid(format!("имя сервера: {e}")))?;
-    let stream = tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, io).await?;
+    let stream = tokio::time::timeout(
+        crate::common::DIAL_TIMEOUT,
+        tokio_rustls::TlsConnector::from(Arc::new(config)).connect(name, io),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tls: таймаут рукопожатия"))??;
     Ok(Box::new(stream))
 }

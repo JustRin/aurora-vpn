@@ -32,6 +32,7 @@ const SEC_AES128_GCM: u8 = 3;
 const SEC_CHACHA20: u8 = 4;
 const TAG: usize = 16;
 const MAX_CHUNK: usize = 16 * 1024 - TAG;
+const MAX_WRITE_BATCH: usize = 64 * 1024;
 
 /// Вложенный HMAC-SHA256 из vmess AEAD: у каждого пути хэш — предыдущий HMAC.
 fn chain(keys: &[&[u8]], msg: &[u8]) -> [u8; 32] {
@@ -233,7 +234,7 @@ impl Vmess {
             resp_v,
             header_len: None,
             header_done: false,
-            rbuf: vec![0u8; 32 * 1024],
+            rbuf: vec![0u8; 64 * 1024],
             rpos: 0,
             rend: 0,
             chunk_len: None,
@@ -453,12 +454,14 @@ impl AsyncWrite for VmessStream {
         if data.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let n = data.len().min(MAX_CHUNK);
-        this.seal_chunk(&data[..n])?;
+        let total = data.len().min(MAX_WRITE_BATCH);
+        for chunk in data[..total].chunks(MAX_CHUNK) {
+            this.seal_chunk(chunk)?;
+        }
         if let Poll::Ready(Err(e)) = this.poll_drain(cx) {
             return Poll::Ready(Err(e));
         }
-        Poll::Ready(Ok(n))
+        Poll::Ready(Ok(total))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

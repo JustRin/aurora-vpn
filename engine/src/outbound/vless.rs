@@ -192,8 +192,30 @@ const CHUNK: usize = 8192;
 const CMD_CONTINUE: u8 = 0;
 const CMD_END: u8 = 1;
 const CMD_DIRECT: u8 = 2;
+const TLS_CCS: [u8; 6] = [0x14, 0x03, 0x03, 0x00, 0x01, 0x01];
 const TLS_APP_DATA: [u8; 3] = [0x17, 0x03, 0x03];
 const TLS13_SUPPORTED_VERSIONS: [u8; 6] = [0x00, 0x2b, 0x00, 0x02, 0x03, 0x04];
+
+/// Разрезать буфер перед набивкой: если в один write попали ChangeCipherSpec и
+/// первая TLS Application Data, их нужно разделить, чтобы вторая часть сразу
+/// переключила поток в `CMD_DIRECT`.
+fn split_for_padding(data: &[u8], is_tls12_or_above: bool) -> [&[u8]; 2] {
+    if data.len() >= CHUNK - 21 {
+        let mut at = data.windows(3).rposition(|w| w == TLS_APP_DATA).unwrap_or(0);
+        if at == 0 {
+            at = CHUNK / 2;
+        }
+        [&data[..at], &data[at..]]
+    } else if is_tls12_or_above
+        && data.len() > TLS_CCS.len() + 6
+        && data.starts_with(&TLS_CCS)
+        && data[TLS_CCS.len()..TLS_CCS.len() + 3] == TLS_APP_DATA
+    {
+        [&data[..TLS_CCS.len()], &data[TLS_CCS.len()..]]
+    } else {
+        [data, &[]]
+    }
+}
 
 /// Определение TLS внутри туннеля: и на чтении, и на записи.
 #[derive(Debug)]
@@ -399,7 +421,11 @@ impl VisionStream {
         }
         if !self.out.is_empty() {
             ready!(Pin::new(&mut self.tls).poll_flush(cx))?;
-            self.out.clear();
+            if !self.is_padding {
+                self.out = Vec::new();
+            } else {
+                self.out.clear();
+            }
             self.out_pos = 0;
             if self.direct_write {
                 self.tls.set_direct_write();
@@ -430,15 +456,7 @@ impl VisionStream {
 
     /// Обернуть данные набивкой и решить, не пора ли переходить на прямой режим.
     fn pad_write(&mut self, data: &[u8]) {
-        let parts: [&[u8]; 2] = if data.len() >= CHUNK - 21 {
-            let mut at = data.windows(3).rposition(|w| w == TLS_APP_DATA).unwrap_or(0);
-            if at == 0 {
-                at = CHUNK / 2;
-            }
-            [&data[..at], &data[at..]]
-        } else {
-            [data, &[]]
-        };
+        let parts = split_for_padding(data, self.filter.is_tls12_or_above);
 
         let long = self.filter.is_tls;
         for (i, part) in parts.iter().enumerate() {
@@ -485,7 +503,14 @@ impl AsyncRead for VisionStream {
                 buf.put_slice(&this.ready[this.ready_pos..this.ready_pos + n]);
                 this.ready_pos += n;
                 if this.ready_pos == this.ready.len() {
-                    this.ready.clear();
+                    if this.direct_read
+                        || (this.response.done() && !this.within_padding && this.filter.remaining_packets <= 0)
+                    {
+                        this.ready = Vec::new();
+                        this.chunk = Vec::new();
+                    } else {
+                        this.ready.clear();
+                    }
                     this.ready_pos = 0;
                     this.filtered_upto = 0;
                 }
@@ -500,11 +525,22 @@ impl AsyncRead for VisionStream {
                 let header = this.header.take().unwrap();
                 this.out.extend_from_slice(&header);
             }
-            if let Poll::Ready(Err(e)) = this.poll_flush_out(cx) {
-                return Poll::Ready(Err(e));
+            if !this.out.is_empty() || !this.raw_tail.is_empty() {
+                if let Poll::Ready(Err(e)) = this.poll_flush_out(cx) {
+                    return Poll::Ready(Err(e));
+                }
+            }
+            // После CMD_END (не-TLS или TLS 1.2) читаем напрямую в буфер вызывающего:
+            // без лишнего копирования через 8 КБ chunk → ready → buf.
+            if this.response.done() && !this.within_padding && this.filter.remaining_packets <= 0 {
+                this.chunk = Vec::new();
+                return Pin::new(&mut this.tls).poll_read(cx, buf);
             }
 
             let mut chunk = std::mem::take(&mut this.chunk);
+            if chunk.is_empty() {
+                chunk.resize(CHUNK, 0);
+            }
             let polled = {
                 let mut read = ReadBuf::new(&mut chunk);
                 match Pin::new(&mut this.tls).poll_read(cx, &mut read) {
@@ -578,7 +614,9 @@ impl AsyncRead for VisionStream {
             } else {
                 this.ready.extend_from_slice(data);
             }
-            this.chunk = chunk;
+            if !this.direct_read {
+                this.chunk = chunk;
+            }
         }
     }
 }
@@ -715,5 +753,20 @@ mod tests {
         assert_eq!(h[at], CMD_TCP);
         assert_eq!(&h[at + 1..at + 3], &443u16.to_be_bytes());
         assert_eq!(h[at + 3], 1);
+    }
+
+    #[test]
+    fn ccs_and_app_data_are_split_even_in_short_writes() {
+        let mut combined = TLS_CCS.to_vec();
+        combined.extend_from_slice(&TLS_APP_DATA);
+        combined.extend_from_slice(&[0x00, 0x20]);
+        combined.extend_from_slice(&[0xaa; 32]);
+        let [first, second] = split_for_padding(&combined, true);
+        assert_eq!(first, &TLS_CCS);
+        assert!(second.starts_with(&TLS_APP_DATA));
+        // До ServerHello короткий кусок не режется.
+        let [whole, empty] = split_for_padding(&combined, false);
+        assert_eq!(whole, combined.as_slice());
+        assert!(empty.is_empty());
     }
 }

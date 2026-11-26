@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 
 use super::Outbound;
-use crate::common::{invalid, other, tcp_connect, udp_socket, BoxStream, PacketConn, Target};
+use crate::common::{invalid, other, tcp_connect_any, udp_socket, BoxStream, PacketConn, Target, DIAL_TIMEOUT};
 use crate::config::OutboundOpts;
 
 pub struct Socks {
@@ -32,8 +32,10 @@ impl Socks {
 
     async fn connect(&self) -> io::Result<TcpStream> {
         let addrs = crate::dns::resolve_server(&self.server, self.port).await?;
-        let addr = *addrs.first().ok_or_else(|| other("socks: нет адреса"))?;
-        tcp_connect(addr).await
+        if addrs.is_empty() {
+            return Err(other("socks: нет адреса"));
+        }
+        tcp_connect_any(addrs).await
     }
 
     async fn greet(&self, stream: &mut TcpStream) -> io::Result<()> {
@@ -104,15 +106,24 @@ impl Outbound for Socks {
 
     async fn dial(&self, target: &Target) -> io::Result<BoxStream> {
         let mut stream = self.connect().await?;
-        self.greet(&mut stream).await?;
-        self.request(&mut stream, 1, target).await?;
+        tokio::time::timeout(DIAL_TIMEOUT, async {
+            self.greet(&mut stream).await?;
+            self.request(&mut stream, 1, target).await?;
+            Ok::<(), io::Error>(())
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "socks: таймаут рукопожатия"))??;
         Ok(Box::new(stream))
     }
 
     async fn dial_udp(&self, target: &Target) -> io::Result<Box<dyn PacketConn>> {
         let mut control = self.connect().await?;
-        self.greet(&mut control).await?;
-        let bound = self.request(&mut control, 3, &Target::new("0.0.0.0", 0)).await?;
+        let bound = tokio::time::timeout(DIAL_TIMEOUT, async {
+            self.greet(&mut control).await?;
+            self.request(&mut control, 3, &Target::new("0.0.0.0", 0)).await
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "socks: таймаут рукопожатия UDP"))??;
         let relay = match bound.ip() {
             Some(ip) if !ip.is_unspecified() => SocketAddr::new(ip, bound.port),
             _ => SocketAddr::new(control.peer_addr()?.ip(), bound.port),

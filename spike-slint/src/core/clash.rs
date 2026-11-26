@@ -4,6 +4,8 @@
 //! reading counters, flipping Rule/Global/Direct — goes through here instead of
 //! restarting the core.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -17,7 +19,10 @@ pub struct ClashApi {
     base: String,
     secret: String,
     http: reqwest::Client,
-    probe: Option<std::sync::Arc<ProbeAccess>>,
+    probe: Option<Arc<ProbeAccess>>,
+    /// `aura-engine` отдаёт лёгкий `/traffic/total` без сериализации списка соединений;
+    /// sing-box отвечает 404, после чего переключаемся на `/connections`.
+    fast_totals: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,6 +30,16 @@ pub struct Totals {
     pub download: u64,
     pub upload: u64,
     pub connections: usize,
+}
+
+#[derive(Deserialize)]
+struct FastTotalsResponse {
+    #[serde(default, rename = "downloadTotal")]
+    download_total: u64,
+    #[serde(default, rename = "uploadTotal")]
+    upload_total: u64,
+    #[serde(default, rename = "connectionsCount")]
+    connections_count: usize,
 }
 
 #[derive(Deserialize)]
@@ -48,13 +63,14 @@ struct DelayResponse {
 impl ClashApi {
     /// Подключить замерочный вход ядра (core/probe.rs): задержки пойдут через него.
     pub fn with_probe(mut self, access: Option<ProbeAccess>) -> Self {
-        self.probe = access.map(std::sync::Arc::new);
+        self.probe = access.map(Arc::new);
         self
     }
 
     pub fn new(port: u16, secret: &str) -> Self {
         Self {
             probe: None,
+            fast_totals: Arc::new(AtomicBool::new(true)),
             base: format!("http://127.0.0.1:{port}"),
             secret: secret.to_string(),
             http: crate::net::http_builder()
@@ -104,6 +120,26 @@ impl ClashApi {
     /// Cumulative byte counters since the core started. The caller turns these
     /// into a rate by differencing consecutive samples.
     pub async fn totals(&self) -> Result<Totals> {
+        if self.fast_totals.load(Ordering::Relaxed) {
+            match self.request(reqwest::Method::GET, "/traffic/total").send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(body) = resp.json::<FastTotalsResponse>().await {
+                        return Ok(Totals {
+                            download: body.download_total,
+                            upload: body.upload_total,
+                            connections: body.connections_count,
+                        });
+                    }
+                }
+                Ok(resp)
+                    if resp.status() == reqwest::StatusCode::NOT_FOUND
+                        || resp.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED =>
+                {
+                    self.fast_totals.store(false, Ordering::Relaxed);
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
         let body: ConnectionsResponse = self
             .request(reqwest::Method::GET, "/connections")
             .send()

@@ -17,15 +17,16 @@ pub struct Process {
 
 #[cfg(windows)]
 mod imp {
-    use std::collections::HashMap;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::sync::OnceLock;
     use std::time::{Duration, Instant};
 
+    use fnv::FnvHashMap;
     use parking_lot::Mutex;
     use windows_sys::Win32::Foundation::{CloseHandle, NO_ERROR};
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
-        MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+        MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_CONNECTIONS, UDP_TABLE_OWNER_PID,
     };
     use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
     use windows_sys::Win32::System::Threading::{
@@ -38,26 +39,36 @@ mod imp {
     const PROCESS_TTL: Duration = Duration::from_secs(60);
 
     #[derive(Default)]
-    struct Snapshot {
-        tcp: HashMap<u16, u32>,
-        udp: HashMap<u16, u32>,
+    struct Table {
+        by_addr: FnvHashMap<(IpAddr, u16), u32>,
+        /// Время начала последнего снятия таблицы: всё, что открылось раньше, в ней уже есть.
+        taken: Option<Instant>,
     }
 
     struct Tables {
-        snapshot: Snapshot,
-        taken_tcp: Option<Instant>,
-        taken_udp: Option<Instant>,
+        tcp4: Table,
+        tcp6: Table,
+        udp4: Table,
+        udp6: Table,
         /// Буфер живёт между снимками: таблица у всех большая и размер стабилен.
         buffer: Vec<u8>,
     }
 
     fn tables() -> &'static Mutex<Tables> {
         static T: OnceLock<Mutex<Tables>> = OnceLock::new();
-        T.get_or_init(|| Mutex::new(Tables { snapshot: Snapshot::default(), taken_tcp: None, taken_udp: None, buffer: Vec::new() }))
+        T.get_or_init(|| {
+            Mutex::new(Tables {
+                tcp4: Table::default(),
+                tcp6: Table::default(),
+                udp4: Table::default(),
+                udp6: Table::default(),
+                buffer: Vec::new(),
+            })
+        })
     }
 
-    fn processes() -> &'static Mutex<HashMap<u32, (Option<Process>, Instant)>> {
-        static P: OnceLock<Mutex<HashMap<u32, (Option<Process>, Instant)>>> = OnceLock::new();
+    fn processes() -> &'static Mutex<FnvHashMap<u32, (Option<Process>, Instant)>> {
+        static P: OnceLock<Mutex<FnvHashMap<u32, (Option<Process>, Instant)>>> = OnceLock::new();
         P.get_or_init(Default::default)
     }
 
@@ -85,23 +96,26 @@ mod imp {
         false
     }
 
-    fn refresh(tables: &mut Tables, udp: bool) {
-        let mut snap = Snapshot::default();
-        let mut buffer = std::mem::take(&mut tables.buffer);
-
-        for family in [AF_INET, AF_INET6] {
-            let ok = !udp && query(&mut buffer, |p, s| unsafe {
-                GetExtendedTcpTable(p, s, 0, u32::from(family), TCP_TABLE_OWNER_PID_ALL, 0)
+    fn refresh_one(table: &mut Table, buffer: &mut Vec<u8>, udp: bool, v6: bool) {
+        let started = Instant::now();
+        table.by_addr.clear();
+        let family = if v6 { AF_INET6 } else { AF_INET };
+        if !udp {
+            let ok = query(buffer, |p, s| unsafe {
+                GetExtendedTcpTable(p, s, 0, u32::from(family), TCP_TABLE_OWNER_PID_CONNECTIONS, 0)
             });
             if ok && buffer.len() >= 4 {
                 let count = u32::from_ne_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-                if family == AF_INET {
-                    let table = buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
-                    let rows = unsafe { core::ptr::addr_of!((*table).table) as *const MIB_TCPROW_OWNER_PID };
+                if !v6 {
+                    let raw = buffer.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+                    let rows = unsafe { core::ptr::addr_of!((*raw).table) as *const MIB_TCPROW_OWNER_PID };
                     let limit = (buffer.len().saturating_sub(4)) / core::mem::size_of::<MIB_TCPROW_OWNER_PID>();
                     for i in 0..count.min(limit) {
                         let row = unsafe { rows.add(i).read_unaligned() };
-                        snap.tcp.insert(port_of(row.dwLocalPort), row.dwOwningPid);
+                        if row.dwOwningPid != 0 {
+                            let ip = IpAddr::V4(Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()));
+                            table.by_addr.insert((ip, port_of(row.dwLocalPort)), row.dwOwningPid);
+                        }
                     }
                 } else {
                     // MIB_TCP6ROW_OWNER_PID: адрес 16, scope 4, порт 4, удалённые 24, state 4, pid 4.
@@ -109,25 +123,31 @@ mod imp {
                     let limit = (buffer.len().saturating_sub(4)) / ROW;
                     for i in 0..count.min(limit) {
                         let at = 4 + i * ROW;
-                        let port = u32::from_ne_bytes(buffer[at + 20..at + 24].try_into().unwrap());
                         let pid = u32::from_ne_bytes(buffer[at + 52..at + 56].try_into().unwrap());
-                        snap.tcp.entry(port_of(port)).or_insert(pid);
+                        if pid != 0 {
+                            let octets: [u8; 16] = buffer[at..at + 16].try_into().unwrap();
+                            let port = u32::from_ne_bytes(buffer[at + 20..at + 24].try_into().unwrap());
+                            table.by_addr.insert((IpAddr::V6(Ipv6Addr::from(octets)), port_of(port)), pid);
+                        }
                     }
                 }
             }
-
-            let ok = udp && query(&mut buffer, |p, s| unsafe {
+        } else {
+            let ok = query(buffer, |p, s| unsafe {
                 GetExtendedUdpTable(p, s, 0, u32::from(family), UDP_TABLE_OWNER_PID, 0)
             });
             if ok && buffer.len() >= 4 {
                 let count = u32::from_ne_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-                if family == AF_INET {
-                    let table = buffer.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
-                    let rows = unsafe { core::ptr::addr_of!((*table).table) as *const MIB_UDPROW_OWNER_PID };
+                if !v6 {
+                    let raw = buffer.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
+                    let rows = unsafe { core::ptr::addr_of!((*raw).table) as *const MIB_UDPROW_OWNER_PID };
                     let limit = (buffer.len().saturating_sub(4)) / core::mem::size_of::<MIB_UDPROW_OWNER_PID>();
                     for i in 0..count.min(limit) {
                         let row = unsafe { rows.add(i).read_unaligned() };
-                        snap.udp.insert(port_of(row.dwLocalPort), row.dwOwningPid);
+                        if row.dwOwningPid != 0 {
+                            let ip = IpAddr::V4(Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()));
+                            table.by_addr.insert((ip, port_of(row.dwLocalPort)), row.dwOwningPid);
+                        }
                     }
                 } else {
                     // MIB_UDP6ROW_OWNER_PID: адрес 16, scope 4, порт 4, pid 4.
@@ -135,40 +155,81 @@ mod imp {
                     let limit = (buffer.len().saturating_sub(4)) / ROW;
                     for i in 0..count.min(limit) {
                         let at = 4 + i * ROW;
-                        let port = u32::from_ne_bytes(buffer[at + 20..at + 24].try_into().unwrap());
                         let pid = u32::from_ne_bytes(buffer[at + 24..at + 28].try_into().unwrap());
-                        snap.udp.entry(port_of(port)).or_insert(pid);
+                        if pid != 0 {
+                            let octets: [u8; 16] = buffer[at..at + 16].try_into().unwrap();
+                            let port = u32::from_ne_bytes(buffer[at + 20..at + 24].try_into().unwrap());
+                            table.by_addr.insert((IpAddr::V6(Ipv6Addr::from(octets)), port_of(port)), pid);
+                        }
                     }
                 }
             }
         }
-        tables.buffer = buffer;
-        if udp {
-            tables.snapshot.udp = snap.udp;
-            tables.taken_udp = Some(Instant::now());
-        } else {
-            tables.snapshot.tcp = snap.tcp;
-            tables.taken_tcp = Some(Instant::now());
-        }
+        table.taken = Some(started);
     }
 
-    fn pid_for(network: &str, port: u16) -> Option<u32> {
-        let mut t = tables().lock();
-        let udp = network == "udp";
-        let taken = if udp { t.taken_udp } else { t.taken_tcp };
-        let fresh = taken.is_some_and(|at| at.elapsed() < Duration::from_millis(SNAPSHOT_MS));
-        let find = |t: &Tables| {
-            let map = if udp { &t.snapshot.udp } else { &t.snapshot.tcp };
-            map.get(&port).copied()
-        };
-        if fresh {
-            if let Some(pid) = find(&t) {
-                return Some(pid);
+    fn find_in(table: &Table, ip: IpAddr, port: u16, udp: bool) -> Option<u32> {
+        if let Some(&pid) = table.by_addr.get(&(ip, port)) {
+            return Some(pid);
+        }
+        if udp {
+            let any = match ip {
+                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            };
+            if ip != any {
+                if let Some(&pid) = table.by_addr.get(&(any, port)) {
+                    return Some(pid);
+                }
             }
         }
-        // Промах по свежему снимку значит лишь, что сокет моложе снимка.
-        refresh(&mut t, udp);
-        find(&t)
+        None
+    }
+
+    fn lookup_table(
+        table: &mut Table,
+        buffer: &mut Vec<u8>,
+        udp: bool,
+        v6: bool,
+        ip: IpAddr,
+        port: u16,
+        requested_at: Instant,
+    ) -> Option<u32> {
+        let fresh = table.taken.is_some_and(|at| at.elapsed() < Duration::from_millis(SNAPSHOT_MS));
+        if fresh {
+            if let Some(pid) = find_in(table, ip, port, udp) {
+                return Some(pid);
+            }
+            // Снимок уже снят после того, как этот запрос попал в очередь: пачка
+            // одновременных промахов обходится одним вызовом WinAPI.
+            if table.taken.is_some_and(|at| at >= requested_at) {
+                return None;
+            }
+        }
+        refresh_one(table, buffer, udp, v6);
+        find_in(table, ip, port, udp)
+    }
+
+    fn pid_for(network: &str, source: SocketAddr, requested_at: Instant) -> Option<u32> {
+        let mut guard = tables().lock();
+        let t = &mut *guard;
+        let udp = network == "udp";
+        let port = source.port();
+        match source.ip() {
+            IpAddr::V4(v4) => {
+                let table = if udp { &mut t.udp4 } else { &mut t.tcp4 };
+                if let Some(pid) = lookup_table(table, &mut t.buffer, udp, false, IpAddr::V4(v4), port, requested_at) {
+                    return Some(pid);
+                }
+                // Dual-stack IPv6-сокет (IPV6_V6ONLY=0) при отправке IPv4 виден только в таблице AF_INET6.
+                let table6 = if udp { &mut t.udp6 } else { &mut t.tcp6 };
+                lookup_table(table6, &mut t.buffer, udp, true, IpAddr::V6(v4.to_ipv6_mapped()), port, requested_at)
+            }
+            IpAddr::V6(v6) => {
+                let table = if udp { &mut t.udp6 } else { &mut t.tcp6 };
+                lookup_table(table, &mut t.buffer, udp, true, IpAddr::V6(v6), port, requested_at)
+            }
+        }
     }
 
     fn image_path(pid: u32) -> Option<String> {
@@ -185,8 +246,8 @@ mod imp {
         }
     }
 
-    pub fn find(network: &str, port: u16) -> Option<Process> {
-        let pid = pid_for(network, port)?;
+    pub fn find(network: &str, source: SocketAddr, requested_at: Instant) -> Option<Process> {
+        let pid = pid_for(network, source, requested_at)?;
         if pid == 0 {
             return None;
         }
@@ -212,8 +273,11 @@ mod imp {
 pub async fn lookup(network: &'static str, source: SocketAddr) -> Option<Process> {
     #[cfg(windows)]
     {
-        let port = source.port();
-        tokio::task::spawn_blocking(move || imp::find(network, port)).await.ok().flatten()
+        let requested_at = std::time::Instant::now();
+        tokio::task::spawn_blocking(move || imp::find(network, source, requested_at))
+            .await
+            .ok()
+            .flatten()
     }
     #[cfg(not(windows))]
     {

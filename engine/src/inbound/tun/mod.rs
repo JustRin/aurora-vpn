@@ -38,8 +38,8 @@ use nat::Nat;
 use packet::{Parsed, PROTO_TCP, PROTO_UDP, TCP_ACK, TCP_FIN, TCP_RST, TCP_SYN};
 
 const UDP_IDLE: Duration = Duration::from_secs(60);
-const UDP_QUEUE: usize = 1024;
-const SESSION_QUEUE: usize = 64;
+const UDP_QUEUE: usize = 4096;
+const SESSION_QUEUE: usize = 256;
 
 /// Виртуальный адаптер платформы. Вызовы идут на каждый пакет, поэтому и приём, и
 /// отправка работают прямо с буфером устройства, без лишних копий.
@@ -249,6 +249,11 @@ fn spawn_accept(listener: TcpListener, nat: Arc<Nat>, ctx: Arc<Context>) {
 /// Чтение из устройства. Отдельный поток: приём блокирующий, а этот код не должен
 /// делить рабочие потоки рантайма с шифрованием.
 fn read_loop(shared: Shared) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL};
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    }
     let device = shared.device.clone();
     let mut handle = |bytes: &[u8]| {
         let Some(parsed) = packet::parse(bytes) else { return };
@@ -279,6 +284,10 @@ fn endpoints(shared: &Shared, parsed: &Parsed) -> Option<(Endpoints, u16)> {
 }
 
 fn write_back(shared: &Shared, bytes: &[u8], parsed: &Parsed, src: IpAddr, sport: u16, dst: IpAddr, dport: u16) {
+    let v4 = parsed.src.is_ipv4();
+    if v4 != src.is_ipv4() || v4 != dst.is_ipv4() || bytes.len() > usize::from(u16::MAX) {
+        return;
+    }
     shared.device.send(bytes.len() as u16, &mut |buf| {
         buf.copy_from_slice(bytes);
         packet::rewrite_tcp(buf, parsed, src, sport, dst, dport)
@@ -289,34 +298,18 @@ fn handle_tcp_packet(shared: &Shared, bytes: &[u8], parsed: &Parsed) {
     let Some((ep, listen)) = endpoints(shared, parsed) else { return };
     let now = shared.clock.load(Ordering::Relaxed);
     let flags = packet::tcp_flags(bytes, parsed);
+    let closing = flags & (TCP_FIN | TCP_RST) != 0;
 
     // Ответ ядра со слушателя: развернуть обратно к приложению.
     if parsed.src == ep.tun && parsed.sport == listen && parsed.dst == ep.server {
-        let Some(flow) = shared.nat.by_port(parsed.dport) else { return };
-        flow.touch(now);
-        if flags & (TCP_FIN | TCP_RST) != 0 {
-            flow.mark_closing();
-        }
+        let Some(flow) = shared.nat.by_port_packet(parsed.dport, now, closing) else { return };
         write_back(shared, bytes, parsed, flow.dst, flow.dport, flow.src, flow.sport);
         return;
     }
 
     let key = (parsed.src, parsed.sport, parsed.dst, parsed.dport);
     let is_syn = flags & TCP_SYN != 0 && flags & TCP_ACK == 0;
-    let flow = match shared.nat.lookup(&key) {
-        Some(flow) if !(is_syn && flow.is_closing()) => flow,
-        _ if is_syn => match shared.nat.create(key, now) {
-            Some(flow) => flow,
-            None => return,
-        },
-        // Не SYN без записи в таблице: поток забыт, ядро приложения узнает об этом
-        // по молчанию; создавать запись под чужой сегмент нельзя.
-        _ => return,
-    };
-    flow.touch(now);
-    if flags & (TCP_FIN | TCP_RST) != 0 {
-        flow.mark_closing();
-    }
+    let Some(flow) = shared.nat.forward_packet(key, is_syn, now, closing) else { return };
     write_back(shared, bytes, parsed, ep.server, flow.nat_port, ep.tun, listen);
 }
 
@@ -400,12 +393,21 @@ async fn udp_session(
     match ctx.open_udp(&first, &mut meta).await {
         UdpOpen::Reject => {}
         UdpOpen::Dns => {
-            let reply = ctx.dns.handle_query(&first, &mut meta).await;
-            send_udp(&device, dst, src, &reply);
-            // Тот же клиентский порт может спросить ещё: ждём недолго.
+            // Запросы с одного клиентского порта (например, A + AAAA + HTTPS от Chrome)
+            // обрабатываются параллельно, чтобы медленный ответ не задерживал остальные.
+            let mut q_meta = meta.clone_for_dns();
+            let (d, c) = (device.clone(), ctx.clone());
+            tokio::spawn(async move {
+                let reply = c.dns.handle_query(&first, &mut q_meta).await;
+                send_udp(&d, dst, src, &reply);
+            });
             while let Ok(Some(query)) = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
-                let reply = ctx.dns.handle_query(&query, &mut meta).await;
-                send_udp(&device, dst, src, &reply);
+                let mut q_meta = meta.clone_for_dns();
+                let (d, c) = (device.clone(), ctx.clone());
+                tokio::spawn(async move {
+                    let reply = c.dns.handle_query(&query, &mut q_meta).await;
+                    send_udp(&d, dst, src, &reply);
+                });
             }
         }
         UdpOpen::Session(route) => {
@@ -414,39 +416,78 @@ async fn udp_session(
             let info = _guard.info.clone();
             let tracker = ctx.tracker.clone();
             let dial_target = ctx.dial_target(&meta).unwrap_or(target);
-            let _ = conn.send(&first, &dial_target).await;
+            if conn.send(&first, &dial_target).await.is_err() {
+                let _ = done.send(key);
+                return;
+            }
             info.up.fetch_add(first.len() as u64, Ordering::Relaxed);
             tracker.up_total.fetch_add(first.len() as u64, Ordering::Relaxed);
 
-            let mut last_seen = Instant::now();
-            let mut buf = vec![0u8; 64 * 1024];
-            loop {
-                tokio::select! {
-                    data = rx.recv() => {
-                        let Some(data) = data else { break };
-                        last_seen = Instant::now();
+            let started = Instant::now();
+            let last_seen = Arc::new(AtomicU64::new(0));
+
+            // Отправка и приём разведены в независимые фьючеры внутри одного select:
+            // исходящие пакеты больше не отменяют conn.recv() на полпути кадра XUDP/Trojan/Hy2.
+            let tx_loop = {
+                let conn = conn.clone();
+                let info = info.clone();
+                let tracker = tracker.clone();
+                let last_seen = last_seen.clone();
+                async move {
+                    while let Some(data) = rx.recv().await {
+                        last_seen.store(started.elapsed().as_secs(), Ordering::Relaxed);
                         info.up.fetch_add(data.len() as u64, Ordering::Relaxed);
                         tracker.up_total.fetch_add(data.len() as u64, Ordering::Relaxed);
                         if conn.send(&data, &dial_target).await.is_err() {
                             break;
                         }
                     }
-                    received = conn.recv(&mut buf) => {
-                        let Ok((n, from)) = received else { break };
-                        last_seen = Instant::now();
+                }
+            };
+
+            let rx_loop = {
+                let conn = conn.clone();
+                let device = device.clone();
+                let info = info.clone();
+                let tracker = tracker.clone();
+                let last_seen = last_seen.clone();
+                async move {
+                    let mut buf = vec![0u8; 64 * 1024];
+                    while let Ok((n, from)) = conn.recv(&mut buf).await {
+                        last_seen.store(started.elapsed().as_secs(), Ordering::Relaxed);
                         info.down.fetch_add(n as u64, Ordering::Relaxed);
                         tracker.down_total.fetch_add(n as u64, Ordering::Relaxed);
                         // Адрес ответа — тот, на который писали: иначе приложение
                         // отбросит «чужой» пакет. Для полноконусного NAT берём from.
                         let reply_src = match from.ip() {
-                            Some(ip) if ip.is_ipv4() == src.is_ipv4() && !ip.is_unspecified() => SocketAddr::new(ip, from.port),
+                            Some(ip) if ip.is_ipv4() == src.is_ipv4() && !ip.is_unspecified() => {
+                                SocketAddr::new(ip, from.port)
+                            }
                             _ => dst,
                         };
                         send_udp(&device, reply_src, src, &buf[..n]);
                     }
-                    _ = tokio::time::sleep_until((last_seen + UDP_IDLE).into()) => break,
-                    _ = info.cancel.notified() => break,
                 }
+            };
+
+            let idle_loop = {
+                let last_seen = last_seen.clone();
+                async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        let now = started.elapsed().as_secs();
+                        if now.saturating_sub(last_seen.load(Ordering::Relaxed)) >= UDP_IDLE.as_secs() {
+                            return;
+                        }
+                    }
+                }
+            };
+
+            tokio::select! {
+                _ = tx_loop => {}
+                _ = rx_loop => {}
+                _ = idle_loop => {}
+                _ = info.cancel.notified() => {}
             }
         }
     }

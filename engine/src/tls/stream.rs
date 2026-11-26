@@ -25,7 +25,11 @@ const REC_APP: u8 = 23;
 const REC_CCS: u8 = 20;
 const REC_ALERT: u8 = 21;
 const MAX_PLAIN: usize = 16 * 1024;
-const RBUF: usize = MAX_PLAIN + 2048;
+const MAX_RECORD: usize = MAX_PLAIN + 2048;
+/// Буфер чтения на несколько записей: реже системные вызовы и `copy_within`.
+/// В прямом режиме Vision освобождается целиком (`set_direct_read`).
+const RBUF: usize = 64 * 1024;
+const MAX_WRITE_BATCH: usize = MAX_PLAIN * 4;
 
 /// SHA-256 от "HelloRetryRequest": признак HRR в поле random у ServerHello.
 const HRR_RANDOM: [u8; 32] = [
@@ -261,7 +265,7 @@ async fn read_record(io: &mut BoxStream, carry: &mut Vec<u8>) -> io::Result<([u8
     };
     loop {
         if let Some(total) = need(carry) {
-            if total > RBUF {
+            if total > MAX_RECORD {
                 return Err(invalid("tls: запись слишком велика"));
             }
             if carry.len() >= total {
@@ -417,7 +421,13 @@ fn parse_server_hello(msg: &[u8]) -> io::Result<ServerHello> {
     Ok(ServerHello { suite, group, key })
 }
 
-pub async fn handshake(mut io: BoxStream, cfg: &TlsConfig) -> io::Result<Tls13Stream> {
+pub async fn handshake(io: BoxStream, cfg: &TlsConfig) -> io::Result<Tls13Stream> {
+    tokio::time::timeout(crate::common::DIAL_TIMEOUT, handshake_inner(io, cfg))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "tls: таймаут рукопожатия"))?
+}
+
+async fn handshake_inner(mut io: BoxStream, cfg: &TlsConfig) -> io::Result<Tls13Stream> {
     let profile = Profile::from_fingerprint(&cfg.fingerprint);
     let post_quantum = cfg.reality.as_ref().is_some_and(|r| r.post_quantum.load(Ordering::Relaxed));
 
@@ -749,7 +759,11 @@ impl Tls13Stream {
             }
             self.wpos += n;
         }
-        self.wbuf.clear();
+        if self.direct_write {
+            self.wbuf = Vec::new();
+        } else {
+            self.wbuf.clear();
+        }
         self.wpos = 0;
         Poll::Ready(Ok(()))
     }
@@ -763,7 +777,7 @@ impl Tls13Stream {
             }
             let start = self.rpos;
             let len = u16::from_be_bytes([self.rbuf[start + 3], self.rbuf[start + 4]]) as usize;
-            if len + 5 > RBUF {
+            if len + 5 > MAX_RECORD {
                 return Err(invalid("tls: запись слишком велика"));
             }
             if avail < len + 5 {
@@ -838,7 +852,15 @@ impl AsyncRead for Tls13Stream {
             if this.eof {
                 return Poll::Ready(Ok(()));
             }
-            if this.next_record()? {
+            let had_record = this.next_record()?;
+            // Ответ на KeyUpdate от сервера попадает в wbuf во время чтения:
+            // сбрасываем его сразу, даже если клиент сейчас ничего не пишет.
+            if !this.wbuf.is_empty() {
+                if let Poll::Ready(Err(e)) = this.poll_drain(cx) {
+                    return Poll::Ready(Err(e));
+                }
+            }
+            if had_record {
                 continue;
             }
             if this.eof {
@@ -873,13 +895,15 @@ impl AsyncWrite for Tls13Stream {
         if data.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let n = data.len().min(MAX_PLAIN);
-        this.write.seal(REC_APP, &data[..n], &mut this.wbuf)?;
+        let total = data.len().min(MAX_WRITE_BATCH);
+        for chunk in data[..total].chunks(MAX_PLAIN) {
+            this.write.seal(REC_APP, chunk, &mut this.wbuf)?;
+        }
         // Данные уже приняты; если сокет занят, допишет следующий poll_write/flush.
         if let Poll::Ready(Err(e)) = this.poll_drain(cx) {
             return Poll::Ready(Err(e));
         }
-        Poll::Ready(Ok(n))
+        Poll::Ready(Ok(total))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

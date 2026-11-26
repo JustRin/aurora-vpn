@@ -56,6 +56,7 @@ impl Outbound for Selector {
             return Err(format!("в группе {} нет {member}", self.tag));
         }
         *self.current.write() = member.to_string();
+        crate::common::bump_proxy_generation();
         Ok(())
     }
 }

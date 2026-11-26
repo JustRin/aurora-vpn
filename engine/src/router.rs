@@ -34,6 +34,22 @@ impl Meta {
         self.destination.as_ref().and_then(Target::ip).or(self.resolved_ip)
     }
 
+    /// Копия базовых метаданных для параллельных DNS-запросов с того же клиентского порта:
+    /// процесс и адрес источника переиспользуются, а имя и тип запроса заполняются заново.
+    pub fn clone_for_dns(&self) -> Self {
+        Self {
+            network: self.network,
+            inbound: self.inbound.clone(),
+            source: self.source,
+            destination: self.destination.clone(),
+            domain: None,
+            protocol: self.protocol,
+            query_type: None,
+            resolved_ip: None,
+            process: self.process.clone(),
+        }
+    }
+
     async fn process(&mut self) -> Option<&procinfo::Process> {
         if self.process.is_none() {
             let found = match self.source {

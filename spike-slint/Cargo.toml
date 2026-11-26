@@ -162,15 +162,47 @@ opt-level = 3
 # Перекачка и шифрование: каждый байт трафика идёт через них.
 [profile.release.package.aura-engine]
 opt-level = 3
+[profile.release.package.aura-veil]
+opt-level = 3
 [profile.release.package.tokio]
 opt-level = 3
 [profile.release.package.ring]
+opt-level = 3
+[profile.release.package.rustls]
+opt-level = 3
+[profile.release.package.tokio-rustls]
 opt-level = 3
 [profile.release.package.quinn]
 opt-level = 3
 [profile.release.package.quinn-proto]
 opt-level = 3
 [profile.release.package.quinn-udp]
+opt-level = 3
+[profile.release.package.h2]
+opt-level = 3
+[profile.release.package.h3]
+opt-level = 3
+[profile.release.package.h3-quinn]
+opt-level = 3
+[profile.release.package.chacha20poly1305]
+opt-level = 3
+[profile.release.package.aes]
+opt-level = 3
+[profile.release.package.sha2]
+opt-level = 3
+[profile.release.package.sha3]
+opt-level = 3
+[profile.release.package.md-5]
+opt-level = 3
+[profile.release.package.blake2]
+opt-level = 3
+[profile.release.package.x25519-dalek]
+opt-level = 3
+[profile.release.package.ml-kem]
+opt-level = 3
+[profile.release.package.bytes]
+opt-level = 3
+[profile.release.package.wintun]
 opt-level = 3
 
 # Для работы над кодом: тот же быстрый рендер, но без LTO и с инкрементальной

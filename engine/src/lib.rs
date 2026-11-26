@@ -36,9 +36,10 @@ pub use common::{set_socket_protector, Protector};
 
 pub const VERSION_LINE: &str = concat!("aura-engine version ", env!("CARGO_PKG_VERSION"));
 
-/// Рабочих потоков столько, сколько реально нужно перекачке, а не по числу ядер:
-/// на 24-ядерной машине sing-box держит три с лишним десятка потоков впустую.
-const MAX_WORKERS: usize = 4;
+/// Рабочих потоков столько, сколько реально нужно перекачке и шифрованию, а не
+/// по числу всех ядер: на 24-ядерной машине sing-box держит три с лишним десятка
+/// потоков впустую.
+const MAX_WORKERS: usize = 8;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 /// Движок один на процесс: адаптер, порты и DNS у него общесистемные.
@@ -100,7 +101,7 @@ fn start_inner(options: Options) -> Result<Engine, String> {
     let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).clamp(2, MAX_WORKERS);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(workers)
-        .max_blocking_threads(8)
+        .max_blocking_threads(32)
         .thread_name("aura-worker")
         .thread_keep_alive(Duration::from_secs(10))
         .enable_all()

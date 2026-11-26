@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -164,10 +164,31 @@ pub trait PacketConn: Send + Sync {
 /// Индекс физического интерфейса; 0 — привязка не нужна (туннеля нет).
 static BYPASS_IF_V4: AtomicU32 = AtomicU32::new(0);
 static BYPASS_IF_V6: AtomicU32 = AtomicU32::new(0);
+/// Счётчики поколений сети и прокси-селектора: по ним пулы (DNS, Hysteria2)
+/// мгновенно сбрасывают соединения, привязанные к старому интерфейсу или узлу.
+static NET_GEN: AtomicU64 = AtomicU64::new(1);
+static PROXY_GEN: AtomicU64 = AtomicU64::new(1);
 
 pub fn set_bypass_interface(v4: u32, v6: u32) {
     BYPASS_IF_V4.store(v4, Ordering::Relaxed);
     BYPASS_IF_V6.store(v6, Ordering::Relaxed);
+}
+
+pub fn network_generation() -> u64 {
+    NET_GEN.load(Ordering::Relaxed)
+}
+
+pub fn proxy_generation() -> u64 {
+    PROXY_GEN.load(Ordering::Relaxed)
+}
+
+pub fn bump_network_generation() {
+    NET_GEN.fetch_add(1, Ordering::Relaxed);
+    PROXY_GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn bump_proxy_generation() {
+    PROXY_GEN.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Прибить сокет к физическому интерфейсу, иначе дозвон уйдёт в наш же TUN.
@@ -235,6 +256,12 @@ pub async fn tcp_connect(addr: SocketAddr) -> io::Result<TcpStream> {
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, format!("дозвон до {addr}: таймаут")))??;
     stream.set_nodelay(true)?;
+    if !addr.ip().is_loopback() {
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(30))
+            .with_interval(Duration::from_secs(10));
+        let _ = socket2::SockRef::from(&stream).set_tcp_keepalive(&ka);
+    }
     Ok(stream)
 }
 
@@ -249,7 +276,7 @@ pub async fn tcp_connect_any(addrs: Vec<SocketAddr>) -> io::Result<TcpStream> {
     race(addrs, tcp_connect).await
 }
 
-async fn race<T, F, Fut>(addrs: Vec<SocketAddr>, dial: F) -> io::Result<T>
+pub async fn race<T, F, Fut>(addrs: Vec<SocketAddr>, dial: F) -> io::Result<T>
 where
     T: Send + 'static,
     F: Fn(SocketAddr) -> Fut,

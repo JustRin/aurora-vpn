@@ -18,11 +18,12 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::UdpSocket;
 
 use super::Outbound;
-use crate::common::{invalid, other, tcp_connect, udp_socket, BoxStream, PacketConn, Target};
+use crate::common::{invalid, other, tcp_connect_any, udp_socket, BoxStream, PacketConn, Target};
 use crate::config::OutboundOpts;
 
 const TAG: usize = 16;
 const MAX_CHUNK: usize = 0x3fff;
+const MAX_WRITE_BATCH: usize = 64 * 1024;
 
 #[derive(Clone, Copy)]
 struct Cipher {
@@ -139,7 +140,8 @@ impl Outbound for Shadowsocks {
     }
 
     async fn dial(&self, target: &Target) -> io::Result<BoxStream> {
-        let stream = tcp_connect(self.addr().await?).await?;
+        let addrs = crate::dns::resolve_server(&self.server, self.port).await?;
+        let stream = tcp_connect_any(addrs).await?;
         let mut salt = vec![0u8; self.cipher.key_len];
         rand::thread_rng().fill_bytes(&mut salt);
         let sealer = Sealer { key: subkey(self.cipher, &self.master, &salt)?, nonce: 0 };
@@ -157,7 +159,7 @@ impl Outbound for Shadowsocks {
             wbuf: Vec::new(),
             wpos: 0,
             opener: None,
-            rbuf: vec![0u8; 32 * 1024],
+            rbuf: vec![0u8; 64 * 1024],
             rpos: 0,
             rend: 0,
             need_payload: None,
@@ -306,17 +308,20 @@ impl AsyncWrite for SsStream {
         if data.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let n = if this.address.is_some() {
-            this.prepare_first(data)?
-        } else {
-            let n = data.len().min(MAX_CHUNK);
-            this.sealer.seal_chunk(&data[..n], &mut this.wbuf)?;
-            n
-        };
+        let total = data.len().min(MAX_WRITE_BATCH);
+        let mut offset = 0;
+        if this.address.is_some() {
+            offset = this.prepare_first(&data[..total])?;
+        }
+        // Запечатываем все куски в один wbuf, чтобы отправить их за один системный вызов:
+        // без этого буфер 16 КБ резался на 16383 + 1 байт и два отдельных WSASend.
+        for chunk in data[offset..total].chunks(MAX_CHUNK) {
+            this.sealer.seal_chunk(chunk, &mut this.wbuf)?;
+        }
         if let Poll::Ready(Err(e)) = this.poll_drain(cx) {
             return Poll::Ready(Err(e));
         }
-        Poll::Ready(Ok(n))
+        Poll::Ready(Ok(total))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use tokio::net::UdpSocket;
 
 use super::Outbound;
-use crate::common::{other, tcp_connect, udp_socket, BoxStream, Host, PacketConn, Target};
+use crate::common::{other, tcp_connect_any, udp_socket, BoxStream, Host, PacketConn, Target};
 
 pub struct Direct {
     tag: String,
@@ -36,14 +36,11 @@ impl Outbound for Direct {
     }
 
     async fn dial(&self, target: &Target) -> io::Result<BoxStream> {
-        let mut last = None;
-        for addr in resolve(target).await?.into_iter().take(3) {
-            match tcp_connect(addr).await {
-                Ok(stream) => return Ok(Box::new(stream)),
-                Err(e) => last = Some(e),
-            }
+        let addrs = resolve(target).await?;
+        if addrs.is_empty() {
+            return Err(other(format!("{target}: нет адресов")));
         }
-        Err(last.unwrap_or_else(|| other(format!("{target}: нет адресов"))))
+        Ok(Box::new(tcp_connect_any(addrs).await?))
     }
 
     async fn dial_udp(&self, target: &Target) -> io::Result<Box<dyn PacketConn>> {

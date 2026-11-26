@@ -10,13 +10,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::{parse_addresses, Device, TunHandle};
-use crate::common::set_bypass_interface;
+use crate::common::{bump_network_generation, set_bypass_interface};
 use crate::config::InboundOpts;
 use crate::engine::Context;
 
-/// 2 МиБ на кольцо, колец два. Память кольца занята всегда, поэтому тут компромисс:
-/// ёмкость нужна только на всплески, а просевший пакет TCP перепошлёт сам.
-const RING_CAPACITY: u32 = 0x20_0000;
+/// 8 МиБ на кольцо, как у sing-box/WireGuard: в схеме loopback-NAT через кольца
+/// Wintun идут оба направления (сегменты и ACK), и на 2 МиБ всплески скачивания
+/// переполняли TX-кольцо, вызывая потери локальных пакетов и 300–1000 мс RTO.
+const RING_CAPACITY: u32 = 0x80_0000;
 const ADAPTER_NAME: &str = "Aurora";
 
 struct Wintun {
@@ -28,6 +29,16 @@ impl Device for Wintun {
         match self.session.receive_blocking() {
             Ok(packet) => {
                 handle(packet.bytes());
+                drop(packet);
+                // Сразу выбираем пачку уже лежащих в кольце пакетов без лишних кругов.
+                for _ in 0..64 {
+                    match self.session.try_receive() {
+                        Ok(Some(p)) => handle(p.bytes()),
+                        Ok(None) => break,
+                        Err(wintun::Error::ShuttingDown) => return Ok(false),
+                        Err(e) => return Err(io::Error::other(e.to_string())),
+                    }
+                }
                 Ok(true)
             }
             Err(wintun::Error::ShuttingDown) => Ok(false),
@@ -36,8 +47,33 @@ impl Device for Wintun {
     }
 
     fn send(&self, len: u16, fill: &mut dyn FnMut(&mut [u8]) -> bool) {
-        let Ok(mut packet) = self.session.allocate_send_packet(len) else { return };
+        // Если TX-кольцо на мгновение забито (NDIS ещё забирает), коротко уступаем
+        // вместо мгновенной потери локального TCP-сегмента и 300 мс RTO-паузы.
+        let mut packet = match self.session.allocate_send_packet(len) {
+            Ok(p) => p,
+            Err(_) => {
+                let mut got = None;
+                for attempt in 0..8 {
+                    if attempt < 4 {
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(Duration::from_micros(250));
+                    }
+                    if let Ok(p) = self.session.allocate_send_packet(len) {
+                        got = Some(p);
+                        break;
+                    }
+                }
+                let Some(p) = got else { return };
+                p
+            }
+        };
         if fill(packet.bytes_mut()) {
+            self.session.send_packet(packet);
+        } else {
+            // Выделенный у Wintun пакет обязан уйти в send_packet, иначе кольцо
+            // отправки заблокируется навсегда (Wintun ждёт пакеты в порядке выдачи).
+            packet.bytes_mut().fill(0);
             self.session.send_packet(packet);
         }
     }
@@ -134,6 +170,7 @@ async fn watch_interface(tun_index: u32, mut current_v4: u32, mut current_v6: u3
         if (v4, v6) != (current_v4, current_v6) {
             crate::info!("tun", "сетевой интерфейс сменился: {v4}/{v6}");
             set_bypass_interface(v4, v6);
+            bump_network_generation();
             current_v4 = v4;
             current_v6 = v6;
         }

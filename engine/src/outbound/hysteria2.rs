@@ -27,7 +27,7 @@ use crate::tls::rustls_config;
 const FRAME_TCP_REQUEST: u64 = 0x401;
 const AUTH_OK: u16 = 233;
 const IDLE_CLOSE: Duration = Duration::from_secs(60);
-const UDP_BUFFER: usize = 4 * 1024 * 1024;
+const UDP_BUFFER: usize = 16 * 1024 * 1024;
 
 fn write_varint(out: &mut Vec<u8>, v: u64) {
     if v < 1 << 6 {
@@ -77,6 +77,7 @@ struct Live {
     conn: quinn::Connection,
     active: Arc<AtomicUsize>,
     sessions: Sessions,
+    gen: u64,
     /// Закрытие отправителя завершило бы HTTP/3-сессию, а с ней и соединение.
     _http3: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     _endpoint: quinn::Endpoint,
@@ -118,44 +119,71 @@ impl Hysteria2 {
     }
 
     async fn connect(&self) -> io::Result<Arc<Live>> {
+        let gen = crate::common::network_generation();
         let addrs = crate::dns::resolve_server(&self.server, self.port).await?;
-        let addr: SocketAddr = *addrs.first().ok_or_else(|| other("hysteria2: нет адреса"))?;
+        if addrs.is_empty() {
+            return Err(other("hysteria2: нет адреса"));
+        }
 
         let mut tls = rustls_config(self.insecure, &self.alpn).map_err(io::Error::other)?;
         tls.enable_early_data = false;
-        let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(io::Error::other)?;
-        let mut client = quinn::ClientConfig::new(Arc::new(crypto));
-        let mut transport = quinn::TransportConfig::default();
-        transport
-            .max_idle_timeout(Some(Duration::from_secs(30).try_into().map_err(io::Error::other)?))
-            .keep_alive_interval(Some(Duration::from_secs(10)))
-            .datagram_receive_buffer_size(Some(1 << 20))
-            .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
-        client.transport_config(Arc::new(transport));
+        let crypto = Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(tls).map_err(io::Error::other)?);
 
-        let socket = udp_std_socket(addr.is_ipv6())?;
-        // Системные 64 КБ переполняются уже на сотнях мегабит: потерянная датаграмма
-        // для QUIC — сигнал затора, и скорость падает сама собой.
-        let tuning = socket2::SockRef::from(&socket);
-        let _ = tuning.set_recv_buffer_size(UDP_BUFFER);
-        let _ = tuning.set_send_buffer_size(UDP_BUFFER);
-        let runtime = quinn::default_runtime().ok_or_else(|| other("hysteria2: нет рантайма"))?;
-        let endpoint = quinn::Endpoint::new(quinn::EndpointConfig::default(), None, socket, runtime)?;
-        let conn = tokio::time::timeout(
-            crate::common::DIAL_TIMEOUT,
-            endpoint.connect_with(client, addr, &self.sni).map_err(io::Error::other)?,
-        )
-        .await
-        .map_err(|_| other("hysteria2: таймаут рукопожатия QUIC"))?
-        .map_err(io::Error::other)?;
+        let sni = self.sni.clone();
+        let (endpoint, conn) = crate::common::race(addrs, move |addr: SocketAddr| {
+            let crypto = crypto.clone();
+            let sni = sni.clone();
+            async move {
+                let socket = udp_std_socket(addr.is_ipv6())?;
+                // Системные 64 КБ переполняются уже на сотнях мегабит: потерянная датаграмма
+                // для QUIC — сигнал затора, и скорость падает сама собой.
+                let tuning = socket2::SockRef::from(&socket);
+                let _ = tuning.set_recv_buffer_size(UDP_BUFFER);
+                let _ = tuning.set_send_buffer_size(UDP_BUFFER);
 
-        let http3 = self.authenticate(&conn).await?;
+                let mut client = quinn::ClientConfig::new(crypto);
+                let mut transport = quinn::TransportConfig::default();
+                transport
+                    .max_idle_timeout(Some(Duration::from_secs(30).try_into().map_err(io::Error::other)?))
+                    .keep_alive_interval(Some(Duration::from_secs(10)))
+                    // Дефолт Quinn — 1.25 МБ на поток и 100 потоков: на 100 мс RTT это режет
+                    // скорость до ~100 Мбит/с и блокирует новые вкладки. Окна 8/20 МБ совпадают
+                    // с эталонным клиентом Hysteria2 (sing-box), а Cubic стабильнее
+                    // экспериментального BBR в Quinn.
+                    .stream_receive_window(quinn::VarInt::from_u32(8 * 1024 * 1024))
+                    .receive_window(quinn::VarInt::from_u32(20 * 1024 * 1024))
+                    .send_window(16 * 1024 * 1024)
+                    .max_concurrent_bidi_streams(quinn::VarInt::from_u32(1024))
+                    .initial_rtt(Duration::from_millis(100))
+                    .datagram_receive_buffer_size(Some(2 * 1024 * 1024))
+                    .congestion_controller_factory(Arc::new(quinn::congestion::CubicConfig::default()));
+                client.transport_config(Arc::new(transport));
+
+                let mut ep_cfg = quinn::EndpointConfig::default();
+                let _ = ep_cfg.max_udp_payload_size(1472);
+                let runtime = quinn::default_runtime().ok_or_else(|| other("hysteria2: нет рантайма"))?;
+                let endpoint = quinn::Endpoint::new(ep_cfg, None, socket, runtime)?;
+                let conn = tokio::time::timeout(
+                    crate::common::DIAL_TIMEOUT,
+                    endpoint.connect_with(client, addr, &sni).map_err(io::Error::other)?,
+                )
+                .await
+                .map_err(|_| other("hysteria2: таймаут рукопожатия QUIC"))?
+                .map_err(io::Error::other)?;
+                Ok((endpoint, conn))
+            }
+        })
+        .await?;
+
+        let http3 = tokio::time::timeout(crate::common::DIAL_TIMEOUT, self.authenticate(&conn))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "hysteria2: таймаут входа HTTP/3"))??;
 
         let sessions: Sessions = Default::default();
         let active = Arc::new(AtomicUsize::new(0));
         spawn_datagram_pump(conn.clone(), sessions.clone());
         spawn_idle_reaper(conn.clone(), active.clone());
-        Ok(Arc::new(Live { conn, active, sessions, _http3: http3, _endpoint: endpoint }))
+        Ok(Arc::new(Live { conn, active, sessions, gen, _http3: http3, _endpoint: endpoint }))
     }
 
     async fn authenticate(&self, conn: &quinn::Connection) -> io::Result<h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>> {
@@ -185,10 +213,12 @@ impl Hysteria2 {
 
     async fn live(&self) -> io::Result<Arc<Live>> {
         let mut slot = self.live.lock().await;
+        let gen = crate::common::network_generation();
         if let Some(live) = &*slot {
-            if live.conn.close_reason().is_none() {
+            if live.conn.close_reason().is_none() && live.gen == gen {
                 return Ok(live.clone());
             }
+            live.conn.close(0u32.into(), b"");
         }
         let live = self.connect().await?;
         *slot = Some(live.clone());
@@ -350,14 +380,26 @@ impl Outbound for Hysteria2 {
         let (tx, rx) = mpsc::channel(256);
         live.sessions.lock().insert(id, tx);
         let guard = ActiveGuard::new(&live.active);
-        Ok(Box::new(Hy2Packet { live, id, rx: tokio::sync::Mutex::new(rx), packet_id: AtomicU32::new(0), _guard: guard }))
+        Ok(Box::new(Hy2Packet {
+            live,
+            id,
+            rx: tokio::sync::Mutex::new(Hy2Rx { rx, assembling: None }),
+            packet_id: AtomicU32::new(0),
+            _guard: guard,
+        }))
     }
+}
+
+struct Hy2Rx {
+    rx: mpsc::Receiver<Bytes>,
+    /// Незавершённая сборка фрагментов живёт здесь, чтобы пережить отмену `recv()`.
+    assembling: Option<(u16, Vec<Option<Bytes>>, Target)>,
 }
 
 struct Hy2Packet {
     live: Arc<Live>,
     id: u32,
-    rx: tokio::sync::Mutex<mpsc::Receiver<Bytes>>,
+    rx: tokio::sync::Mutex<Hy2Rx>,
     packet_id: AtomicU32,
     _guard: ActiveGuard,
 }
@@ -406,11 +448,9 @@ impl PacketConn for Hy2Packet {
     }
 
     async fn recv(&self, buf: &mut [u8]) -> io::Result<(usize, Target)> {
-        let mut rx = self.rx.lock().await;
-        // Сборка фрагментов: одна очередь, сервер шлёт их подряд.
-        let mut assembling: Option<(u16, u8, Vec<Vec<u8>>, Target)> = None;
+        let mut guard = self.rx.lock().await;
         loop {
-            let data = rx.recv().await.ok_or(io::ErrorKind::UnexpectedEof)?;
+            let data = guard.rx.recv().await.ok_or(io::ErrorKind::UnexpectedEof)?;
             let packet_id = u16::from_be_bytes([data[4], data[5]]);
             let (index, count) = (data[6], data[7]);
             let Some((addr_len, used)) = read_varint_slice(&data[8..]) else { continue };
@@ -419,28 +459,31 @@ impl PacketConn for Hy2Packet {
             let Some(addr) = data.get(addr_at..addr_end).and_then(|a| std::str::from_utf8(a).ok()) else { continue };
             let Some((host, port)) = addr.rsplit_once(':') else { continue };
             let from = Target::new(host, port.parse().unwrap_or(0));
-            let payload = &data[addr_end..];
 
             if count <= 1 {
+                let payload = &data[addr_end..];
                 let n = payload.len().min(buf.len());
                 buf[..n].copy_from_slice(&payload[..n]);
                 return Ok((n, from));
             }
-            let state = assembling.get_or_insert_with(|| (packet_id, count, vec![Vec::new(); count as usize], from.clone()));
-            if state.0 != packet_id {
-                *state = (packet_id, count, vec![Vec::new(); count as usize], from.clone());
+            let state = guard
+                .assembling
+                .get_or_insert_with(|| (packet_id, vec![None; count as usize], from.clone()));
+            if state.0 != packet_id || state.1.len() != count as usize {
+                *state = (packet_id, vec![None; count as usize], from.clone());
             }
-            if let Some(slot) = state.2.get_mut(index as usize) {
-                *slot = payload.to_vec();
+            if let Some(slot) = state.1.get_mut(index as usize) {
+                *slot = Some(data.slice(addr_end..));
             }
-            if state.2.iter().all(|p| !p.is_empty()) {
+            if state.1.iter().all(Option::is_some) {
+                let (_, parts, target) = guard.assembling.take().unwrap();
                 let mut n = 0;
-                for part in &state.2 {
+                for part in parts.into_iter().flatten() {
                     let take = part.len().min(buf.len() - n);
                     buf[n..n + take].copy_from_slice(&part[..take]);
                     n += take;
                 }
-                return Ok((n, state.3.clone()));
+                return Ok((n, target));
             }
         }
     }
