@@ -1,6 +1,7 @@
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  ArrowUpRight,
   Gauge,
   Link2,
   Plus,
@@ -275,7 +276,11 @@ export function Dashboard() {
 
           {history.length > 0 && (
             <div className="hero-spark">
-              <TrafficGraph history={history} bleed />
+              <TrafficGraph
+                history={history}
+                bleed
+                onClick={() => navigate("stats")}
+              />
             </div>
           )}
         </div>
@@ -285,15 +290,21 @@ export function Dashboard() {
           structure — two metrics plus a meter — so it gets its own row rather
           than stretching the counters to match its height. */}
       <div className="tile-grid">
-        <div className="stat">
+        <button
+          type="button"
+          className="stat stat-link"
+          title={t("stats.openHint")}
+          onClick={() => navigate("stats")}
+        >
           <div className="stat-label micro">
             <Waypoints size={12} /> {t("dash.thisSession")}
+            <ArrowUpRight size={12} className="stat-cue" />
           </div>
           <div className="stat-value">{bytes(traffic.download + traffic.upload)}</div>
           <div className="stat-foot">
             ↓&nbsp;{bytes(traffic.download)} · ↑&nbsp;{bytes(traffic.upload)}
           </div>
-        </div>
+        </button>
 
         <button
           type="button"

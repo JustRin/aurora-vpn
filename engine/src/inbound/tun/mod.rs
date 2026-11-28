@@ -32,6 +32,7 @@ use tokio::sync::mpsc;
 use crate::common::{BoxStream, Target};
 use crate::config::InboundOpts;
 use crate::engine::{Context, UdpOpen};
+use crate::metrics::NetMetrics;
 use crate::router::Meta;
 
 use nat::Nat;
@@ -141,6 +142,7 @@ struct Shared {
     listen_v6: u16,
     clock: Arc<AtomicU64>,
     udp: mpsc::Sender<UdpMsg>,
+    metrics: Arc<NetMetrics>,
 }
 
 struct UdpMsg {
@@ -198,6 +200,7 @@ pub(crate) async fn run(
         listen_v6,
         clock: clock.clone(),
         udp: udp_tx,
+        metrics: ctx.tracker.metrics.clone(),
     };
 
     let reader = {
@@ -329,7 +332,9 @@ fn handle_udp_packet(shared: &Shared, bytes: &[u8], parsed: &Parsed) {
         data: data.to_vec(),
     };
     // Очередь полна — пакет теряется: для UDP это штатно, ждать нельзя.
-    let _ = shared.udp.try_send(msg);
+    if shared.udp.try_send(msg).is_err() {
+        shared.metrics.udp_dropped.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 fn send_udp(device: &Arc<dyn Device>, src: SocketAddr, dst: SocketAddr, payload: &[u8]) {
@@ -361,7 +366,9 @@ async fn udp_dispatch(mut rx: mpsc::Receiver<UdpMsg>, shared: Shared, ctx: Arc<C
                 let key = (msg.src, msg.dst);
                 if let Some(tx) = sessions.get(&key) {
                     if !tx.is_closed() {
-                        let _ = tx.try_send(msg.data);
+                        if tx.try_send(msg.data).is_err() {
+                            shared.metrics.udp_dropped.fetch_add(1, Ordering::Relaxed);
+                        }
                         continue;
                     }
                 }
@@ -420,8 +427,7 @@ async fn udp_session(
                 let _ = done.send(key);
                 return;
             }
-            info.up.fetch_add(first.len() as u64, Ordering::Relaxed);
-            tracker.up_total.fetch_add(first.len() as u64, Ordering::Relaxed);
+            tracker.add_up(&info, first.len() as u64);
 
             let started = Instant::now();
             let last_seen = Arc::new(AtomicU64::new(0));
@@ -436,8 +442,7 @@ async fn udp_session(
                 async move {
                     while let Some(data) = rx.recv().await {
                         last_seen.store(started.elapsed().as_secs(), Ordering::Relaxed);
-                        info.up.fetch_add(data.len() as u64, Ordering::Relaxed);
-                        tracker.up_total.fetch_add(data.len() as u64, Ordering::Relaxed);
+                        tracker.add_up(&info, data.len() as u64);
                         if conn.send(&data, &dial_target).await.is_err() {
                             break;
                         }
@@ -455,8 +460,7 @@ async fn udp_session(
                     let mut buf = vec![0u8; 64 * 1024];
                     while let Ok((n, from)) = conn.recv(&mut buf).await {
                         last_seen.store(started.elapsed().as_secs(), Ordering::Relaxed);
-                        info.down.fetch_add(n as u64, Ordering::Relaxed);
-                        tracker.down_total.fetch_add(n as u64, Ordering::Relaxed);
+                        tracker.add_down(&info, n as u64);
                         // Адрес ответа — тот, на который писали: иначе приложение
                         // отбросит «чужой» пакет. Для полноконусного NAT берём from.
                         let reply_src = match from.ip() {
@@ -575,6 +579,7 @@ mod tests {
             listen_v6: 0,
             clock: Arc::new(AtomicU64::new(0)),
             udp: mpsc::channel(1).0,
+            metrics: Arc::new(NetMetrics::default()),
         }
     }
 

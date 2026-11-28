@@ -263,6 +263,10 @@ fn rule_set(tag: &str, dir: &Path) -> Value {
 }
 
 pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
+    build_for(input, false)
+}
+
+pub fn build_for(input: &BuildInput, aura_native: bool) -> Result<BuiltConfig> {
     let BuildInput {
         nodes,
         active_id,
@@ -288,7 +292,7 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     let tunnel_mode = settings.tunnel_mode;
 
     // Only worth emitting when the second engine is actually dialling something.
-    let xray_bypass = match (xray_ports.is_empty(), *xray_exe) {
+    let xray_bypass = match (aura_native || xray_ports.is_empty(), *xray_exe) {
         (false, Some(exe)) => Some(exe),
         _ => None,
     };
@@ -338,10 +342,14 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
 
     // MASQUE has no sing-box form at all: without the Xray engine (Android has
     // none) the node is left out, not rendered into a type the core would
-    // refuse along with the whole document.
+    // refuse along with the whole document. В aura-engine MASQUE встроен нативно.
     let runnable: Vec<&ServerNode> = nodes
         .iter()
-        .filter(|n| n.protocol != crate::model::Protocol::Masque || xray_ports.contains_key(&n.id))
+        .filter(|n| {
+            n.protocol != crate::model::Protocol::Masque
+                || aura_native
+                || xray_ports.contains_key(&n.id)
+        })
         .collect();
     if runnable.is_empty() {
         return Err(AppError::msg(
@@ -381,14 +389,14 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
             endpoints.push(node.to_endpoint(&tag, TAG_DNS_DIRECT, None));
         } else {
             let outbound = match xray_ports.get(&node.id) {
-                Some(port) => json!({
+                Some(port) if !aura_native => json!({
                     "type": "socks",
                     "tag": tag,
                     "server": "127.0.0.1",
                     "server_port": port,
                     "version": "5"
                 }),
-                None => node.to_outbound(&tag, TAG_DNS_DIRECT),
+                _ => node.to_outbound_for(&tag, TAG_DNS_DIRECT, aura_native),
             };
             outbounds.push(outbound);
         }
@@ -797,6 +805,8 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     }
     route.insert("final".into(), json!(route_final));
     route.insert("auto_detect_interface".into(), json!(true));
+    #[cfg(not(target_os = "android"))]
+    route.insert("find_process".into(), json!(true));
     route.insert("default_domain_resolver".into(), json!(TAG_DNS_DIRECT));
 
     // ------------------------------------------------------------------ assemble
@@ -1746,5 +1756,100 @@ mod tests {
         assert_eq!(cfg["route"]["final"], json!(TAG_PROXY));
         let selector = tagged(&cfg, "outbounds", TAG_PROXY).unwrap();
         assert!(selector["outbounds"].as_array().unwrap().contains(&json!("0-WARP")));
+    }
+
+    #[test]
+    fn aura_native_renders_xhttp_vless_encryption_and_masque_without_xray() {
+        let k32 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let vless_enc = ServerNode {
+            id: "ve".into(),
+            name: "VLESS-Enc".into(),
+            protocol: Protocol::Vless,
+            address: "198.51.100.1".into(),
+            port: 443,
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+            security: Security::Reality,
+            sni: "www.icloud.com".into(),
+            public_key: k32.into(),
+            short_id: "79a1".into(),
+            flow: "xtls-rprx-vision".into(),
+            encryption: format!("mlkem768x25519plus.native.0rtt.{k32}"),
+            ..Default::default()
+        };
+        let xhttp = ServerNode {
+            id: "xh".into(),
+            name: "XHTTP".into(),
+            protocol: Protocol::Vless,
+            address: "198.51.100.2".into(),
+            port: 443,
+            uuid: "b831381d-6324-4d53-ad4f-8cda48b30811".into(),
+            network: crate::model::Network::Xhttp,
+            path: "/split".into(),
+            host: "cdn.example.test".into(),
+            security: Security::Tls,
+            sni: "cdn.example.test".into(),
+            ..Default::default()
+        };
+        let masque = ServerNode {
+            id: "mq".into(),
+            name: "MASQUE".into(),
+            protocol: Protocol::Masque,
+            address: "203.0.113.9".into(),
+            port: 8443,
+            security: Security::Tls,
+            sni: "masque.example.test".into(),
+            alpn: vec!["h3".into()],
+            path: "/.well-known/masque/ip/*/*/".into(),
+            username: "ivy".into(),
+            password: "secret".into(),
+            ..Default::default()
+        };
+        let nodes = vec![vless_enc, xhttp, masque];
+        let settings = Settings::default();
+        let split = SplitConfig::default();
+        let built = build_for(
+            &BuildInput {
+                nodes: &nodes,
+                active_id: "ve",
+                settings: &settings,
+                split: &split,
+                clash_secret: "s",
+                cache_path: &PathBuf::from("c.db"),
+                xray_ports: &HashMap::new(),
+                xray_exe: Some(&PathBuf::from("C:\\app\\xray.exe")),
+                rule_sets: &HashSet::new(),
+                rule_set_dir: &PathBuf::from("rules"),
+                warp_chain: None,
+            },
+            true,
+        )
+        .unwrap();
+
+        let ve = tagged(&built.json, "outbounds", "0-VLESS-Enc").unwrap();
+        assert_eq!(ve["type"], json!("vless"));
+        assert_eq!(ve["encryption"], json!(format!("mlkem768x25519plus.native.0rtt.{k32}")));
+        assert_eq!(ve["flow"], json!("xtls-rprx-vision"));
+
+        let xh = tagged(&built.json, "outbounds", "1-XHTTP").unwrap();
+        assert_eq!(xh["transport"]["type"], json!("xhttp"));
+        assert_eq!(xh["transport"]["path"], json!("/split"));
+        assert_eq!(xh["transport"]["host"], json!("cdn.example.test"));
+
+        let mq = tagged(&built.json, "outbounds", "2-MASQUE").unwrap();
+        assert_eq!(mq["type"], json!("masque"));
+        assert_eq!(mq["username"], json!("ivy"));
+        assert_eq!(mq["password"], json!("secret"));
+        assert_eq!(mq["path"], json!("/.well-known/masque/ip/*/*/"));
+
+        // Ни одного правила обхода xray.exe в конфиге Aura!
+        let rules = built.json["route"]["rules"].as_array().unwrap();
+        assert!(rules.iter().all(|r| r.get("process_name").is_none()));
+
+        // Сам aura-engine должен принять все три узла без единой заглушки!
+        let tmp = std::env::temp_dir().join("aurora-aura-native-check.json");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&built.json).unwrap()).unwrap();
+        let skipped = aura_engine::check(&tmp).unwrap();
+        let _ = std::fs::remove_file(&tmp);
+        assert!(skipped.is_empty(), "ожидались все узлы нативно, но пропущены: {skipped:?}");
     }
 }

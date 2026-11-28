@@ -1,0 +1,825 @@
+// Расширенная статистика сессий, приложений и потерь по VPN-серверам.
+// Вдохновлена Argus: выбор периода и клик по любой точке графика показывает
+// точную картину приложений и качества сети в этот момент.
+
+import { Theme, Icons, Card, SectionTitle, Divider, Segmented, NavIcon, MicroRow, GraphPath, MonoText } from "../theme.slint";
+import { Btn, Chip, Dot, Input, Select, Empty, ScrollArea } from "../widgets.slint";
+import { Stats, StatsAppRow, StatsServerRow, StatsSessionRow, StatsServerBand } from "../data.slint";
+import { Str } from "../i18n.slint";
+
+component KpiCard inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> value;
+    in property <string> foot;
+    in property <string> value-tier; // "" | good | ok | bad
+    horizontal-stretch: 1;
+    min-width: 0px;
+    background: Theme.panel;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 14px;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: Theme.shadow-card;
+    Rectangle {
+        x: 14px;
+        y: 1px;
+        width: parent.width - 28px;
+        height: 1px;
+        background: Theme.sheen;
+    }
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 0px;
+        MicroRow { icon: root.icon; label: root.label; }
+        Rectangle { height: 7px; }
+        Text {
+            text: root.value;
+            overflow: elide;
+            color: root.value-tier == "bad"
+                ? Theme.danger
+                : (root.value-tier == "ok"
+                    ? Theme.warn
+                    : (root.value-tier == "good" ? Theme.ok : Theme.text));
+            font-size: 18px * Theme.text-scale;
+            font-weight: 660;
+            letter-spacing: -0.4px;
+        }
+        Rectangle { height: 4px; }
+        Text {
+            text: root.foot;
+            overflow: elide;
+            color: Theme.text-muted;
+            font-size: 11px * Theme.text-scale;
+        }
+    }
+}
+
+component AppStatItem inherits Rectangle {
+    in property <StatsAppRow> item;
+    callback clicked();
+
+    height: 54px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.item.selected
+        ? Theme.accent
+        : (touch.has-hover ? Theme.border-strong : #00000000);
+    background: root.item.selected
+        ? Theme.accent-soft
+        : (touch.has-hover ? Theme.panel-hover : #00000000);
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+
+        // Иконка .exe или буква-аватар.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.border;
+                background: Theme.sunken;
+                if root.item.icon.width > 0: Image {
+                    source: root.item.icon;
+                    width: 22px;
+                    height: 22px;
+                    x: 4px;
+                    y: 4px;
+                }
+                if root.item.icon.width == 0: Text {
+                    text: root.item.initial;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 12.5px * Theme.text-scale;
+                    font-weight: 640;
+                    color: Theme.text-dim;
+                }
+            }
+        }
+
+        // Имя, путь и полоса доли VPN/Напрямую.
+        VerticalLayout {
+            alignment: center;
+            spacing: 5px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.item.name;
+                    overflow: elide;
+                    font-size: 13px * Theme.text-scale;
+                    font-weight: 560;
+                    color: root.item.selected ? Theme.accent-text : Theme.text;
+                    horizontal-stretch: 1;
+                }
+                if root.item.errors > 0: Chip {
+                    label: "! \{root.item.errors}";
+                    kind: "warn";
+                }
+                Text {
+                    text: root.item.vpn-text;
+                    vertical-alignment: center;
+                    font-size: 11px * Theme.text-scale;
+                    color: Theme.text-muted;
+                }
+            }
+            // Прогресс-бар общего объёма (внутри: акцент = VPN, вторичный = напрямую).
+            Rectangle {
+                height: 5px;
+                border-radius: 2.5px;
+                background: Theme.meter-track;
+                clip: true;
+                Rectangle {
+                    x: 0px;
+                    width: max(parent.width * clamp(root.item.total-share, 0.0, 1.0), 3px);
+                    height: parent.height;
+                    border-radius: 2.5px;
+                    background: Theme.text-muted.transparentize(0.45);
+                    Rectangle {
+                        x: 0px;
+                        width: parent.width * clamp(root.item.vpn-share, 0.0, 1.0);
+                        height: parent.height;
+                        border-radius: 2.5px;
+                        background: root.item.selected ? Theme.accent-hi : Theme.chart-down;
+                    }
+                }
+            }
+        }
+
+        // Приём / отдача и пик.
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            min-width: 150px;
+            Text {
+                text: "↓ \{root.item.down} · ↑ \{root.item.up}";
+                horizontal-alignment: right;
+                font-size: 11.5px * Theme.text-scale;
+                color: Theme.text-dim;
+            }
+            Text {
+                text: root.item.conns;
+                horizontal-alignment: right;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+
+        // Итоговый объём + доля.
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            min-width: 78px;
+            Text {
+                text: root.item.total;
+                horizontal-alignment: right;
+                font-size: 13.5px * Theme.text-scale;
+                font-weight: 640;
+                color: Theme.text;
+            }
+            Text {
+                text: root.item.share-text;
+                horizontal-alignment: right;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ServerStatItem inherits Rectangle {
+    in property <StatsServerRow> item;
+    callback clicked();
+
+    height: 60px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: root.item.selected
+        ? Theme.accent
+        : (touch.has-hover ? Theme.border-strong : Theme.border);
+    background: root.item.selected
+        ? Theme.accent-soft
+        : (touch.has-hover ? Theme.panel-hover : Theme.sunken);
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+
+        VerticalLayout {
+            alignment: center;
+            Dot {
+                tier: root.item.health == "bad"
+                    ? "bad"
+                    : (root.item.health == "warn" ? "ok" : "good");
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.item.name;
+                    overflow: elide;
+                    font-size: 13.5px * Theme.text-scale;
+                    font-weight: 580;
+                    color: root.item.selected ? Theme.accent-text : Theme.text;
+                }
+                if root.item.proto != "": Chip {
+                    label: root.item.proto;
+                    kind: "default";
+                }
+            }
+            Text {
+                text: "\{root.item.speed} · \{root.item.duration}";
+                overflow: elide;
+                font-size: 11.5px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            min-width: 110px;
+            Text {
+                text: root.item.latency;
+                horizontal-alignment: right;
+                font-size: 12.5px * Theme.text-scale;
+                font-weight: 560;
+                color: Theme.text-dim;
+            }
+            Text {
+                text: root.item.traffic;
+                horizontal-alignment: right;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            min-width: 130px;
+            Text {
+                text: "\{Str.stats-loss-word} \{root.item.loss-text}";
+                horizontal-alignment: right;
+                font-size: 13px * Theme.text-scale;
+                font-weight: 660;
+                color: root.item.loss-tier == "bad"
+                    ? Theme.danger
+                    : (root.item.loss-tier == "ok" ? Theme.warn : Theme.ok);
+            }
+            Text {
+                text: root.item.drops-text;
+                horizontal-alignment: right;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component SessionStatItem inherits Rectangle {
+    in property <StatsSessionRow> item;
+    callback clicked();
+
+    height: 54px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.border-strong : Theme.border;
+    background: touch.has-hover ? Theme.panel-hover : Theme.sunken;
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.item.date-text;
+                    font-size: 13px * Theme.text-scale;
+                    font-weight: 560;
+                    color: Theme.text;
+                }
+                if root.item.active: Chip {
+                    label: Str.stats-active-badge;
+                    kind: "ok";
+                }
+            }
+            Text {
+                text: "\{root.item.server} · \{root.item.duration}";
+                overflow: elide;
+                font-size: 11.5px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            min-width: 110px;
+            Text {
+                text: root.item.traffic;
+                horizontal-alignment: right;
+                font-size: 13px * Theme.text-scale;
+                font-weight: 620;
+                color: Theme.text;
+            }
+            Text {
+                text: root.item.latency;
+                horizontal-alignment: right;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            min-width: 72px;
+            Text {
+                text: root.item.loss-text;
+                horizontal-alignment: right;
+                font-size: 12.5px * Theme.text-scale;
+                font-weight: 620;
+                color: root.item.loss-tier == "bad"
+                    ? Theme.danger
+                    : (root.item.loss-tier == "ok" ? Theme.warn : Theme.ok);
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component StatsPage inherits ScrollArea {
+    pad: 28px;
+
+    property <int> range-bind: Stats.range;
+    changed range-bind => {
+        if (root.range-bind <= 4) {
+            Stats.set-range(root.range-bind);
+        }
+    }
+    property <int> metric-bind: Stats.metric;
+    changed metric-bind => { Stats.set-metric(root.metric-bind); }
+    property <int> route-bind: Stats.route-filter;
+    changed route-bind => { Stats.set-route-filter(root.route-bind); }
+
+    // ------------------------------------------------------------ header
+    HorizontalLayout {
+        spacing: 14px;
+        VerticalLayout {
+            alignment: center;
+            Btn {
+                label: Str.stats-back;
+                icon: Icons.arrow-left;
+                kind: "ghost";
+                clicked => { Stats.close-page(); }
+            }
+        }
+        VerticalLayout {
+            spacing: 3px;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            Text {
+                text: Str.stats-title;
+                color: Theme.text;
+                font-size: 24px * Theme.text-scale;
+                font-weight: 680;
+                letter-spacing: -0.6px;
+            }
+            Text {
+                text: Stats.period-label != "" ? Stats.period-label : Str.stats-subtitle;
+                color: Theme.text-muted;
+                font-size: 12px * Theme.text-scale;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 10px;
+                Segmented {
+                    options: [
+                        Str.stats-range-session,
+                        Str.stats-range-1h,
+                        Str.stats-range-24h,
+                        Str.stats-range-7d,
+                        Str.stats-range-30d,
+                    ];
+                    selected <=> Stats.range;
+                }
+                if Stats.server-filter-options.length > 1: Select {
+                    width: 170px;
+                    options: Stats.server-filter-options;
+                    current <=> Stats.server-filter-idx;
+                    changed(idx) => { Stats.set-server-filter(idx); }
+                }
+            }
+        }
+    }
+
+    Rectangle { height: 20px; }
+
+    // ------------------------------------------------------------ empty state
+    if !Stats.has-data: Card {
+        Empty {
+            icon: Icons.bar-chart;
+            title: Str.stats-empty-title;
+            text: Str.stats-empty-text;
+        }
+    }
+
+    // ------------------------------------------------------------ KPI row
+    if Stats.has-data: HorizontalLayout {
+        spacing: 12px;
+        vertical-stretch: 0;
+        KpiCard {
+            icon: Icons.waypoints;
+            label: Str.stats-kpi-traffic-caps;
+            value: Stats.kpi-traffic;
+            foot: Stats.kpi-traffic-foot;
+        }
+        KpiCard {
+            icon: Icons.activity;
+            label: Str.stats-kpi-speed-caps;
+            value: Stats.kpi-speed;
+            foot: Stats.kpi-speed-foot;
+        }
+        KpiCard {
+            icon: Icons.gauge;
+            label: Str.stats-kpi-latency-caps;
+            value: Stats.kpi-latency;
+            foot: Stats.kpi-latency-foot;
+        }
+        KpiCard {
+            icon: Icons.alert-triangle;
+            label: Str.stats-kpi-loss-caps;
+            value: Stats.kpi-loss;
+            foot: Stats.kpi-loss-foot;
+            value-tier: Stats.kpi-loss-tier;
+        }
+    }
+
+    if Stats.has-data: Rectangle { height: 14px; }
+
+    // ------------------------------------------------------------ interactive chart card
+    if Stats.has-data: Card {
+        pad-x: 18px;
+        pad-y: 16px;
+        gap: 12px;
+
+        // Верхняя панель: метрика, активный фильтр приложения, кнопка сброса пина.
+        HorizontalLayout {
+            spacing: 10px;
+            Segmented {
+                options: [Str.stats-metric-speed, Str.stats-metric-loss, Str.stats-metric-latency];
+                selected <=> Stats.metric;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if Stats.selected-app-name != "": HorizontalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: center;
+                    Chip {
+                        label: Stats.selected-app-name;
+                        kind: "accent";
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Btn {
+                        label: Str.stats-app-filter-clear;
+                        kind: "ghost";
+                        small: true;
+                        clicked => { Stats.toggle-app(""); }
+                    }
+                }
+            }
+            if Stats.pinned: HorizontalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: center;
+                    Chip {
+                        label: Stats.pinned-banner;
+                        kind: "ok";
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Btn {
+                        label: Str.stats-pinned-reset;
+                        kind: "ghost";
+                        small: true;
+                        clicked => { Stats.unpin(); }
+                    }
+                }
+            }
+        }
+
+        // Интерактивная строка показаний в точке под курсором / закреплённой точке.
+        Rectangle {
+            height: 40px;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Stats.pinned ? Theme.accent : Theme.border;
+            background: Theme.sunken;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 12px;
+                if !Stats.cursor-visible: Text {
+                    text: Str.stats-chart-hint;
+                    vertical-alignment: center;
+                    color: Theme.text-muted;
+                    font-size: 12px * Theme.text-scale;
+                    overflow: elide;
+                }
+                if Stats.cursor-visible: HorizontalLayout {
+                    spacing: 12px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: Stats.cursor-time;
+                        vertical-alignment: center;
+                        font-size: 12px * Theme.text-scale;
+                        font-weight: 620;
+                        color: Stats.pinned ? Theme.accent-text : Theme.text;
+                    }
+                    if Stats.cursor-server != "": Text {
+                        text: Stats.cursor-server;
+                        vertical-alignment: center;
+                        font-size: 12px * Theme.text-scale;
+                        color: Theme.text-dim;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: Stats.cursor-primary;
+                        vertical-alignment: center;
+                        font-size: 12px * Theme.text-scale;
+                        font-weight: 600;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: Stats.cursor-secondary;
+                        vertical-alignment: center;
+                        font-size: 11.5px * Theme.text-scale;
+                        color: Theme.text-muted;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if Stats.cursor-top-apps != "": Text {
+                        text: Stats.cursor-top-apps;
+                        vertical-alignment: center;
+                        font-size: 11.5px * Theme.text-scale;
+                        color: Theme.accent-text;
+                        overflow: elide;
+                        max-width: 280px;
+                    }
+                }
+            }
+        }
+
+        // Область графика с непрозрачными заливками (безопасно для software-рендера).
+        chart-box := Rectangle {
+            height: 168px;
+            border-radius: 10px;
+            background: Theme.chart-fill-base;
+            border-width: 1px;
+            border-color: Theme.border;
+            clip: true;
+
+            changed width => {
+                Stats.chart-w = self.width;
+                Stats.refresh();
+            }
+            init => {
+                Stats.chart-w = self.width;
+            }
+
+            // Горизонтальная сетка.
+            Rectangle { y: parent.height * 0.25; height: 1px; background: Theme.grid-line; }
+            Rectangle { y: parent.height * 0.50; height: 1px; background: Theme.grid-line; }
+            Rectangle { y: parent.height * 0.75; height: 1px; background: Theme.grid-line; }
+
+            // Заливки и линии — по выбранной метрике.
+            GraphPath {
+                commands: Stats.primary-area;
+                fill: Stats.metric == 1
+                    ? @linear-gradient(180deg, Theme.chart-loss-fill 0%, Theme.chart-fill-base 100%)
+                    : (Stats.metric == 2
+                        ? @linear-gradient(180deg, Theme.chart-lat-fill 0%, Theme.chart-fill-base 100%)
+                        : @linear-gradient(180deg, Theme.chart-down-fill 0%, Theme.chart-fill-base 100%));
+            }
+            if Stats.metric == 0 && Stats.secondary-area != "": GraphPath {
+                commands: Stats.secondary-area;
+                fill: @linear-gradient(180deg, Theme.chart-up-fill 0%, Theme.chart-fill-base 100%);
+            }
+            GraphPath {
+                commands: Stats.primary-line;
+                stroke: Stats.metric == 1
+                    ? Theme.danger
+                    : (Stats.metric == 2 ? Theme.warn : Theme.chart-down);
+                fill: #00000000;
+            }
+            if Stats.metric == 0 && Stats.secondary-line != "": GraphPath {
+                commands: Stats.secondary-line;
+                stroke: Theme.chart-up;
+                fill: #00000000;
+            }
+            if Stats.metric == 0 && Stats.app-line != "": GraphPath {
+                commands: Stats.app-line;
+                stroke: Theme.ok;
+                stroke-width: 2.2px;
+                fill: #00000000;
+            }
+
+            // Полоска смены VPN-серверов по нижней кромке графика.
+            for band in Stats.server-bands: Rectangle {
+                x: band.start-frac * parent.width;
+                y: parent.height - 4px;
+                width: max(band.width-frac * parent.width, 2px);
+                height: 4px;
+                background: band.color-idx == 0 ? Theme.accent
+                    : (band.color-idx == 1 ? Theme.chart-down
+                    : (band.color-idx == 2 ? Theme.ok
+                    : (band.color-idx == 3 ? Theme.warn
+                    : Theme.chart-up)));
+            }
+
+            // Подписи оси Y.
+            Text {
+                x: 8px;
+                y: 6px;
+                text: Stats.y-max-label;
+                font-size: 10.5px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+            Text {
+                x: 8px;
+                y: parent.height * 0.50 - 14px;
+                text: Stats.y-mid-label;
+                font-size: 10.5px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+
+            // Вертикальный курсор-прицел (Argus scrubbing).
+            if Stats.cursor-visible: Rectangle {
+                x: clamp(Stats.cursor-frac * parent.width, 0px, parent.width - 1.5px);
+                y: 0px;
+                width: Stats.pinned ? 2px : 1px;
+                height: parent.height;
+                background: Stats.pinned ? Theme.accent-hi : Theme.text-dim;
+            }
+
+            chart-touch := TouchArea {
+                mouse-cursor: crosshair;
+                moved => {
+                    Stats.hover-chart(clamp(self.mouse-x / max(self.width, 1px), 0.0, 1.0));
+                }
+                changed has-hover => {
+                    if (!self.has-hover) {
+                        Stats.hover-chart(-1.0);
+                    }
+                }
+                clicked => {
+                    Stats.click-chart(clamp(self.mouse-x / max(self.width, 1px), 0.0, 1.0));
+                }
+            }
+        }
+
+        // Подписи оси времени + легенда.
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: Stats.x-start-label;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: Stats.x-mid-label;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: Stats.x-end-label;
+                font-size: 11px * Theme.text-scale;
+                color: Theme.text-muted;
+            }
+        }
+    }
+
+    if Stats.has-data: Rectangle { height: 18px; }
+
+    // ------------------------------------------------------------ breakdown tabs
+    if Stats.has-data: HorizontalLayout {
+        spacing: 12px;
+        Segmented {
+            options: [Str.stats-tab-apps, Str.stats-tab-servers, Str.stats-tab-sessions];
+            selected <=> Stats.tab;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if Stats.tab == 0: HorizontalLayout {
+            spacing: 10px;
+            Segmented {
+                options: [Str.stats-route-all, Str.stats-route-vpn, Str.stats-route-direct];
+                selected <=> Stats.route-filter;
+            }
+            Input {
+                width: 210px;
+                placeholder: Str.stats-search-app;
+                text <=> Stats.app-search;
+                edited(txt) => { Stats.set-app-search(txt); }
+            }
+        }
+    }
+
+    if Stats.has-data: Rectangle { height: 12px; }
+
+    // ---- вкладка 0: Приложения (за период или за закреплённый момент!) ----
+    if Stats.has-data && Stats.tab == 0: Card {
+        pad-x: 12px;
+        pad-y: 12px;
+        gap: 4px;
+        if Stats.apps.length == 0: Empty {
+            icon: Icons.bar-chart;
+            title: Str.split-nothing-found;
+            text: "";
+        }
+        for row in Stats.apps: AppStatItem {
+            item: row;
+            clicked => { Stats.toggle-app(row.key); }
+        }
+    }
+
+    // ---- вкладка 1: VPN-серверы (сравнение потерь, пинга, скорости) -------
+    if Stats.has-data && Stats.tab == 1: Card {
+        pad-x: 12px;
+        pad-y: 12px;
+        gap: 8px;
+        if Stats.servers.length == 0: Empty {
+            icon: Icons.server;
+            title: Str.split-nothing-found;
+            text: "";
+        }
+        for row in Stats.servers: ServerStatItem {
+            item: row;
+            clicked => { Stats.select-server-row(row.id); }
+        }
+    }
+
+    // ---- вкладка 2: Сессии -----------------------------------------------
+    if Stats.has-data && Stats.tab == 2: Card {
+        pad-x: 12px;
+        pad-y: 12px;
+        gap: 8px;
+        if Stats.sessions.length == 0: Empty {
+            icon: Icons.timer;
+            title: Str.split-nothing-found;
+            text: "";
+        }
+        for row[i] in Stats.sessions: SessionStatItem {
+            item: row;
+            clicked => { Stats.select-session(i); }
+        }
+    }
+
+    Rectangle { height: 20px; }
+}

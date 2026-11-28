@@ -227,14 +227,35 @@ impl Hysteria2 {
 }
 
 fn spawn_idle_reaper(conn: quinn::Connection, active: Arc<AtomicUsize>) {
+    let metrics = crate::engine::try_global().map(|ctx| ctx.tracker.metrics.clone());
     tokio::spawn(async move {
         let mut idle = Duration::ZERO;
-        const STEP: Duration = Duration::from_secs(15);
+        let mut prev_sent = 0u64;
+        let mut prev_lost = 0u64;
+        const STEP: Duration = Duration::from_secs(2);
+        let mut flush_stats = |conn: &quinn::Connection| {
+            let Some(m) = &metrics else { return };
+            let path = conn.stats().path;
+            let ds = path.sent_packets.saturating_sub(prev_sent);
+            let dl = path.lost_packets.saturating_sub(prev_lost);
+            prev_sent = path.sent_packets;
+            prev_lost = path.lost_packets;
+            if ds > 0 {
+                m.quic_packets_sent.fetch_add(ds, Ordering::Relaxed);
+            }
+            if dl > 0 {
+                m.quic_packets_lost.fetch_add(dl, Ordering::Relaxed);
+            }
+        };
         loop {
             tokio::select! {
-                _ = conn.closed() => return,
+                _ = conn.closed() => {
+                    flush_stats(&conn);
+                    return;
+                }
                 _ = tokio::time::sleep(STEP) => {}
             }
+            flush_stats(&conn);
             if active.load(Ordering::Relaxed) > 0 {
                 idle = Duration::ZERO;
                 continue;
@@ -242,6 +263,7 @@ fn spawn_idle_reaper(conn: quinn::Connection, active: Arc<AtomicUsize>) {
             idle += STEP;
             if idle >= IDLE_CLOSE {
                 conn.close(0u32.into(), b"");
+                flush_stats(&conn);
                 return;
             }
         }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -191,6 +192,7 @@ pub struct AppState {
     pub probe: RwLock<Option<crate::core::probe::ProbeAccess>>,
     pub status: RwLock<Status>,
     pub traffic: RwLock<Traffic>,
+    pub stats: Arc<crate::stats::StatsRecorder>,
 
     /// Incremented on every connect. Background pollers carry the value they
     /// started with and stop as soon as it no longer matches, so a fast
@@ -279,6 +281,11 @@ impl AppState {
             ..Default::default()
         };
 
+        let stats = Arc::new(crate::stats::StatsRecorder::new(
+            paths.config_dir.join("stats"),
+            settings.stats_retention_days,
+        ));
+
         Ok(Self {
             #[cfg(not(target_os = "android"))]
             core: Mutex::new(CoreSupervisor::new(
@@ -313,6 +320,7 @@ impl AppState {
             probe: RwLock::new(None),
             status: RwLock::new(status),
             traffic: RwLock::new(Traffic::default()),
+            stats,
             session: AtomicU64::new(0),
             fast_crashes: AtomicU32::new(0),
         })

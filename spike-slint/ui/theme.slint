@@ -135,6 +135,8 @@ export global Theme {
     out property <color> chart-fill-base: p(#11141e, #0c1126, #190f13, #091914, #181a0c, #fbfcfd);
     out property <color> chart-down-fill: p(#165160, #1a4869, #613920, #115459, #425328, #afd0da);
     out property <color> chart-up-fill:   p(#3c6088, #335a90, #863b31, #1a756a, #687031, #a2a9df);
+    out property <color> chart-loss-fill: p(#522028, #4d1f2d, #5e1d26, #4b2424, #52281c, #f4c8c8);
+    out property <color> chart-lat-fill:  p(#56431a, #4d3e1e, #5e411d, #48421b, #504616, #f5e2b5);
 
     // Шаг навигации: высота строки и зазор между строками. Этими же числами
     // едет подложка активной строки (NavPill), поэтому они общие.
@@ -195,6 +197,11 @@ export global Icons {
     out property <string> life-buoy: "M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0z M16 12a4 4 0 1 1-8 0 4 4 0 1 1 8 0z M4.93 4.93l4.24 4.24 M14.83 9.17l4.24-4.24 M14.83 14.83l4.24 4.24 M9.17 14.83l-4.24 4.24";
     out property <string> zap: "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z";
     out property <string> repeat: "M17 2l4 4-4 4 M3 11v-1a4 4 0 0 1 4-4h14 M7 22l-4-4 4-4 M21 13v1a4 4 0 0 1-4 4H3";
+    out property <string> arrow-left: "M19 12H5 M12 19l-7-7 7-7";
+    out property <string> arrow-up-right: "M7 17L17 7 M7 7h10v10";
+    out property <string> activity: "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2";
+    out property <string> bar-chart: "M18 20V10 M12 20V4 M6 20v-6";
+    out property <string> alert-triangle: "M21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z M12 9v4 M12.6 17a.6 .6 0 1 1-1.2 0 .6 .6 0 1 1 1.2 0z";
 }
 
 export component Glow inherits Rectangle {

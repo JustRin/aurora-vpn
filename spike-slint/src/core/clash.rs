@@ -22,9 +22,14 @@ pub struct ClashApi {
     probe: Option<Arc<ProbeAccess>>,
     /// `aura-engine` отдаёт лёгкий `/traffic/total` без сериализации списка соединений;
     /// sing-box отвечает 404, после чего переключаемся на `/connections`.
+    #[allow(dead_code)]
     fast_totals: Arc<AtomicBool>,
+    /// `aura-engine` отдаёт `/traffic/telemetry` с приложениями и сетевыми потерями;
+    /// на sing-box откатываемся на `/connections`.
+    fast_telemetry: Arc<AtomicBool>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Totals {
     pub download: u64,
@@ -32,6 +37,7 @@ pub struct Totals {
     pub connections: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct FastTotalsResponse {
     #[serde(default, rename = "downloadTotal")]
@@ -40,6 +46,82 @@ struct FastTotalsResponse {
     upload_total: u64,
     #[serde(default, rename = "connectionsCount")]
     connections_count: usize,
+}
+
+#[derive(Deserialize)]
+struct FastTelemetryNet {
+    #[serde(default, rename = "tunRxPackets")]
+    tun_rx_packets: u64,
+    #[serde(default, rename = "tunTxPackets")]
+    tun_tx_packets: u64,
+    #[serde(default, rename = "tunDropped")]
+    tun_dropped: u64,
+    #[serde(default, rename = "udpDropped")]
+    udp_dropped: u64,
+    #[serde(default, rename = "tcpBytesOut")]
+    tcp_bytes_out: u64,
+    #[serde(default, rename = "tcpBytesIn")]
+    tcp_bytes_in: u64,
+    #[serde(default, rename = "tcpBytesRetrans")]
+    tcp_bytes_retrans: u64,
+    #[serde(default, rename = "tcpRetransEvents")]
+    tcp_retrans_events: u64,
+    #[serde(default, rename = "tcpRttUsSum")]
+    tcp_rtt_us_sum: u64,
+    #[serde(default, rename = "tcpRttSamples")]
+    tcp_rtt_samples: u64,
+    #[serde(default, rename = "quicPacketsSent")]
+    quic_packets_sent: u64,
+    #[serde(default, rename = "quicPacketsLost")]
+    quic_packets_lost: u64,
+    #[serde(default, rename = "dialOk")]
+    dial_ok: u64,
+    #[serde(default, rename = "dialFail")]
+    dial_fail: u64,
+    #[serde(default, rename = "relayErrors")]
+    relay_errors: u64,
+}
+
+#[derive(Deserialize)]
+struct FastTelemetryApp {
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    down: u64,
+    #[serde(default)]
+    up: u64,
+    #[serde(default, rename = "proxyDown")]
+    proxy_down: u64,
+    #[serde(default, rename = "proxyUp")]
+    proxy_up: u64,
+    #[serde(default, rename = "activeConns")]
+    active_conns: u32,
+    #[serde(default, rename = "totalConns")]
+    total_conns: u64,
+    #[serde(default)]
+    errors: u64,
+}
+
+#[derive(Deserialize)]
+struct FastTelemetryResponse {
+    #[serde(default, rename = "downloadTotal")]
+    download_total: u64,
+    #[serde(default, rename = "uploadTotal")]
+    upload_total: u64,
+    #[serde(default, rename = "proxyDownloadTotal")]
+    proxy_download_total: u64,
+    #[serde(default, rename = "proxyUploadTotal")]
+    proxy_upload_total: u64,
+    #[serde(default, rename = "directDownloadTotal")]
+    direct_download_total: u64,
+    #[serde(default, rename = "directUploadTotal")]
+    direct_upload_total: u64,
+    #[serde(default, rename = "connectionsCount")]
+    connections_count: usize,
+    #[serde(default)]
+    network: Option<FastTelemetryNet>,
+    #[serde(default)]
+    apps: Vec<FastTelemetryApp>,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +153,7 @@ impl ClashApi {
         Self {
             probe: None,
             fast_totals: Arc::new(AtomicBool::new(true)),
+            fast_telemetry: Arc::new(AtomicBool::new(true)),
             base: format!("http://127.0.0.1:{port}"),
             secret: secret.to_string(),
             http: crate::net::http_builder()
@@ -119,6 +202,7 @@ impl ClashApi {
 
     /// Cumulative byte counters since the core started. The caller turns these
     /// into a rate by differencing consecutive samples.
+    #[allow(dead_code)]
     pub async fn totals(&self) -> Result<Totals> {
         if self.fast_totals.load(Ordering::Relaxed) {
             match self.request(reqwest::Method::GET, "/traffic/total").send().await {
@@ -151,6 +235,120 @@ impl ClashApi {
             download: body.download_total,
             upload: body.upload_total,
             connections: body.connections.map(|c| c.len()).unwrap_or(0),
+        })
+    }
+
+    /// Полная телеметрия: на `aura-engine` читает `/traffic/telemetry` (приложения
+    /// с закрытыми соединениями + TCP/QUIC/TUN потери), на `sing-box` откатывается
+    /// на `/connections` с разбором `processPath` и `chains`.
+    pub async fn telemetry(&self) -> Result<crate::stats::TelemetrySnapshot> {
+        use crate::stats::{OpenConnSample, TelemetryApp, TelemetryNet, TelemetrySnapshot};
+
+        if self.fast_telemetry.load(Ordering::Relaxed) {
+            match self.request(reqwest::Method::GET, "/traffic/telemetry").send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(body) = resp.json::<FastTelemetryResponse>().await {
+                        let has_net = body.network.is_some();
+                        let net = body
+                            .network
+                            .map(|n| TelemetryNet {
+                                tun_rx_packets: n.tun_rx_packets,
+                                tun_tx_packets: n.tun_tx_packets,
+                                tun_dropped: n.tun_dropped,
+                                udp_dropped: n.udp_dropped,
+                                tcp_bytes_out: n.tcp_bytes_out,
+                                tcp_bytes_in: n.tcp_bytes_in,
+                                tcp_bytes_retrans: n.tcp_bytes_retrans,
+                                tcp_retrans_events: n.tcp_retrans_events,
+                                tcp_rtt_us_sum: n.tcp_rtt_us_sum,
+                                tcp_rtt_samples: n.tcp_rtt_samples,
+                                quic_packets_sent: n.quic_packets_sent,
+                                quic_packets_lost: n.quic_packets_lost,
+                                dial_ok: n.dial_ok,
+                                dial_fail: n.dial_fail,
+                                relay_errors: n.relay_errors,
+                            })
+                            .unwrap_or_default();
+                        let apps = body
+                            .apps
+                            .into_iter()
+                            .map(|a| TelemetryApp {
+                                path: a.path,
+                                down: a.down,
+                                up: a.up,
+                                proxy_down: a.proxy_down,
+                                proxy_up: a.proxy_up,
+                                active_conns: a.active_conns,
+                                total_conns: a.total_conns,
+                                errors: a.errors,
+                            })
+                            .collect();
+                        return Ok(TelemetrySnapshot {
+                            download: body.download_total,
+                            upload: body.upload_total,
+                            proxy_download: body.proxy_download_total,
+                            proxy_upload: body.proxy_upload_total,
+                            direct_download: body.direct_download_total,
+                            direct_upload: body.direct_upload_total,
+                            connections: body.connections_count,
+                            has_net_metrics: has_net,
+                            net,
+                            apps_cumulative: true,
+                            apps,
+                            open_conns: Vec::new(),
+                        });
+                    }
+                }
+                Ok(resp)
+                    if resp.status() == reqwest::StatusCode::NOT_FOUND
+                        || resp.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED =>
+                {
+                    self.fast_telemetry.store(false, Ordering::Relaxed);
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+
+        let body: ConnectionsResponse = self
+            .request(reqwest::Method::GET, "/connections")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let raw_conns = body.connections.unwrap_or_default();
+        let count = raw_conns.len();
+        let open_conns = raw_conns
+            .into_iter()
+            .map(|c| {
+                let id = c["id"].as_str().unwrap_or_default().to_string();
+                let path = c["metadata"]["processPath"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                let first_chain = c["chains"]
+                    .as_array()
+                    .and_then(|arr| arr.first())
+                    .and_then(|v| v.as_str());
+                let is_proxy = !matches!(first_chain, None | Some("direct") | Some("block"));
+                let down = c["download"].as_u64().unwrap_or(0);
+                let up = c["upload"].as_u64().unwrap_or(0);
+                OpenConnSample {
+                    id,
+                    path,
+                    is_proxy,
+                    down,
+                    up,
+                }
+            })
+            .collect();
+        Ok(TelemetrySnapshot {
+            download: body.download_total,
+            upload: body.upload_total,
+            connections: count,
+            apps_cumulative: false,
+            open_conns,
+            ..Default::default()
         })
     }
 

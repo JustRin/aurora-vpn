@@ -289,6 +289,8 @@ export global Conf {
     in-out property <int> balancer-interval: 1;
     in-out property <int> balancer-tolerance: 1;
     in-out property <int> sub-auto: 2;      // 0 никогда … 4 раз в сутки
+    // 0 только сессия, 1 — 7 дн., 2 — 1 мес. (по умолчанию), 3 — 3 мес., 4 — 1 год.
+    in-out property <int> stats-retention: 2;
 
     // 0 как в системе, дальше по порядку Str.LANGS: 1 ru, 2 en, 3 zh, 4 ja,
     // 5 ko, 6 ar, 7 pt.
@@ -413,4 +415,132 @@ export global Draft {
     out property <bool> needs-password: protocol >= 2 && protocol <= 6;
     out property <bool> has-transport: protocol <= 3;
     out property <bool> locked-protocol: protocol >= 7;
+}
+
+// -------------------------------------------------- расширенная статистика
+
+export struct StatsAppRow {
+    key: string,
+    name: string,
+    initial: string,
+    icon: image,
+    path: string,
+    total: string,
+    down: string,
+    up: string,
+    peak: string,
+    vpn-share: float,
+    total-share: float,
+    share-text: string,
+    vpn-text: string,
+    conns: string,
+    errors: int,
+    selected: bool,
+}
+
+export struct StatsServerRow {
+    id: string,
+    name: string,
+    proto: string,
+    health: string, // good | warn | bad
+    duration: string,
+    traffic: string,
+    speed: string,
+    latency: string,
+    loss-text: string,
+    loss-tier: string, // good | ok | bad
+    drops-text: string,
+    selected: bool,
+}
+
+export struct StatsSessionRow {
+    id: string,
+    date-text: string,
+    duration: string,
+    server: string,
+    traffic: string,
+    latency: string,
+    loss-text: string,
+    loss-tier: string,
+    active: bool,
+}
+
+export struct StatsServerBand {
+    start-frac: float,
+    width-frac: float,
+    color-idx: int,
+    label: string,
+}
+
+export global Stats {
+    in-out property <bool> open: false;
+    // 0 Сессия, 1 1ч, 2 24ч, 3 7дн, 4 30дн, 5 выбранная сессия
+    in-out property <int> range: 0;
+    // 0 Скорость, 1 Потери, 2 Задержка
+    in-out property <int> metric: 0;
+    // 0 Приложения, 1 VPN-серверы, 2 Сессии
+    in-out property <int> tab: 0;
+    in-out property <int> server-filter-idx: 0;
+    in-out property <[string]> server-filter-options;
+    // 0 Все, 1 VPN, 2 Напрямую
+    in-out property <int> route-filter: 0;
+    in-out property <string> app-search;
+    in-out property <string> selected-app-name;
+
+    in-out property <bool> has-data: false;
+    in-out property <string> period-label;
+
+    in-out property <string> kpi-traffic: "0 Б";
+    in-out property <string> kpi-traffic-foot;
+    in-out property <string> kpi-speed: "0 Б/с";
+    in-out property <string> kpi-speed-foot;
+    in-out property <string> kpi-latency: "—";
+    in-out property <string> kpi-latency-foot;
+    in-out property <string> kpi-loss: "0%";
+    in-out property <string> kpi-loss-foot;
+    in-out property <string> kpi-loss-tier: "good";
+
+    in-out property <length> chart-w: 720px;
+    in-out property <string> primary-area;
+    in-out property <string> primary-line;
+    in-out property <string> secondary-area;
+    in-out property <string> secondary-line;
+    in-out property <string> app-line;
+    in-out property <string> y-max-label;
+    in-out property <string> y-mid-label;
+    in-out property <string> x-start-label;
+    in-out property <string> x-mid-label;
+    in-out property <string> x-end-label;
+    in-out property <[StatsServerBand]> server-bands;
+
+    in-out property <bool> cursor-visible: false;
+    in-out property <bool> pinned: false;
+    in-out property <float> cursor-frac: 0.0;
+    in-out property <string> cursor-time;
+    in-out property <string> cursor-server;
+    in-out property <string> cursor-primary;
+    in-out property <string> cursor-secondary;
+    in-out property <string> cursor-top-apps;
+    in-out property <string> pinned-banner;
+
+    in-out property <[StatsAppRow]> apps;
+    in-out property <[StatsServerRow]> servers;
+    in-out property <[StatsSessionRow]> sessions;
+    in-out property <string> storage-text: "0 Б";
+
+    callback open-page(int);
+    callback close-page();
+    callback refresh();
+    callback set-range(int);
+    callback set-metric(int);
+    callback set-server-filter(int);
+    callback set-route-filter(int);
+    callback set-app-search(string);
+    callback toggle-app(string);
+    callback select-server-row(string);
+    callback select-session(int);
+    callback hover-chart(float);
+    callback click-chart(float);
+    callback unpin();
+    callback clear-history();
 }

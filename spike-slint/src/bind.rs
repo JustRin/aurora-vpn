@@ -52,6 +52,8 @@ const NETWORKS: [Network; 5] = [
 const LOG_LEVELS: [&str; 5] = ["trace", "debug", "info", "warn", "error"];
 /// Значения выпадающего списка автообновления подписок, в минутах.
 const SUB_AUTO_MINUTES: [u32; 5] = [0, 180, 360, 720, 1440];
+/// Срок хранения статистики на диске, в днях (0 — только текущая сессия).
+const STATS_RETENTION_DAYS: [u32; 5] = [0, 7, 30, 90, 365];
 /// Период обхода серверов балансировщиком, в минутах, — по порядку списка в
 /// settings.slint.
 const BALANCER_MINUTES: [u32; 5] = [1, 3, 5, 10, 30];
@@ -157,6 +159,7 @@ pub fn install(ui: &AppWindow) -> Result<AppHandle> {
     view::render_logs(ui, &logs);
 
     wire(ui, &handle, &local);
+    crate::stats_view::wire(ui, &handle);
     Ok(handle)
 }
 
@@ -266,6 +269,12 @@ fn write_settings(ui: &AppWindow, s: &Settings, autostart: AutostartMode) {
             .position(|m| *m == s.sub_auto_update_min)
             .unwrap_or(4) as i32,
     );
+    conf.set_stats_retention(
+        STATS_RETENTION_DAYS
+            .iter()
+            .position(|d| *d == s.stats_retention_days)
+            .unwrap_or(2) as i32,
+    );
     // 0 — «как в системе», дальше по порядку crate::LANGS.
     conf.set_language(
         crate::LANGS
@@ -339,6 +348,10 @@ fn read_settings(ui: &AppWindow, current: &Settings) -> Settings {
             .get(conf.get_sub_auto().max(0) as usize)
             .copied()
             .unwrap_or(1440),
+        stats_retention_days: STATS_RETENTION_DAYS
+            .get(conf.get_stats_retention().max(0) as usize)
+            .copied()
+            .unwrap_or(30),
         language: match conf.get_language() {
             n if n >= 1 => crate::LANGS
                 .get(n as usize - 1)
@@ -1328,6 +1341,7 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
     // свои перечитает сама.
     data.on_relabel({
         let weak = ui.as_weak();
+        let handle = handle.clone();
         move || {
             let Some(ui) = weak.upgrade() else { return };
             crate::reload_lang(&ui);
@@ -1336,6 +1350,7 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
             view::render_subs(&ui);
             view::render_traffic(&ui);
             view::render_uptime(&ui);
+            crate::stats_view::relabel(&ui, &handle);
             crate::shell::relabel();
         }
     });
@@ -1388,7 +1403,13 @@ fn wire(ui: &AppWindow, handle: &AppHandle, local: &Rc<Local>) {
                             let _ = crate::sys::notify::ensure_registered();
                         });
                     }
-                    run(&handle, move |h| async move { api::save_settings(h, next).await });
+                    let reporter = handle.clone();
+                    run(&handle, move |h| async move {
+                        let res = api::save_settings(h, next).await;
+                        let r = reporter.clone();
+                        reporter.with_ui(move |ui| crate::stats_view::refresh_storage(ui, &r));
+                        res
+                    });
                 }
             });
         }

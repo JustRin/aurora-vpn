@@ -21,6 +21,8 @@ mod qr;
 mod settings;
 mod shell;
 mod state;
+mod stats;
+mod stats_view;
 mod store;
 mod sys;
 mod view;
@@ -106,6 +108,18 @@ struct Lang {
     qr_found_many: String,
     clipboard_empty: String,
     paste_failed: String,
+    stats_all_servers: String,
+    stats_system_other: String,
+    stats_moment_prefix: String,
+    stats_drops_fmt: String,
+    stats_jitter_fmt: String,
+    stats_vpn_direct_fmt: String,
+    stats_speed_foot_fmt: String,
+    stats_conns_short: String,
+    stats_loss_word: String,
+    stats_route_direct: String,
+    stats_cleared_toast: String,
+    set_stats_days_short: String,
 }
 
 impl Lang {
@@ -174,6 +188,18 @@ impl Lang {
             qr_found_many: s.get_qr_found_many().into(),
             clipboard_empty: s.get_srv_clipboard_empty().into(),
             paste_failed: s.get_srv_paste_failed().into(),
+            stats_all_servers: s.get_stats_all_servers().into(),
+            stats_system_other: s.get_stats_system_other().into(),
+            stats_moment_prefix: s.get_stats_moment_prefix().into(),
+            stats_drops_fmt: s.get_stats_drops_fmt().into(),
+            stats_jitter_fmt: s.get_stats_jitter_fmt().into(),
+            stats_vpn_direct_fmt: s.get_stats_vpn_direct_fmt().into(),
+            stats_speed_foot_fmt: s.get_stats_speed_foot_fmt().into(),
+            stats_conns_short: s.get_stats_conns_short().into(),
+            stats_loss_word: s.get_stats_loss_word().into(),
+            stats_route_direct: s.get_stats_route_direct().into(),
+            stats_cleared_toast: s.get_stats_cleared_toast().into(),
+            set_stats_days_short: s.get_set_stats_days_short().into(),
         }
     }
 
@@ -253,6 +279,17 @@ fn sync_icons(ui: &AppWindow) {
         }
         if let Some(icon) = icons::get(&row.name, &row.path, size) {
             procs.set_row_data(i, RunningApp { icon, ..row });
+        }
+    }
+
+    let stats_apps = ui.global::<Stats>().get_apps();
+    for i in 0..stats_apps.row_count() {
+        let Some(row) = stats_apps.row_data(i) else { continue };
+        if row.path.is_empty() || row.icon.size().width == size {
+            continue;
+        }
+        if let Some(icon) = icons::get_rule(&row.name, &row.path, size) {
+            stats_apps.set_row_data(i, StatsAppRow { icon, ..row });
         }
     }
 }
@@ -527,6 +564,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Часы аптайма идут сами: ядро о них не сообщает, оно отдаёт лишь момент
     // подключения.
     let weak = ui.as_weak();
+    let stats_handle = handle.clone();
     let uptime_timer = slint::Timer::default();
     uptime_timer.start(
         slint::TimerMode::Repeated,
@@ -534,6 +572,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move || {
             if let Some(ui) = weak.upgrade() {
                 view::render_uptime(&ui);
+                stats_view::tick(&ui, &stats_handle);
             }
         },
     );

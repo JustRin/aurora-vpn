@@ -1,3 +1,4 @@
+import { ArrowUpRight } from "lucide-react";
 import { useMemo } from "react";
 
 import { speed } from "../lib/format";
@@ -40,10 +41,13 @@ function toArea(path: string): string {
 export function TrafficGraph({
   history,
   bleed,
+  onClick,
 }: {
   history: TrafficSample[];
   /** Fill the container edge to edge, without the legend header. */
   bleed?: boolean;
+  /** Opens the extended statistics view when the graph is clicked. */
+  onClick?: () => void;
 }) {
   const t = useT();
   const { downPath, upPath, downArea, upArea, peak } = useMemo(() => {
@@ -63,7 +67,23 @@ export function TrafficGraph({
   }, [history]);
 
   return (
-    <div className={bleed ? "spark-wrap" : undefined}>
+    <div
+      className={`${bleed ? "spark-wrap" : ""}${onClick ? " clickable" : ""}`.trim() || undefined}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      title={onClick ? t("stats.openHint") : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
       {!bleed && (
         <div className="row between" style={{ marginBottom: 8 }}>
           <div className="legend">
@@ -90,7 +110,14 @@ export function TrafficGraph({
               <i style={{ background: "var(--chart-up)" }} /> {t("graph.up")}
             </span>
           </div>
-          <span>{t("graph.peak")} {speed(peak)}</span>
+          <div className="spark-right">
+            <span>{t("graph.peak")} {speed(peak)}</span>
+            {onClick && (
+              <span className="spark-cue">
+                {t("stats.openHint")} <ArrowUpRight size={11} />
+              </span>
+            )}
+          </div>
         </div>
       )}
 

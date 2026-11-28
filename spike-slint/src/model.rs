@@ -401,8 +401,11 @@ impl ServerNode {
     fn tls_block(&self) -> Option<Value> {
         // hysteria2/tuic are QUIC-based and always need a TLS block, even when
         // the share link omits `security=tls`.
-        // Veil is HTTP/2 to a website: TLS is the disguise itself.
-        let forced = matches!(self.protocol, Protocol::Hysteria2 | Protocol::Tuic | Protocol::Veil);
+        // Veil is HTTP/2 to a website; MASQUE always rides over TLS (H3/H2).
+        let forced = matches!(
+            self.protocol,
+            Protocol::Hysteria2 | Protocol::Tuic | Protocol::Veil | Protocol::Masque
+        );
         if self.security == Security::None && !forced {
             return None;
         }
@@ -450,7 +453,7 @@ impl ServerNode {
         Some(Value::Object(tls))
     }
 
-    fn transport_block(&self) -> Option<Value> {
+    fn transport_block_for(&self, aura_native: bool) -> Option<Value> {
         match self.network {
             Network::Tcp => None,
             Network::Ws => {
@@ -498,9 +501,20 @@ impl ServerNode {
                 }
                 Some(Value::Object(t))
             }
-            // Never reached in practice: `needs_xray` diverts these nodes to the
-            // Xray engine before a sing-box outbound is ever built for them.
-            Network::Xhttp => None,
+            // sing-box не знает `xhttp` и требует сайдкар Xray; aura-engine
+            // поднимает XHTTP нативно без внешнего процесса.
+            Network::Xhttp => {
+                if !aura_native {
+                    return None;
+                }
+                let mut t = Map::new();
+                t.insert("type".into(), json!("xhttp"));
+                t.insert("path".into(), json!(core_path(&self.path)));
+                if !self.host.is_empty() {
+                    t.insert("host".into(), json!(self.host));
+                }
+                Some(Value::Object(t))
+            }
             Network::Httpupgrade => {
                 let mut t = Map::new();
                 t.insert("type".into(), json!("httpupgrade"));
@@ -517,7 +531,15 @@ impl ServerNode {
     ///
     /// `domain_resolver` is pinned to the direct DNS server: without it the core
     /// would try to resolve the proxy's own hostname through the proxy itself.
+    #[allow(dead_code)]
     pub fn to_outbound(&self, tag: &str, domain_resolver: &str) -> Value {
+        self.to_outbound_for(tag, domain_resolver, false)
+    }
+
+    /// То же самое, но с флагом `aura_native`: для встроенного `aura-engine`
+    /// напрямую отдаются VLESS Encryption, транспорт `xhttp` и протокол `masque`
+    /// без запуска внешнего `xray.exe`.
+    pub fn to_outbound_for(&self, tag: &str, domain_resolver: &str, aura_native: bool) -> Value {
         let mut o = Map::new();
         o.insert("type".into(), json!(self.protocol.as_singbox()));
         o.insert("tag".into(), json!(tag));
@@ -527,8 +549,14 @@ impl ServerNode {
         match self.protocol {
             Protocol::Vless => {
                 o.insert("uuid".into(), json!(self.uuid));
-                // `flow` is only meaningful over a real TLS/REALITY handshake.
-                if self.security != Security::None {
+                let has_enc = aura_native
+                    && !self.encryption.is_empty()
+                    && !self.encryption.eq_ignore_ascii_case("none");
+                if has_enc {
+                    o.insert("encryption".into(), json!(self.encryption));
+                }
+                // `flow` is only meaningful over TLS/REALITY or VLESS Encryption.
+                if self.security != Security::None || has_enc {
                     if let Some(flow) = core_flow(&self.flow) {
                         o.insert("flow".into(), json!(flow));
                     }
@@ -580,9 +608,23 @@ impl ServerNode {
             // Never reached: `is_endpoint` sends these nodes to `to_endpoint`
             // before an outbound is ever built for them.
             Protocol::Wireguard | Protocol::Amneziawg => {}
-            // Never reached either: `needs_xray` hands MASQUE to the Xray
-            // engine, and sing-box only sees its loopback SOCKS port.
-            Protocol::Masque => {}
+            // На sing-box MASQUE идёт через сайдкар Xray, а на aura-engine — нативно.
+            Protocol::Masque => {
+                if aura_native {
+                    if !self.path.is_empty() {
+                        o.insert("path".into(), json!(self.path));
+                    }
+                    if !self.host.is_empty() {
+                        o.insert("host".into(), json!(self.host));
+                    }
+                    if !self.username.is_empty() {
+                        o.insert("username".into(), json!(self.username));
+                    }
+                    if !self.password.is_empty() {
+                        o.insert("password".into(), json!(self.password));
+                    }
+                }
+            }
             // aura-engine's own type; only that core is ever given it.
             Protocol::Veil => {
                 o.insert("password".into(), json!(self.password));
@@ -594,9 +636,9 @@ impl ServerNode {
             o.insert("tls".into(), tls);
         }
 
-        // QUIC-based protocols carry their own framing and reject a transport block.
-        if !matches!(self.protocol, Protocol::Hysteria2 | Protocol::Tuic) {
-            if let Some(t) = self.transport_block() {
+        // QUIC/CONNECT-IP protocols carry their own framing and reject a transport block.
+        if !matches!(self.protocol, Protocol::Hysteria2 | Protocol::Tuic | Protocol::Masque) {
+            if let Some(t) = self.transport_block_for(aura_native) {
                 o.insert("transport".into(), t);
             }
         }

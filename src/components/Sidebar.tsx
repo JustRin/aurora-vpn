@@ -158,11 +158,12 @@ export function Sidebar({
   const coreVersion = useStore((s) => s.coreVersion);
   const appVersion = useStore((s) => s.appVersion);
   const elevated = useStore((s) => s.status.elevated);
+  const activeNav: PageId = page === "stats" ? "dashboard" : page;
   const {
     hostRef: navRef,
     pill,
     placed,
-  } = useSlidingPill<HTMLElement>(".nav-item.active", page);
+  } = useSlidingPill<HTMLElement>(".nav-item.active", activeNav);
 
   return (
     <aside className="sidebar">
@@ -184,7 +185,7 @@ export function Sidebar({
           <button
             key={id}
             type="button"
-            className={`nav-item${page === id ? " active" : ""}`}
+            className={`nav-item${activeNav === id ? " active" : ""}`}
             onClick={() => onNavigate(id)}
           >
             <Icon size={17} />

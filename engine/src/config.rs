@@ -106,13 +106,20 @@ pub struct OutboundOpts {
     pub password: String,
     pub method: String,
     pub flow: String,
+    /// VLESS Encryption (`mlkem768x25519plus.<mode>.<rtt>....`).
+    pub encryption: String,
     pub security: String,
     pub alter_id: u32,
     pub packet_encoding: String,
     pub username: String,
     pub version: String,
-    /// Veil: путь туннеля на сайте.
+    /// Veil / MASQUE: путь туннеля на сайте.
     pub path: String,
+    /// MASQUE: переопределение заголовка `:authority` / `Host`.
+    pub host: String,
+    /// MASQUE: адреса удалённого DNS внутри CONNECT-IP туннеля.
+    #[serde(deserialize_with = "listable")]
+    pub remote_dns: Vec<String>,
     pub tls: Option<TlsOpts>,
     pub transport: Option<TransportOpts>,
     pub multiplex: Option<Value>,
@@ -172,6 +179,8 @@ pub struct TransportOpts {
     pub headers: HashMap<String, Value>,
     pub host: Value,
     pub service_name: String,
+    /// XHTTP: `auto` (по умолчанию), `stream-one`, `packet-up`, `stream-up`.
+    pub mode: String,
 }
 
 #[derive(Debug, Default, Deserialize)]

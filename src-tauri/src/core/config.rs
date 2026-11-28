@@ -833,6 +833,8 @@ pub fn build(input: &BuildInput) -> Result<BuiltConfig> {
     }
     route.insert("final".into(), json!(route_final));
     route.insert("auto_detect_interface".into(), json!(true));
+    #[cfg(not(target_os = "android"))]
+    route.insert("find_process".into(), json!(true));
     route.insert("default_domain_resolver".into(), json!(TAG_DNS_DIRECT));
 
     // ------------------------------------------------------------------ assemble

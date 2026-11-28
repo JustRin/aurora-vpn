@@ -1,10 +1,12 @@
-//! Путь до сервера: TCP → TLS/REALITY → WebSocket или HTTP Upgrade.
+//! Путь до сервера: TCP → TLS/REALITY → WebSocket, HTTP Upgrade или XHTTP.
 
 pub mod ws;
+pub mod xhttp;
 
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -18,6 +20,7 @@ pub enum Transport {
     Tcp,
     Ws(ws::WsOptions),
     HttpUpgrade(ws::WsOptions),
+    Xhttp(xhttp::XhttpState),
 }
 
 pub struct Upstream {
@@ -97,10 +100,15 @@ fn parse_transport(opts: &TransportOpts) -> Result<Transport, String> {
         }
     }
     let path = if opts.path.is_empty() { "/".to_string() } else { opts.path.clone() };
-    let options = ws::WsOptions { path, host, headers };
     match opts.kind.as_str() {
-        "ws" => Ok(Transport::Ws(options)),
-        "httpupgrade" => Ok(Transport::HttpUpgrade(options)),
+        "ws" => Ok(Transport::Ws(ws::WsOptions { path, host, headers })),
+        "httpupgrade" => Ok(Transport::HttpUpgrade(ws::WsOptions { path, host, headers })),
+        "xhttp" | "splithttp" => Ok(Transport::Xhttp(xhttp::XhttpState::new(xhttp::XhttpOptions {
+            path,
+            host,
+            headers,
+            mode: opts.mode.clone(),
+        }))),
         other => Err(format!("транспорт {other} пока не поддержан")),
     }
 }
@@ -111,11 +119,12 @@ impl Upstream {
             Some(t) => parse_transport(t)?,
             None => Transport::Tcp,
         };
-        // Поверх TLS WebSocket обязан договориться о http/1.1: на h2 сервер не
-        // ответит 101. Так же поступает sing-box.
+        // Поверх TLS WebSocket обязан договориться о http/1.1; XHTTP по умолчанию
+        // идёт по h2 (если ссылка не указала явно `http/1.1` или `h3`).
         let default_alpn: &[&str] = match transport {
             Transport::Tcp => &[],
-            _ => &["http/1.1"],
+            Transport::Xhttp(_) => &["h2"],
+            Transport::Ws(_) | Transport::HttpUpgrade(_) => &["http/1.1"],
         };
         let tls = match &o.tls {
             Some(t) if t.enabled => Some(tls_config(t, &o.server, default_alpn)?),
@@ -136,7 +145,7 @@ impl Upstream {
         if addrs.is_empty() {
             return Err(other(format!("{}: нет адресов", self.server)));
         }
-        Ok(Box::new(tcp_connect_any(addrs).await?))
+        Ok(Box::new(crate::metrics::TrackedTcpStream::new(tcp_connect_any(addrs).await?)))
     }
 
     /// TLS-слой с повторным дозвоном по двум известным поводам: отказ короткому
@@ -175,6 +184,29 @@ impl Upstream {
     }
 
     pub async fn open(&self) -> io::Result<BoxStream> {
+        if let Transport::Xhttp(state) = &self.transport {
+            let server = self.server.clone();
+            let port = self.port;
+            let tls = self.tls.clone();
+            let dial_base: xhttp::DialBaseFn = Arc::new(move || {
+                let server = server.clone();
+                let tls = tls.clone();
+                Box::pin(async move {
+                    let up = Upstream {
+                        server,
+                        port,
+                        tls: tls.clone(),
+                        transport: Transport::Tcp,
+                        pq_rejected: Default::default(),
+                    };
+                    match &up.tls {
+                        Some(cfg) => up.tls_layer(cfg).await,
+                        None => up.tcp().await,
+                    }
+                })
+            });
+            return xhttp::connect(state, &self.server, self.port, self.tls.as_ref(), dial_base).await;
+        }
         let base = match &self.tls {
             Some(cfg) => self.tls_layer(cfg).await?,
             None => self.tcp().await?,
@@ -183,6 +215,7 @@ impl Upstream {
             Transport::Tcp => Ok(base),
             Transport::Ws(options) => ws::connect(base, options, &self.server, false).await,
             Transport::HttpUpgrade(options) => ws::connect(base, options, &self.server, true).await,
+            Transport::Xhttp(_) => unreachable!(),
         }
     }
 

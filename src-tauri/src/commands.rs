@@ -309,8 +309,15 @@ fn start_xray_if_needed(app: &AppHandle) -> Result<HashMap<String, u16>> {
 fn start_xray(app: &AppHandle) -> Result<HashMap<String, u16>> {
     let (mut nodes, log_level) = {
         let state = app.state::<AppState>();
-        let nodes = effective_nodes(&state);
-        let level = state.settings.read().log_level.clone();
+        let mut nodes = effective_nodes(&state);
+        let settings = state.settings.read();
+        // В ручном режиме (без автобалансировщика) поднимаем Xray только для
+        // выбранного узла, а не для сотен неиспользуемых серверов из списка.
+        if settings.balancer == Balancer::Manual {
+            let active = state.resolve_active_id();
+            nodes.retain(|n| n.id == active);
+        }
+        let level = settings.log_level.clone();
         (nodes, level)
     };
 
@@ -611,10 +618,10 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
                 state.fast_crashes.store(0, Ordering::SeqCst);
             }
 
-            let totals = match api.totals().await {
-                Ok(totals) => {
+            let snap = match api.telemetry().await {
+                Ok(snap) => {
                     failures = 0;
-                    totals
+                    snap
                 }
                 Err(_) => {
                     // Мёртвый процесс распознаётся на первом же промахе:
@@ -641,24 +648,25 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
             };
 
             let now = Instant::now();
-            let (up_speed, down_speed) = match previous {
+            let (up_speed, down_speed, elapsed_secs) = match previous {
                 Some((prev_up, prev_down, at)) => {
                     let seconds = now.duration_since(at).as_secs_f64().max(0.001);
                     (
-                        ((totals.upload.saturating_sub(prev_up)) as f64 / seconds) as u64,
-                        ((totals.download.saturating_sub(prev_down)) as f64 / seconds) as u64,
+                        ((snap.upload.saturating_sub(prev_up)) as f64 / seconds) as u64,
+                        ((snap.download.saturating_sub(prev_down)) as f64 / seconds) as u64,
+                        seconds,
                     )
                 }
-                None => (0, 0),
+                None => (0, 0, 1.0),
             };
-            previous = Some((totals.upload, totals.download, now));
+            previous = Some((snap.upload, snap.download, now));
 
             let traffic = Traffic {
-                upload: totals.upload,
-                download: totals.download,
+                upload: snap.upload,
+                download: snap.download,
                 up_speed,
                 down_speed,
-                connections: totals.connections,
+                connections: snap.connections,
             };
             {
                 let state = app.state::<AppState>();
@@ -666,6 +674,11 @@ fn spawn_traffic_poller(app: AppHandle, session: u64) {
                     return;
                 }
                 *state.traffic.write() = traffic;
+                let server = active_server_context(&state);
+                let cur_lat = state.latency.read().get(&server.id).copied().flatten();
+                state
+                    .stats
+                    .record_tick(now_ms(), elapsed_secs, server, &snap, cur_lat);
             }
             let _ = app.emit(EVT_TRAFFIC, traffic);
         }
@@ -743,21 +756,32 @@ fn spawn_engine_probe(app: AppHandle, session: u64) {
         // Let the engines finish their own start-up before judging them.
         tokio::time::sleep(Duration::from_secs(3)).await;
 
-        let (ports, nodes) = {
+        let (ports, nodes, active_id) = {
             let state = app.state::<AppState>();
             if state.session.load(Ordering::SeqCst) != session {
                 return;
             }
-            let snapshot = (state.xray_ports.read().clone(), state.nodes.read().clone());
+            let active = {
+                let s = state.status.read();
+                if !s.routed_id.is_empty() {
+                    s.routed_id.clone()
+                } else {
+                    state.resolve_active_id()
+                }
+            };
+            let snapshot = (state.xray_ports.read().clone(), state.nodes.read().clone(), active);
             snapshot
         };
         if ports.is_empty() {
             return;
         }
+        let Some(&active_port) = ports.get(&active_id) else {
+            return;
+        };
 
         let mut demoted: Vec<(String, String, String)> = Vec::new();
-        for (id, port) in &ports {
-            let Some(node) = nodes.iter().find(|n| &n.id == id) else {
+        for (id, port) in [(active_id, active_port)] {
+            let Some(node) = nodes.iter().find(|n| n.id == id) else {
                 continue;
             };
             // Two attempts: the first can race the server's own warm-up.
@@ -766,7 +790,7 @@ fn spawn_engine_probe(app: AppHandle, session: u64) {
                 if attempt > 0 {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
-                if socks_probe(*port).await {
+                if socks_probe(port).await {
                     ok = true;
                     break;
                 }
@@ -829,6 +853,7 @@ fn spawn_engine_probe(app: AppHandle, session: u64) {
 fn shutdown(app: &AppHandle, message: &str) {
     let state = app.state::<AppState>();
     state.session.fetch_add(1, Ordering::SeqCst);
+    state.stats.end_session();
 
     {
         let mut core = state.core.lock();
@@ -1164,19 +1189,28 @@ fn spawn_balancer(app: AppHandle, session: u64) {
                     if state.session.load(Ordering::SeqCst) != session {
                         return;
                     }
-                    let verdict = {
+                    let (verdict, routed_probe) = {
                         let mut guard = state.balancer.lock();
-                        guard.as_mut().and_then(|brain| {
+                        let mut rp = None;
+                        let v = guard.as_mut().and_then(|brain| {
                             brain.report_batch(&results, Instant::now());
                             // О связи судят только по проверке текущего узла:
                             // обход остальных о нём ничего не говорит.
                             let routed = brain.routed();
-                            results
-                                .iter()
-                                .any(|(tag, _)| tag == routed)
-                                .then(|| (brain.routed_alive(), brain.routed_down()))
-                        })
+                            if let Some((_, val)) = results.iter().find(|(tag, _)| tag == routed) {
+                                rp = Some((routed.to_string(), *val));
+                                Some((brain.routed_alive(), brain.routed_down()))
+                            } else {
+                                None
+                            }
+                        });
+                        (v, rp)
                     };
+                    if let Some((routed_tag, val)) = routed_probe {
+                        if let Some(id) = id_of(&state, &routed_tag) {
+                            state.stats.record_probe(&id, val);
+                        }
+                    }
                     publish_latency(&app, &results);
                     if let Some((alive, down)) = verdict {
                         note_link(&app, alive, down);
@@ -1448,6 +1482,10 @@ async fn attach_session(
         s.link = Link::Connecting;
         s.system_proxy = tunnel_mode == TunnelMode::SystemProxy;
     });
+    {
+        let state = app.state::<AppState>();
+        state.stats.start_session(active_server_context(&state), since_ms);
+    }
 
     spawn_traffic_poller(app.clone(), session);
     spawn_engine_probe(app.clone(), session);
@@ -1697,6 +1735,7 @@ async fn restart_if_running(app: &AppHandle) -> Result<()> {
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
     let tunnel_mode = settings.tunnel_mode;
+    let stats_retention = settings.stats_retention_days;
     #[cfg(desktop)]
     let language_changed = {
         let state = app.state::<AppState>();
@@ -1713,6 +1752,7 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
         let state = app.state::<AppState>();
         *state.settings.write() = settings;
         state.save_settings()?;
+        state.stats.set_retention_days(stats_retention);
     }
     #[cfg(desktop)]
     if language_changed {
@@ -1737,6 +1777,71 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<()> {
     Ok(())
 }
 
+fn protocol_label(p: Protocol) -> &'static str {
+    match p {
+        Protocol::Vless => "VLESS",
+        Protocol::Vmess => "VMess",
+        Protocol::Trojan => "Trojan",
+        Protocol::Shadowsocks => "Shadowsocks",
+        Protocol::Hysteria2 => "Hysteria2",
+        Protocol::Tuic => "TUIC",
+        Protocol::Wireguard => "WireGuard",
+        Protocol::Amneziawg => "AmneziaWG",
+        Protocol::Masque => "MASQUE",
+        Protocol::Veil => "Veil",
+    }
+}
+
+fn active_server_context(state: &AppState) -> crate::stats::ServerContext {
+    let status = state.status.read();
+    let id = if !status.routed_id.is_empty() {
+        status.routed_id.clone()
+    } else {
+        status.active_id.clone()
+    };
+    drop(status);
+    if let Some(node) = state.nodes.read().iter().find(|n| n.id == id) {
+        crate::stats::ServerContext {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            proto: protocol_label(node.protocol).to_string(),
+        }
+    } else {
+        crate::stats::ServerContext {
+            id,
+            name: String::new(),
+            proto: String::new(),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_stats_report(
+    app: AppHandle,
+    query: crate::stats::StatsQuery,
+) -> Result<crate::stats::StatsReport> {
+    let stats = app.state::<AppState>().stats.clone();
+    tokio::task::spawn_blocking(move || stats.query(&query))
+        .await
+        .map_err(|e| AppError::msg(format!("статистика: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_stats_storage(app: AppHandle) -> Result<crate::stats::StorageInfo> {
+    let stats = app.state::<AppState>().stats.clone();
+    tokio::task::spawn_blocking(move || stats.storage_info())
+        .await
+        .map_err(|e| AppError::msg(format!("статистика: {e}")))
+}
+
+#[tauri::command]
+pub async fn clear_stats_history(app: AppHandle) -> Result<crate::stats::StorageInfo> {
+    let stats = app.state::<AppState>().stats.clone();
+    tokio::task::spawn_blocking(move || stats.clear_history())
+        .await
+        .map_err(|e| AppError::msg(format!("статистика: {e}")))
+}
+
 #[tauri::command]
 /// Возвращает правила в том виде, в каком они сохранены: из ссылок вырезаны
 /// хосты, адреса и домены разложены по своим спискам — форма показывает это.
@@ -1754,14 +1859,15 @@ pub async fn set_split(app: AppHandle, split: SplitConfig) -> Result<SplitConfig
 /// Выбрать сервер. Возвращает, пришлось ли ради этого выключить балансировщик.
 #[tauri::command]
 pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
-    let (api, tag, old_tag, turned_off) = {
+    let (api, tag, old_tag, turned_off, need_reconnect) = {
         let state = app.state::<AppState>();
-        {
+        let selected = {
             let nodes = state.nodes.read();
-            if !nodes.iter().any(|n| n.id == id) {
+            let Some(node) = nodes.iter().find(|n| n.id == id).cloned() else {
                 return Err(AppError::msg("сервер не найден"));
-            }
-        }
+            };
+            node
+        };
         // Выбор сервера руками — отказ от автоматики, как выбор конкретного
         // узла вместо группы в Hiddify: в списке подсвечен ровно один пункт,
         // и это тот, кто решает, куда идёт трафик. Иначе «самый быстрый»
@@ -1784,13 +1890,25 @@ pub async fn set_active_server(app: AppHandle, id: String) -> Result<bool> {
         *state.active_id.write() = id.clone();
         state.save_ui()?;
         // Сторож переезжает на новый узел; без ядра тегов нет и сторожить нечего.
-        if state.status.read().state == ConnState::Connected {
+        let connected = state.status.read().state == ConnState::Connected;
+        if connected {
             install_brain(&state);
         }
         let tag = state.tags.read().get(&id).cloned();
         let api = state.clash.read().clone();
-        (api, tag, old_tag, turned_off)
+        let need_reconnect = connected
+            && (tag.is_none()
+                || (selected.needs_xray() && !state.xray_ports.read().contains_key(&id)));
+        (api, tag, old_tag, turned_off, need_reconnect)
     };
+
+    if need_reconnect {
+        if turned_off {
+            log_line(&app, "info", "балансировщик выключен: сервер выбран вручную");
+        }
+        restart_if_running(&app).await?;
+        return Ok(turned_off);
+    }
 
     let live = api.is_some() && tag.is_some();
     set_status(&app, |s| {

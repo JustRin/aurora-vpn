@@ -1,4 +1,4 @@
-import { FolderOpen, RefreshCw } from "lucide-react";
+import { FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ElevateModal } from "../components/ElevateModal";
@@ -21,6 +21,7 @@ import {
   type Balancer,
   type LangChoice,
   type ResourceGroup,
+  type StorageInfo,
   type TunStack,
   type TunnelMode,
   type WarpInfo,
@@ -68,6 +69,22 @@ export function Settings() {
   const [askElevate, setAskElevate] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("client");
   const [usage, setUsage] = useState<ResourceGroup[]>([]);
+  const [statsStorage, setStatsStorage] = useState<StorageInfo | null>(null);
+  const [clearingStats, setClearingStats] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "client") return;
+    let alive = true;
+    void api.getStatsStorage().then(
+      (info) => {
+        if (alive) setStatsStorage(info);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [tab, settings.statsRetentionDays]);
 
   // Live only while its tab is on screen — no point enumerating the process
   // table for a card nobody is looking at.
@@ -538,6 +555,62 @@ export function Settings() {
                 />
               </>
             )}
+          </div>
+
+          <div className="section-title">{t("set.statsSection")}</div>
+          <div className="card">
+            <div className="toggle-row stack">
+              <div className="grow">
+                <div className="toggle-label">{t("set.statsRetention")}</div>
+                <div className="toggle-desc">{t("set.statsRetentionDesc")}</div>
+              </div>
+              <select
+                className="select"
+                value={String(settings.statsRetentionDays ?? 30)}
+                onChange={(e) => {
+                  const days = Number(e.target.value);
+                  void save({ statsRetentionDays: days }).then(() =>
+                    api.getStatsStorage().then(setStatsStorage, () => {}),
+                  );
+                }}
+              >
+                <option value="0">{t("set.statsRetOff")}</option>
+                <option value="7">{t("set.statsRet7d")}</option>
+                <option value="30">{t("set.statsRet30d")}</option>
+                <option value="90">{t("set.statsRet90d")}</option>
+                <option value="365">{t("set.statsRet365d")}</option>
+              </select>
+            </div>
+            <div className="toggle-row">
+              <div className="grow">
+                <div className="toggle-label">{t("set.statsStorage")}</div>
+                <div className="toggle-desc mono">
+                  {statsStorage
+                    ? `${bytes(statsStorage.bytesOnDisk)} · ${statsStorage.daysStored} ${t("set.statsDaysShort")}`
+                    : "—"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn danger sm"
+                disabled={clearingStats}
+                onClick={async () => {
+                  setClearingStats(true);
+                  try {
+                    const info = await api.clearStatsHistory();
+                    setStatsStorage(info);
+                    toast("success", t("stats.clearedToast"));
+                  } catch (e) {
+                    toast("error", t("stats.clearFailed"), errText(e));
+                  } finally {
+                    setClearingStats(false);
+                  }
+                }}
+              >
+                <Trash2 size={14} />
+                {t("set.statsClear")}
+              </button>
+            </div>
           </div>
 
           {usage.length > 0 && (

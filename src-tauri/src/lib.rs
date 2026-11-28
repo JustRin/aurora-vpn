@@ -8,6 +8,7 @@ mod net;
 mod qr;
 mod settings;
 mod state;
+mod stats;
 mod store;
 mod sys;
 mod warp;
@@ -600,6 +601,9 @@ pub fn run() {
             commands::open_screen_snip,
             commands::check_update,
             commands::install_update,
+            commands::get_stats_report,
+            commands::get_stats_storage,
+            commands::clear_stats_history,
         ])
         .build(tauri::generate_context!())
         .expect("не удалось инициализировать приложение");
@@ -631,6 +635,7 @@ pub fn run() {
             // Last chance to release the virtual adapter and restore the proxy
             // settings; skipping this strands the user without networking.
             if let Some(state) = app.try_state::<AppState>() {
+                state.stats.flush();
                 if state.status.read().system_proxy {
                     let _ = sys::sysproxy::disable();
                 }

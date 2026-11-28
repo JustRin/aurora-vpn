@@ -150,7 +150,7 @@ impl Outbound for Shadowsocks {
         target.write_socks(&mut address);
 
         Ok(Box::new(SsStream {
-            io: Box::new(stream),
+            io: Box::new(crate::metrics::TrackedTcpStream::new(stream)),
             cipher: self.cipher,
             master: self.master.clone(),
             sealer,

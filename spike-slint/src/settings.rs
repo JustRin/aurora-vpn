@@ -103,6 +103,9 @@ pub struct Settings {
     pub auto_select: bool,
     /// Minutes between automatic subscription refreshes; 0 disables it.
     pub sub_auto_update_min: u32,
+    /// Сколько дней хранить расширенную статистику на диске; 0 — только текущая
+    /// сессия в памяти. По умолчанию 30 дней (1 месяц).
+    pub stats_retention_days: u32,
     /// Разовый переезд на Aura (ноябрь 2026): прежний выбор sing-box был
     /// значением по умолчанию, а не решением. Дальше выбор пользователя.
     pub aura_default_applied: bool,
@@ -174,6 +177,7 @@ impl Default for Settings {
             // Refresh once a day out of the box: a silently stale server list is
             // the most common way one of these clients stops working.
             sub_auto_update_min: 1440,
+            stats_retention_days: 30,
         }
     }
 }
@@ -224,6 +228,7 @@ impl Settings {
             theme_dark: _,
             theme_background: _,
             sub_auto_update_min: _,
+            stats_retention_days: _,
         } = self;
 
         *tunnel_mode != next.tunnel_mode
@@ -378,6 +383,7 @@ mod tests {
             auto_connect: true,
             start_minimized: true,
             sub_auto_update_min: 0,
+            stats_retention_days: 7,
             ..base.clone()
         };
         assert!(!base.tunnel_changed(&ui));

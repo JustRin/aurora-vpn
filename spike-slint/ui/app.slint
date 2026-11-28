@@ -4,8 +4,9 @@
 
 import { Theme, Icons, Divider, NavItem, NavPill, CoreLine, WinButton, NavIcon } from "theme.slint";
 import { Toast } from "widgets.slint";
-import { Data, Conf, Ui, Draft } from "data.slint";
+import { Data, Conf, Ui, Draft, Stats } from "data.slint";
 import { DashboardPage, WarpConsentModal } from "pages/dashboard.slint";
+import { StatsPage } from "pages/stats.slint";
 import { ServersPage, ImportModal, NodeEditorModal, CameraModal, ScanBar, FreeConsentModal } from "pages/servers.slint";
 import { SplitPage, ProcessPickerModal } from "pages/split.slint";
 import { RoutingPage, ConfigModal } from "pages/routing.slint";
@@ -13,7 +14,7 @@ import { LogsPage } from "pages/logs.slint";
 import { SettingsPage, ElevateModal, OrphanModal } from "pages/settings.slint";
 import { Str } from "i18n.slint";
 
-export { Theme, Data, Conf, Ui, Draft, Str }
+export { Theme, Data, Conf, Ui, Draft, Stats, Str }
 
 // .update-badge: тихая строка сайдбара, которая появляется, только когда
 // опубликован релиз новее установленного.
@@ -190,7 +191,7 @@ export component AppWindow inherits Window {
         + "|\{Conf.ipv6 ? 1 : 0}|\{Conf.fake-ip ? 1 : 0}|\{Conf.dns-remote}|\{Conf.dns-direct}"
         + "|\{Conf.mixed-port}|\{Conf.clash-port}|\{Conf.latency-url}|\{Conf.log-level}"
         + "|\{Conf.allow-lan ? 1 : 0}|\{Conf.balancer}|\{Conf.balancer-interval}|\{Conf.balancer-tolerance}"
-        + "|\{Conf.sub-auto}|\{Conf.language}"
+        + "|\{Conf.sub-auto}|\{Conf.stats-retention}|\{Conf.language}"
         + "|\{Conf.theme}|\{Conf.autostart ? 1 : 0}|\{Conf.autostart-elevated ? 1 : 0}"
         + "|\{Conf.auto-connect ? 1 : 0}|\{Conf.start-minimized ? 1 : 0}|\{Conf.close-to-tray ? 1 : 0}"
         + "|\{Conf.notifications ? 1 : 0}";
@@ -344,38 +345,38 @@ export component AppWindow inherits Window {
                                 label: Str.nav-dashboard;
                                 icon: Icons.gauge;
                                 active: Ui.page == 0;
-                                pressed => { Ui.page = 0; }
+                                pressed => { Ui.page = 0; Stats.open = false; }
                             }
                             NavItem {
                                 label: Str.nav-servers;
                                 icon: Icons.server;
                                 badge: Data.nodes.length > 0 ? "\{Data.nodes.length}" : "";
                                 active: Ui.page == 1;
-                                pressed => { Ui.page = 1; }
+                                pressed => { Ui.page = 1; Stats.open = false; }
                             }
                             NavItem {
                                 label: Str.nav-split;
                                 icon: Icons.split;
                                 active: Ui.page == 2;
-                                pressed => { Ui.page = 2; }
+                                pressed => { Ui.page = 2; Stats.open = false; }
                             }
                             NavItem {
                                 label: Str.nav-routing;
                                 icon: Icons.list-tree;
                                 active: Ui.page == 3;
-                                pressed => { Ui.page = 3; }
+                                pressed => { Ui.page = 3; Stats.open = false; }
                             }
                             NavItem {
                                 label: Str.nav-logs;
                                 icon: Icons.scroll-text;
                                 active: Ui.page == 4;
-                                pressed => { Ui.page = 4; }
+                                pressed => { Ui.page = 4; Stats.open = false; }
                             }
                             NavItem {
                                 label: Str.nav-settings;
                                 icon: Icons.settings;
                                 active: Ui.page == 5;
-                                pressed => { Ui.page = 5; }
+                                pressed => { Ui.page = 5; Stats.open = false; }
                             }
                         }
                     }
@@ -417,7 +418,8 @@ export component AppWindow inherits Window {
             // -------------------------------------------------- content
             Rectangle {
                 clip: true;
-                if Ui.page == 0: DashboardPage { }
+                if Ui.page == 0 && !Stats.open: DashboardPage { }
+                if Ui.page == 0 && Stats.open: StatsPage { }
                 if Ui.page == 1: ServersPage { }
                 // Страницы пересоздаются на каждом заходе, так что init тут —
                 // это «страницу открыли»: подходящий момент поискать иконки,

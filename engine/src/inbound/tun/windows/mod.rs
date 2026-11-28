@@ -6,6 +6,7 @@ mod wfp;
 use std::io;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use super::{parse_addresses, Device, TunHandle};
 use crate::common::{bump_network_generation, set_bypass_interface};
 use crate::config::InboundOpts;
 use crate::engine::Context;
+use crate::metrics::NetMetrics;
 
 /// 8 МиБ на кольцо, как у sing-box/WireGuard: в схеме loopback-NAT через кольца
 /// Wintun идут оба направления (сегменты и ACK), и на 2 МиБ всплески скачивания
@@ -22,22 +24,36 @@ const ADAPTER_NAME: &str = "Aurora";
 
 struct Wintun {
     session: Arc<wintun::Session>,
+    metrics: Arc<NetMetrics>,
 }
 
 impl Device for Wintun {
     fn recv(&self, handle: &mut dyn FnMut(&[u8])) -> io::Result<bool> {
         match self.session.receive_blocking() {
             Ok(packet) => {
+                self.metrics.tun_rx_packets.fetch_add(1, Ordering::Relaxed);
                 handle(packet.bytes());
                 drop(packet);
                 // Сразу выбираем пачку уже лежащих в кольце пакетов без лишних кругов.
+                let mut extra = 0u64;
                 for _ in 0..64 {
                     match self.session.try_receive() {
-                        Ok(Some(p)) => handle(p.bytes()),
+                        Ok(Some(p)) => {
+                            extra += 1;
+                            handle(p.bytes());
+                        }
                         Ok(None) => break,
-                        Err(wintun::Error::ShuttingDown) => return Ok(false),
+                        Err(wintun::Error::ShuttingDown) => {
+                            if extra > 0 {
+                                self.metrics.tun_rx_packets.fetch_add(extra, Ordering::Relaxed);
+                            }
+                            return Ok(false);
+                        }
                         Err(e) => return Err(io::Error::other(e.to_string())),
                     }
+                }
+                if extra > 0 {
+                    self.metrics.tun_rx_packets.fetch_add(extra, Ordering::Relaxed);
                 }
                 Ok(true)
             }
@@ -64,11 +80,15 @@ impl Device for Wintun {
                         break;
                     }
                 }
-                let Some(p) = got else { return };
+                let Some(p) = got else {
+                    self.metrics.tun_dropped.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
                 p
             }
         };
         if fill(packet.bytes_mut()) {
+            self.metrics.tun_tx_packets.fetch_add(1, Ordering::Relaxed);
             self.session.send_packet(packet);
         } else {
             // Выделенный у Wintun пакет обязан уйти в send_packet, иначе кольцо
@@ -153,7 +173,7 @@ pub async fn start(
         None
     };
 
-    let device: Arc<dyn Device> = Arc::new(Wintun { session });
+    let device: Arc<dyn Device> = Arc::new(Wintun { session, metrics: ctx.tracker.metrics.clone() });
     // Адаптер держит и библиотеку: всё это живёт, пока жив туннель.
     let platform = Box::new((adapter, filters));
     super::run(device, v4.as_ref(), v6.as_ref(), ctx, platform).await

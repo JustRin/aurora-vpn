@@ -13,10 +13,12 @@ import { Routing } from "./pages/Routing";
 import { Servers } from "./pages/Servers";
 import { SettingsPage } from "./pages/Settings";
 import { SplitTunnel } from "./pages/SplitTunnel";
+import { StatsPage } from "./pages/Stats";
 import { useStore, type PageId } from "./store";
 
 const PAGES: Record<PageId, ComponentType> = {
   dashboard: Dashboard,
+  stats: StatsPage,
   servers: Servers,
   split: SplitTunnel,
   routing: Routing,

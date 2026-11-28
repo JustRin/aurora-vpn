@@ -192,6 +192,8 @@ async fn route(req: &Request, ctx: &Arc<Context>) -> (u16, Value) {
         ("GET", ["connections"]) => (200, ctx.tracker.snapshot()),
         // Для опроса раз в секунду: те же счётчики без списка соединений.
         ("GET", ["traffic", "total"]) => (200, ctx.tracker.totals()),
+        // Расширенная телеметрия для статистики: приложения + транспортные потери.
+        ("GET", ["traffic", "telemetry"]) => (200, ctx.tracker.telemetry()),
         ("DELETE", ["connections"]) => {
             ctx.tracker.close_all();
             (204, Value::Null)

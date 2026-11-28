@@ -5,7 +5,7 @@ import {
     Btn, Field, Input, Select, ToggleRow, StackRow, Alert, ScrollArea, RoundRect,
     ModalShell, ModalFoot
 } from "../widgets.slint";
-import { Data, Conf, Ui } from "../data.slint";
+import { Data, Conf, Ui, Stats } from "../data.slint";
 import { Str } from "../i18n.slint";
 
 // .theme-tile: свотч палитры и её название.
@@ -313,6 +313,39 @@ export component SettingsPage inherits ScrollArea {
                 label: Str.set-notifications;
                 desc: Str.set-notifications-desc;
                 checked <=> Conf.notifications;
+            }
+        }
+
+        Rectangle { height: 30px; }
+        SectionTitle { text: Str.set-stats-section-caps; }
+        Rectangle { height: 12px; }
+        Card {
+            StackRow {
+                label: Str.set-stats-retention;
+                desc: Str.set-stats-retention-desc;
+                Select {
+                    width: 210px;
+                    options: [
+                        Str.set-stats-ret-off,
+                        Str.set-stats-ret-7d,
+                        Str.set-stats-ret-30d,
+                        Str.set-stats-ret-90d,
+                        Str.set-stats-ret-365d,
+                    ];
+                    current <=> Conf.stats-retention;
+                }
+            }
+            Divider { }
+            StackRow {
+                label: Str.set-stats-storage;
+                desc: Stats.storage-text;
+                Btn {
+                    label: Str.set-stats-clear;
+                    icon: Icons.trash;
+                    kind: "danger";
+                    small: true;
+                    clicked => { Stats.clear-history(); }
+                }
             }
         }
 

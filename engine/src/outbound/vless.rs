@@ -7,12 +7,14 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
 use rand::Rng;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use super::vless_enc::VlessEncClient;
 use super::xudp::XudpConn;
 use super::Outbound;
 use crate::common::{invalid, parse_uuid, BoxStream, PacketConn, Target};
@@ -28,6 +30,7 @@ pub struct Vless {
     tag: String,
     uuid: [u8; 16],
     vision: bool,
+    encryption: Option<Arc<VlessEncClient>>,
     upstream: Upstream,
 }
 
@@ -39,7 +42,13 @@ impl Vless {
             FLOW_VISION | "xtls-rprx-vision-udp443" => true,
             other => return Err(format!("vless: flow {other} не поддержан")),
         };
-        Ok(Self { tag: o.tag.clone(), uuid, vision, upstream: Upstream::from_opts(o)? })
+        let enc_str = o.encryption.trim();
+        let encryption = if enc_str.is_empty() || enc_str.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(Arc::new(VlessEncClient::parse(enc_str)?))
+        };
+        Ok(Self { tag: o.tag.clone(), uuid, vision, encryption, upstream: Upstream::from_opts(o)? })
     }
 
     fn header(&self, cmd: u8, target: Option<&Target>) -> Vec<u8> {
@@ -63,9 +72,19 @@ impl Vless {
 
     async fn open(&self, cmd: u8, target: Option<&Target>) -> io::Result<BoxStream> {
         let header = self.header(cmd, target);
-        if self.vision {
+        if let Some(enc) = &self.encryption {
+            let base = self.upstream.open().await?;
+            let enc_stream = enc.handshake(base).await?;
+            if self.vision {
+                // Поверх VLESS Encryption Vision работает без прямого сквозного
+                // сброса TLS (как `CanSpliceCopy = 3` в Xray), сохраняя набивку.
+                Ok(Box::new(VisionStream::new(VisionCarrier::Boxed(Box::new(enc_stream)), header, self.uuid)))
+            } else {
+                Ok(Box::new(VlessResponse::new(EarlyWrite::new(enc_stream, header))))
+            }
+        } else if self.vision {
             let tls = self.upstream.open_tls13().await?;
-            Ok(Box::new(VisionStream::new(tls, header, self.uuid)))
+            Ok(Box::new(VisionStream::new(VisionCarrier::Tls13(tls), header, self.uuid)))
         } else {
             let stream = self.upstream.open().await?;
             Ok(Box::new(VlessResponse::new(EarlyWrite::new(stream, header))))
@@ -358,8 +377,60 @@ impl Unpad {
     }
 }
 
+pub enum VisionCarrier {
+    Tls13(Tls13Stream),
+    Boxed(BoxStream),
+}
+
+impl VisionCarrier {
+    fn can_splice(&self) -> bool {
+        matches!(self, Self::Tls13(_))
+    }
+    fn set_direct_write(&mut self) {
+        if let Self::Tls13(tls) = self {
+            tls.set_direct_write();
+        }
+    }
+    fn set_direct_read(&mut self) -> Vec<u8> {
+        match self {
+            Self::Tls13(tls) => tls.set_direct_read(),
+            Self::Boxed(_) => Vec::new(),
+        }
+    }
+}
+
+impl AsyncRead for VisionCarrier {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        match &mut *self {
+            Self::Tls13(tls) => Pin::new(tls).poll_read(cx, buf),
+            Self::Boxed(io) => Pin::new(io).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for VisionCarrier {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
+        match &mut *self {
+            Self::Tls13(tls) => Pin::new(tls).poll_write(cx, data),
+            Self::Boxed(io) => Pin::new(io).poll_write(cx, data),
+        }
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut *self {
+            Self::Tls13(tls) => Pin::new(tls).poll_flush(cx),
+            Self::Boxed(io) => Pin::new(io).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match &mut *self {
+            Self::Tls13(tls) => Pin::new(tls).poll_shutdown(cx),
+            Self::Boxed(io) => Pin::new(io).poll_shutdown(cx),
+        }
+    }
+}
+
 pub struct VisionStream {
-    tls: Tls13Stream,
+    tls: VisionCarrier,
     /// Заголовок VLESS: уходит с первой записью.
     header: Option<Vec<u8>>,
     uuid: [u8; 16],
@@ -386,7 +457,7 @@ pub struct VisionStream {
 }
 
 impl VisionStream {
-    pub fn new(tls: Tls13Stream, header: Vec<u8>, uuid: [u8; 16]) -> Self {
+    pub fn new(tls: VisionCarrier, header: Vec<u8>, uuid: [u8; 16]) -> Self {
         Self {
             tls,
             header: Some(header),
@@ -464,11 +535,12 @@ impl VisionStream {
                 continue;
             }
             if self.filter.is_tls && part.len() > 6 && part[..3] == TLS_APP_DATA {
-                let command = if self.filter.enable_xtls { CMD_DIRECT } else { CMD_END };
+                let splice = self.filter.enable_xtls && self.tls.can_splice();
+                let command = if splice { CMD_DIRECT } else { CMD_END };
                 self.is_padding = false;
                 let uuid = self.uuid_once();
                 pad_into(&mut self.out, uuid.as_ref(), command, part, true);
-                if self.filter.enable_xtls {
+                if splice {
                     self.direct_write = true;
                     // Всё, что осталось от этого куска, идёт уже мимо TLS.
                     if let Some(rest) = parts.get(i + 1) {

@@ -15,6 +15,7 @@ mod config;
 mod dns;
 mod engine;
 mod inbound;
+mod metrics;
 mod outbound;
 mod probe;
 mod procinfo;

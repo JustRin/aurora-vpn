@@ -4,7 +4,7 @@
 import { Theme, Icons, Glow, Segmented, NavIcon, MicroRow, StatTile, GraphPath, Divider, SectionTitle } from "../theme.slint";
 import { Btn, Dot, Chip, Alert, Empty, ScrollArea, Switch, ModalShell, ModalFoot } from "../widgets.slint";
 import { SubCard, BalancerRow } from "../cards.slint";
-import { Data, Conf, Ui, ServerNode } from "../data.slint";
+import { Data, Conf, Ui, Stats, ServerNode } from "../data.slint";
 import { Str } from "../i18n.slint";
 
 // .picker: выбор сервера прямо в шапке героя. Переключение на ходу не рвёт
@@ -766,6 +766,30 @@ export component DashboardPage inherits ScrollArea {
                         color: Theme.text-muted;
                         vertical-alignment: center;
                     }
+                    HorizontalLayout {
+                        spacing: 3px;
+                        Text {
+                            text: Str.stats-open-hint;
+                            font-size: 11.5px * Theme.text-scale;
+                            font-weight: 560;
+                            color: graph-touch.has-hover ? Theme.accent-text : Theme.text-dim;
+                            vertical-alignment: center;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            NavIcon {
+                                commands: Icons.arrow-up-right;
+                                width: 12px;
+                                height: 12px;
+                                tint: graph-touch.has-hover ? Theme.accent-text : Theme.text-dim;
+                                stroke-width: 1.6px;
+                            }
+                        }
+                    }
+                }
+                graph-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { Stats.open-page(0); }
                 }
             }
         }
@@ -781,6 +805,7 @@ export component DashboardPage inherits ScrollArea {
             label: Str.dash-this-session-caps;
             value: Data.session-total;
             foot: Data.session-foot;
+            clicked => { Stats.open-page(0); }
         }
         StatTile {
             icon: Icons.link2;

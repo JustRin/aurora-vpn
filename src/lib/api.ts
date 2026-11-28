@@ -13,7 +13,10 @@ import type {
   Settings,
   Snapshot,
   SplitConfig,
+  StatsQuery,
+  StatsReport,
   Status,
+  StorageInfo,
   Subscription,
   Traffic,
   UpdateInfo,
@@ -123,6 +126,10 @@ export const api = {
   /** Streams download ticks via `EVT.updateProgress`; on Windows the app then
    * exits into a silent installer that relaunches it. */
   installUpdate: (url: string) => invoke<void>("install_update", { url }),
+
+  getStatsReport: (query: StatsQuery) => invoke<StatsReport>("get_stats_report", { query }),
+  getStatsStorage: () => invoke<StorageInfo>("get_stats_storage"),
+  clearStatsHistory: () => invoke<StorageInfo>("clear_stats_history"),
 };
 
 export function onStatus(cb: (value: Status) => void): Promise<UnlistenFn> {

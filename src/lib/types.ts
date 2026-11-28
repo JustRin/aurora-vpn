@@ -148,6 +148,8 @@ export interface Settings {
   /** `fastest` only: another server must beat the current one by this much. */
   balancerToleranceMs: number;
   subAutoUpdateMin: number;
+  /** Days to keep statistics history on disk (`0` = current session in memory only). */
+  statsRetentionDays: number;
 }
 
 /** `manual` — the pinned server; the rest let the app switch on its own. */
@@ -333,4 +335,157 @@ export interface UpdateInfo {
 export interface UpdateProgress {
   downloaded: number;
   total: number | null;
+}
+
+// ----------------------------------------------------------------- statistics
+
+export type StatsRange = "session" | "hour1" | "hours24" | "days7" | "days30" | "custom";
+
+export interface StatsQuery {
+  range: StatsRange;
+  customFromMs?: number | null;
+  customToMs?: number | null;
+  serverId?: string | null;
+  appKey?: string | null;
+  pinnedIndex?: number | null;
+  maxPoints?: number | null;
+}
+
+export interface StorageInfo {
+  bytesOnDisk: number;
+  daysStored: number;
+  retentionDays: number;
+}
+
+export interface PointAppSummary {
+  key: string;
+  name: string;
+  path: string;
+  bytes: number;
+  downBytes: number;
+  upBytes: number;
+}
+
+export interface ChartPoint {
+  tsMs: number;
+  endMs: number;
+  durS: number;
+  downBps: number;
+  upBps: number;
+  proxyDownBps: number;
+  proxyUpBps: number;
+  appDownBps: number;
+  appUpBps: number;
+  downBytes: number;
+  upBytes: number;
+  latencyMs: number | null;
+  lossPct: number;
+  packetsLost: number;
+  errors: number;
+  connections: number;
+  serverId: string;
+  serverName: string;
+  serverProto: string;
+  topApps: PointAppSummary[];
+}
+
+export interface AppStats {
+  key: string;
+  name: string;
+  path: string;
+  downBytes: number;
+  upBytes: number;
+  totalBytes: number;
+  proxyBytes: number;
+  directBytes: number;
+  peakBps: number;
+  sharePct: number;
+  vpnPct: number;
+  activeConns: number;
+  totalConns: number;
+  errors: number;
+}
+
+export interface ServerStats {
+  serverId: string;
+  serverName: string;
+  serverProto: string;
+  durationS: number;
+  downBytes: number;
+  upBytes: number;
+  totalBytes: number;
+  avgDownBps: number;
+  peakDownBps: number;
+  avgUpBps: number;
+  peakUpBps: number;
+  avgLatencyMs: number | null;
+  minLatencyMs: number | null;
+  maxLatencyMs: number | null;
+  jitterMs: number | null;
+  lossPct: number;
+  packetsLost: number;
+  retransEvents: number;
+  dialFails: number;
+  relayErrors: number;
+  probeFails: number;
+  probeTotal: number;
+  health: "good" | "warn" | "bad" | string;
+}
+
+export interface SessionRecord {
+  id: string;
+  startedMs: number;
+  endedMs: number;
+  active: boolean;
+  durationS: number;
+  primaryServerId: string;
+  primaryServerName: string;
+  serverCount: number;
+  downBytes: number;
+  upBytes: number;
+  peakDownBps: number;
+  avgLatencyMs: number | null;
+  lossPct: number;
+  packetsLost: number;
+  errors: number;
+}
+
+export interface StatsSummary {
+  downBytes: number;
+  upBytes: number;
+  totalBytes: number;
+  proxyBytes: number;
+  directBytes: number;
+  avgDownBps: number;
+  peakDownBps: number;
+  avgUpBps: number;
+  peakUpBps: number;
+  avgLatencyMs: number | null;
+  minLatencyMs: number | null;
+  maxLatencyMs: number | null;
+  jitterMs: number | null;
+  lossPct: number;
+  packetsLost: number;
+  retransEvents: number;
+  tunDrops: number;
+  udpDrops: number;
+  dialFails: number;
+  relayErrors: number;
+  probeFails: number;
+  probeTotal: number;
+  durationS: number;
+  hasData: boolean;
+  fromMs: number;
+  toMs: number;
+}
+
+export interface StatsReport {
+  summary: StatsSummary;
+  points: ChartPoint[];
+  apps: AppStats[];
+  pinnedPoint: ChartPoint | null;
+  pinnedApps: AppStats[];
+  servers: ServerStats[];
+  sessions: SessionRecord[];
+  storage: StorageInfo;
 }

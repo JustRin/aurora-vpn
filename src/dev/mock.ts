@@ -11,7 +11,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
-import type { LogLine, ResourceGroup, ServerNode, Snapshot } from "../lib/types";
+import type {
+  AppStats,
+  ChartPoint,
+  LogLine,
+  ResourceGroup,
+  ServerNode,
+  Snapshot,
+  StatsQuery,
+  StatsReport,
+  StorageInfo,
+} from "../lib/types";
 
 mockWindows("main");
 
@@ -89,6 +99,7 @@ const snapshot: Snapshot = {
     balancerIntervalMin: 5,
     balancerToleranceMs: 100,
     subAutoUpdateMin: 360,
+    statsRetentionDays: 30,
   },
   nodes: [
     node("a", "Amsterdam", "nl.example.net"),
@@ -212,6 +223,345 @@ const warp = {
   created: new Date().toISOString(),
   hasNode: false,
 };
+
+let mockStatsCleared = false;
+
+function mockStatsStorage(): StorageInfo {
+  const retentionDays = snapshot.settings.statsRetentionDays ?? 30;
+  if (mockStatsCleared || retentionDays === 0) {
+    return { bytesOnDisk: 0, daysStored: 0, retentionDays };
+  }
+  return { bytesOnDisk: 1_842_000, daysStored: Math.min(12, retentionDays), retentionDays };
+}
+
+function buildMockStatsReport(query: StatsQuery): StatsReport {
+  const storage = mockStatsStorage();
+  if (mockStatsCleared) {
+    return {
+      summary: {
+        downBytes: 0,
+        upBytes: 0,
+        totalBytes: 0,
+        proxyBytes: 0,
+        directBytes: 0,
+        avgDownBps: 0,
+        peakDownBps: 0,
+        avgUpBps: 0,
+        peakUpBps: 0,
+        avgLatencyMs: null,
+        minLatencyMs: null,
+        maxLatencyMs: null,
+        jitterMs: null,
+        lossPct: 0,
+        packetsLost: 0,
+        retransEvents: 0,
+        tunDrops: 0,
+        udpDrops: 0,
+        dialFails: 0,
+        relayErrors: 0,
+        probeFails: 0,
+        probeTotal: 0,
+        durationS: 0,
+        hasData: false,
+        fromMs: 0,
+        toMs: 0,
+      },
+      points: [],
+      apps: [],
+      pinnedPoint: null,
+      pinnedApps: [],
+      servers: [],
+      sessions: [],
+      storage,
+    };
+  }
+
+  const now = Date.now();
+  const count = 48;
+  const stepMs =
+    query.range === "days30"
+      ? 15 * 3600_000
+      : query.range === "days7"
+        ? 3.5 * 3600_000
+        : query.range === "hours24"
+          ? 30 * 60_000
+          : query.range === "hour1"
+            ? 75_000
+            : 10_000;
+  const startMs = now - count * stepMs;
+
+  const mockApps: AppStats[] = [
+    {
+      key: "chrome.exe",
+      name: "Google Chrome",
+      path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      downBytes: 1_620_000_000,
+      upBytes: 145_000_000,
+      totalBytes: 1_765_000_000,
+      proxyBytes: 1_580_000_000,
+      directBytes: 185_000_000,
+      peakBps: 6_400_000,
+      sharePct: 54.2,
+      vpnPct: 89.5,
+      activeConns: 28,
+      totalConns: 412,
+      errors: 1,
+    },
+    {
+      key: "steam.exe",
+      name: "Steam",
+      path: "C:\\Program Files (x86)\\Steam\\steam.exe",
+      downBytes: 940_000_000,
+      upBytes: 62_000_000,
+      totalBytes: 1_002_000_000,
+      proxyBytes: 210_000_000,
+      directBytes: 792_000_000,
+      peakBps: 11_200_000,
+      sharePct: 30.8,
+      vpnPct: 21.0,
+      activeConns: 9,
+      totalConns: 84,
+      errors: 0,
+    },
+    {
+      key: "telegram.exe",
+      name: "Telegram",
+      path: "C:\\Users\\user\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe",
+      downBytes: 280_000_000,
+      upBytes: 94_000_000,
+      totalBytes: 374_000_000,
+      proxyBytes: 374_000_000,
+      directBytes: 0,
+      peakBps: 2_300_000,
+      sharePct: 11.5,
+      vpnPct: 100,
+      activeConns: 6,
+      totalConns: 51,
+      errors: 3,
+    },
+    {
+      key: "discord.exe",
+      name: "Discord",
+      path: "C:\\Users\\user\\AppData\\Local\\Discord\\Discord.exe",
+      downBytes: 72_000_000,
+      upBytes: 42_000_000,
+      totalBytes: 114_000_000,
+      proxyBytes: 114_000_000,
+      directBytes: 0,
+      peakBps: 420_000,
+      sharePct: 3.5,
+      vpnPct: 100,
+      activeConns: 4,
+      totalConns: 39,
+      errors: 5,
+    },
+  ];
+
+  const allPoints: ChartPoint[] = Array.from({ length: count }, (_, i) => {
+    const onB = i >= 20 && i < 34;
+    const sid = onB ? "b" : "a";
+    const sname = onB ? "Helsinki" : "Amsterdam";
+    const wave = Math.sin(i * 0.45) * 0.5 + 0.5;
+    const spike = i === 12 || i === 28 || i === 41 ? 2.4 : 1;
+    const downBps = Math.round((450_000 + wave * 2_400_000) * spike);
+    const upBps = Math.round(downBps * 0.18);
+    const lossPct = onB ? Number((2.2 + wave * 3.1).toFixed(2)) : Number((0.1 + wave * 0.25).toFixed(2));
+    const latencyMs = onB ? Math.round(135 + wave * 70) : Math.round(46 + wave * 18);
+    const appShare = query.appKey === "chrome.exe" ? 0.55 : query.appKey === "steam.exe" ? 0.3 : 0.15;
+    return {
+      tsMs: startMs + i * stepMs,
+      endMs: startMs + (i + 1) * stepMs,
+      durS: Math.max(1, Math.round(stepMs / 1000)),
+      downBps,
+      upBps,
+      proxyDownBps: Math.round(downBps * 0.75),
+      proxyUpBps: Math.round(upBps * 0.8),
+      appDownBps: query.appKey ? Math.round(downBps * appShare) : 0,
+      appUpBps: query.appKey ? Math.round(upBps * appShare) : 0,
+      downBytes: Math.round(downBps * (stepMs / 1000)),
+      upBytes: Math.round(upBps * (stepMs / 1000)),
+      latencyMs,
+      lossPct,
+      packetsLost: onB ? Math.round(14 + wave * 22) : Math.round(wave * 2),
+      errors: onB && i % 4 === 0 ? 1 : 0,
+      connections: 36 + (i % 18),
+      serverId: sid,
+      serverName: sname,
+      serverProto: "vless",
+      topApps: [
+        {
+          key: "chrome.exe",
+          name: "Google Chrome",
+          path: mockApps[0].path,
+          bytes: Math.round(downBps * 0.52 * 10),
+          downBytes: Math.round(downBps * 0.48 * 10),
+          upBytes: Math.round(upBps * 0.4 * 10),
+        },
+        {
+          key: onB ? "discord.exe" : "steam.exe",
+          name: onB ? "Discord" : "Steam",
+          path: onB ? mockApps[3].path : mockApps[1].path,
+          bytes: Math.round(downBps * 0.31 * 10),
+          downBytes: Math.round(downBps * 0.28 * 10),
+          upBytes: Math.round(upBps * 0.35 * 10),
+        },
+      ],
+    };
+  });
+
+  const points = query.serverId
+    ? allPoints.filter((p) => p.serverId === query.serverId)
+    : allPoints;
+  const pinnedPoint =
+    query.pinnedIndex !== null &&
+    query.pinnedIndex !== undefined &&
+    points[query.pinnedIndex]
+      ? points[query.pinnedIndex]
+      : null;
+
+  const pinnedApps: AppStats[] = pinnedPoint
+    ? pinnedPoint.topApps.map((a, idx) => ({
+        key: a.key,
+        name: a.name,
+        path: a.path,
+        downBytes: a.downBytes,
+        upBytes: a.upBytes,
+        totalBytes: a.bytes,
+        proxyBytes: Math.round(a.bytes * 0.85),
+        directBytes: Math.round(a.bytes * 0.15),
+        peakBps: Math.round(a.bytes / Math.max(1, pinnedPoint.durS)),
+        sharePct: idx === 0 ? 63 : 37,
+        vpnPct: 85,
+        activeConns: 12 - idx * 4,
+        totalConns: 18 - idx * 5,
+        errors: pinnedPoint.errors,
+      }))
+    : [];
+
+  return {
+    summary: {
+      downBytes: 2_912_000_000,
+      upBytes: 343_000_000,
+      totalBytes: 3_255_000_000,
+      proxyBytes: 2_278_000_000,
+      directBytes: 977_000_000,
+      avgDownBps: 1_820_000,
+      peakDownBps: 11_200_000,
+      avgUpBps: 290_000,
+      peakUpBps: 1_940_000,
+      avgLatencyMs: query.serverId === "b" ? 168 : 64,
+      minLatencyMs: 42,
+      maxLatencyMs: 210,
+      jitterMs: query.serverId === "b" ? 28 : 7,
+      lossPct: query.serverId === "b" ? 3.84 : query.serverId === "a" ? 0.18 : 1.12,
+      packetsLost: query.serverId === "b" ? 248 : 264,
+      retransEvents: 39,
+      tunDrops: 4,
+      udpDrops: 2,
+      dialFails: 3,
+      relayErrors: 6,
+      probeFails: 2,
+      probeTotal: 64,
+      durationS: Math.round((count * stepMs) / 1000),
+      hasData: points.length > 0,
+      fromMs: points[0]?.tsMs ?? 0,
+      toMs: points[points.length - 1]?.endMs ?? 0,
+    },
+    points,
+    apps: mockApps,
+    pinnedPoint,
+    pinnedApps,
+    servers: [
+      {
+        serverId: "a",
+        serverName: "Amsterdam",
+        serverProto: "vless",
+        durationS: 3420,
+        downBytes: 2_280_000_000,
+        upBytes: 256_000_000,
+        totalBytes: 2_536_000_000,
+        avgDownBps: 2_150_000,
+        peakDownBps: 11_200_000,
+        avgUpBps: 310_000,
+        peakUpBps: 1_940_000,
+        avgLatencyMs: 52,
+        minLatencyMs: 42,
+        maxLatencyMs: 74,
+        jitterMs: 6,
+        lossPct: 0.18,
+        packetsLost: 16,
+        retransEvents: 5,
+        dialFails: 0,
+        relayErrors: 1,
+        probeFails: 0,
+        probeTotal: 42,
+        health: "good",
+      },
+      {
+        serverId: "b",
+        serverName: "Helsinki",
+        serverProto: "vless",
+        durationS: 1410,
+        downBytes: 632_000_000,
+        upBytes: 87_000_000,
+        totalBytes: 719_000_000,
+        avgDownBps: 980_000,
+        peakDownBps: 3_600_000,
+        avgUpBps: 185_000,
+        peakUpBps: 620_000,
+        avgLatencyMs: 168,
+        minLatencyMs: 121,
+        maxLatencyMs: 210,
+        jitterMs: 28,
+        lossPct: 3.84,
+        packetsLost: 248,
+        retransEvents: 34,
+        dialFails: 3,
+        relayErrors: 5,
+        probeFails: 2,
+        probeTotal: 22,
+        health: "bad",
+      },
+    ],
+    sessions: [
+      {
+        id: "sess-now",
+        startedMs: now - 48 * 60_000,
+        endedMs: now,
+        active: true,
+        durationS: 48 * 60,
+        primaryServerId: "a",
+        primaryServerName: "Amsterdam",
+        serverCount: 2,
+        downBytes: 2_912_000_000,
+        upBytes: 343_000_000,
+        peakDownBps: 11_200_000,
+        avgLatencyMs: 64,
+        lossPct: 1.12,
+        packetsLost: 264,
+        errors: 9,
+      },
+      {
+        id: "sess-prev",
+        startedMs: now - 26 * 3600_000,
+        endedMs: now - 23 * 3600_000,
+        active: false,
+        durationS: 3 * 3600,
+        primaryServerId: "b",
+        primaryServerName: "Helsinki",
+        serverCount: 1,
+        downBytes: 1_420_000_000,
+        upBytes: 164_000_000,
+        peakDownBps: 4_800_000,
+        avgLatencyMs: 158,
+        lossPct: 3.45,
+        packetsLost: 412,
+        errors: 14,
+      },
+    ],
+    storage,
+  };
+}
 
 mockIPC(
   (cmd, args) => {
@@ -369,6 +719,13 @@ mockIPC(
         );
       case "test_latency":
         return snapshot.latency;
+      case "get_stats_report":
+        return buildMockStatsReport((a.query as StatsQuery) ?? { range: "session" });
+      case "get_stats_storage":
+        return mockStatsStorage();
+      case "clear_stats_history":
+        mockStatsCleared = true;
+        return mockStatsStorage();
       case "connect":
         // Rights first, as on the desktop: the dashboard's grant flow retries
         // this and expects it to go through the second time.

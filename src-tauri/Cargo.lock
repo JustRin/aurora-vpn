@@ -269,6 +269,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "fnv",
+ "h2",
  "h3",
  "h3-quinn",
  "http",

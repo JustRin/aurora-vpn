@@ -48,6 +48,7 @@ export interface TrafficSample {
  * empty state links straight to Servers. */
 export type PageId =
   | "dashboard"
+  | "stats"
   | "servers"
   | "split"
   | "routing"

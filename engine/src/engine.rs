@@ -181,11 +181,37 @@ impl Context {
             return;
         };
 
-        let guard = self.tracker.open(&meta, chains, rule);
         crate::debug!("router", "tcp {target} → {tag}");
-        match leaf.dial(&target).await {
-            Ok(remote) => relay(client, remote, prefix, guard, self.tracker.clone()).await,
-            Err(e) => crate::debug!("outbound", "{target} через {tag}: {e}"),
+        // Определяем процесс параллельно с дозвоном — 0 мс задержки на трассе, но
+        // каждое соединение в статистике знает своё приложение даже без раздельного туннеля.
+        let (dial_res, proc_found) = if meta.process.is_none() {
+            if let Some(src) = meta.source {
+                tokio::join!(leaf.dial(&target), crate::procinfo::lookup(meta.network, src))
+            } else {
+                (leaf.dial(&target).await, None)
+            }
+        } else {
+            (leaf.dial(&target).await, None)
+        };
+        if let Some(p) = proc_found {
+            meta.process = Some(Some(p));
+        }
+        match dial_res {
+            Ok(remote) => {
+                self.tracker.metrics.dial_ok.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let guard = self.tracker.open(&meta, chains, rule);
+                relay(client, remote, prefix, guard, self.tracker.clone()).await;
+            }
+            Err(e) => {
+                let proc_path = meta
+                    .process
+                    .as_ref()
+                    .and_then(Option::as_ref)
+                    .map(|p| p.path.as_str())
+                    .unwrap_or_default();
+                self.tracker.record_dial_fail(proc_path);
+                crate::debug!("outbound", "{target} через {tag}: {e}");
+            }
         }
     }
 
@@ -250,7 +276,7 @@ pub async fn relay(mut client: BoxStream, remote: BoxStream, mut prefix: Vec<u8>
             Err(_) => {}
         }
     }
-    let mut remote = Counted { inner: remote, tracker, info: guard.info.clone() };
+    let mut remote = Counted { inner: remote, tracker: tracker.clone(), info: guard.info.clone() };
     if !prefix.is_empty() {
         // Без flush сброс произошёл бы только после следующих данных клиента.
         if remote.write_all(&prefix).await.is_err() || remote.flush().await.is_err() {
@@ -264,6 +290,7 @@ pub async fn relay(mut client: BoxStream, remote: BoxStream, mut prefix: Vec<u8>
         result = copy => {
             if let Err(e) = result {
                 if !is_churn(&e) {
+                    tracker.record_relay_error(&guard.info.process);
                     crate::debug!("relay", "{e}");
                 }
             }
@@ -311,12 +338,32 @@ impl Context {
         let Some(target) = self.dial_target(meta) else {
             return UdpOpen::Reject;
         };
-        match leaf.dial_udp(&target).await {
+        let (dial_res, proc_found) = if meta.process.is_none() {
+            if let Some(src) = meta.source {
+                tokio::join!(leaf.dial_udp(&target), crate::procinfo::lookup(meta.network, src))
+            } else {
+                (leaf.dial_udp(&target).await, None)
+            }
+        } else {
+            (leaf.dial_udp(&target).await, None)
+        };
+        if let Some(p) = proc_found {
+            meta.process = Some(Some(p));
+        }
+        match dial_res {
             Ok(conn) => {
+                self.tracker.metrics.dial_ok.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let guard = self.tracker.open(meta, chains, rule);
                 UdpOpen::Session(UdpRoute { conn: Arc::from(conn), guard })
             }
             Err(e) => {
+                let proc_path = meta
+                    .process
+                    .as_ref()
+                    .and_then(Option::as_ref)
+                    .map(|p| p.path.as_str())
+                    .unwrap_or_default();
+                self.tracker.record_dial_fail(proc_path);
                 crate::debug!("outbound", "udp {target} через {tag}: {e}");
                 UdpOpen::Reject
             }
