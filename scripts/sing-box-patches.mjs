@@ -67,8 +67,18 @@ const PATCHES = [
       },
       {
         file: "common/tls/reality_client.go",
-        find: "&RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID}",
-        replace: "&RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, new(atomic.Bool)}",
+        variants: [
+          {
+            // sing-box 1.13.x
+            find: "&RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID}",
+            replace: "&RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID, new(atomic.Bool)}",
+          },
+          {
+            // sing-box 1.14.6+
+            find: "&RealityClientConfig{uClient.(*UTLSClientConfig), publicKey, shortID}",
+            replace: "&RealityClientConfig{uClient.(*UTLSClientConfig), publicKey, shortID, new(atomic.Bool)}",
+          },
+        ],
       },
       {
         file: "common/tls/reality_client.go",
@@ -77,41 +87,98 @@ const PATCHES = [
       },
       {
         file: "common/tls/reality_client.go",
-        find: lines(
-          "\tfor _, extension := range uConn.Extensions {",
-          "\t\tif ce, ok := extension.(*utls.SupportedCurvesExtension); ok {",
-          "\t\t\tce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {",
-          "\t\t\t\treturn curveID != utls.X25519MLKEM768",
-          "\t\t\t})",
-          "\t\t}",
-          "\t\tif ks, ok := extension.(*utls.KeyShareExtension); ok {",
-          "\t\t\tks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {",
-          "\t\t\t\treturn share.Group != utls.X25519MLKEM768",
-          "\t\t\t})",
-          "\t\t}",
-          "\t}",
-          "",
-        ),
-        replace: lines(
-          "\t// Aurora: the short hello fits one TCP segment; the X25519MLKEM768",
-          "\t// share stays out until the server asks for it (errRealityWantsPostQuantum).",
-          "\tpostQuantum := e.postQuantum.Load()",
-          "\tif !postQuantum {",
-          "\t\tfor _, extension := range uConn.Extensions {",
-          "\t\t\tif ce, ok := extension.(*utls.SupportedCurvesExtension); ok {",
-          "\t\t\t\tce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {",
-          "\t\t\t\t\treturn curveID != utls.X25519MLKEM768",
-          "\t\t\t\t})",
-          "\t\t\t}",
-          "\t\t\tif ks, ok := extension.(*utls.KeyShareExtension); ok {",
-          "\t\t\t\tks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {",
-          "\t\t\t\t\treturn share.Group != utls.X25519MLKEM768",
-          "\t\t\t\t})",
-          "\t\t\t}",
-          "\t\t}",
-          "\t}",
-          "",
-        ),
+        variants: [
+          {
+            // sing-box 1.13.x: upstream strips X25519MLKEM768 unconditionally.
+            find: lines(
+              "\tfor _, extension := range uConn.Extensions {",
+              "\t\tif ce, ok := extension.(*utls.SupportedCurvesExtension); ok {",
+              "\t\t\tce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {",
+              "\t\t\t\treturn curveID != utls.X25519MLKEM768",
+              "\t\t\t})",
+              "\t\t}",
+              "\t\tif ks, ok := extension.(*utls.KeyShareExtension); ok {",
+              "\t\t\tks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {",
+              "\t\t\t\treturn share.Group != utls.X25519MLKEM768",
+              "\t\t\t})",
+              "\t\t}",
+              "\t}",
+              "",
+            ),
+            replace: lines(
+              "\t// Aurora: the short hello fits one TCP segment; the X25519MLKEM768",
+              "\t// share stays out until the server asks for it (errRealityWantsPostQuantum).",
+              "\tpostQuantum := e.postQuantum.Load()",
+              "\tif !postQuantum {",
+              "\t\tfor _, extension := range uConn.Extensions {",
+              "\t\t\tif ce, ok := extension.(*utls.SupportedCurvesExtension); ok {",
+              "\t\t\t\tce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {",
+              "\t\t\t\t\treturn curveID != utls.X25519MLKEM768",
+              "\t\t\t\t})",
+              "\t\t\t}",
+              "\t\t\tif ks, ok := extension.(*utls.KeyShareExtension); ok {",
+              "\t\t\t\tks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {",
+              "\t\t\t\t\treturn share.Group != utls.X25519MLKEM768",
+              "\t\t\t\t})",
+              "\t\t\t}",
+              "\t\t}",
+              "\t}",
+              "",
+            ),
+          },
+          {
+            // sing-box 1.14.6+: upstream keeps X25519MLKEM768 unconditionally
+            // (and no longer imports sing/common). Strip it on the first try
+            // without mutating backing slices, then rebuild the handshake state.
+            find: lines(
+              "\tverifier.UConn = uConn",
+              "\terr := uConn.BuildHandshakeState()",
+              "\tif err != nil {",
+              "\t\treturn nil, err",
+              "\t}",
+              "",
+              "\thello := uConn.HandshakeState.Hello",
+            ),
+            replace: lines(
+              "\tverifier.UConn = uConn",
+              "\terr := uConn.BuildHandshakeState()",
+              "\tif err != nil {",
+              "\t\treturn nil, err",
+              "\t}",
+              "\t// Aurora: the short hello fits one TCP segment; the X25519MLKEM768",
+              "\t// share stays out until the server asks for it (errRealityWantsPostQuantum).",
+              "\tpostQuantum := e.postQuantum.Load()",
+              "\tif !postQuantum {",
+              "\t\tfor _, extension := range uConn.Extensions {",
+              "\t\t\tif ce, ok := extension.(*utls.SupportedCurvesExtension); ok {",
+              "\t\t\t\tcurves := make([]utls.CurveID, 0, len(ce.Curves))",
+              "\t\t\t\tfor _, curveID := range ce.Curves {",
+              "\t\t\t\t\tif curveID != utls.X25519MLKEM768 {",
+              "\t\t\t\t\t\tcurves = append(curves, curveID)",
+              "\t\t\t\t\t}",
+              "\t\t\t\t}",
+              "\t\t\t\tce.Curves = curves",
+              "\t\t\t}",
+              "\t\t\tif ks, ok := extension.(*utls.KeyShareExtension); ok {",
+              "\t\t\t\tshares := make([]utls.KeyShare, 0, len(ks.KeyShares))",
+              "\t\t\t\tfor _, share := range ks.KeyShares {",
+              "\t\t\t\t\tif share.Group != utls.X25519MLKEM768 {",
+              "\t\t\t\t\t\tshares = append(shares, share)",
+              "\t\t\t\t\t}",
+              "\t\t\t\t}",
+              "\t\t\t\tks.KeyShares = shares",
+              "\t\t\t}",
+              "\t\t}",
+              "\t\terr = uConn.BuildHandshakeState()",
+              "\t\tif err != nil {",
+              "\t\t\treturn nil, err",
+              "\t\t}",
+              "\t}",
+              "",
+              "\thello := uConn.HandshakeState.Hello",
+            ),
+          },
+        ],
       },
       {
         file: "common/tls/reality_client.go",
@@ -136,39 +203,90 @@ const PATCHES = [
       },
       {
         file: "common/tls/reality_client.go",
-        find: lines(
-          "\tif !verifier.verified {",
-          "\t\tgo realityClientFallback(e.ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
-          '\t\treturn nil, E.New("reality verification failed")',
-          "\t}",
-        ),
-        replace: lines(
-          "\tif !verifier.verified {",
-          "\t\tgo realityClientFallback(e.ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
-          "\t\tif !postQuantum {",
-          "\t\t\te.postQuantum.Store(true)",
-          "\t\t\treturn nil, errRealityWantsPostQuantum",
-          "\t\t}",
-          '\t\treturn nil, E.New("reality verification failed")',
-          "\t}",
-        ),
+        variants: [
+          {
+            // sing-box 1.13.x
+            find: lines(
+              "\tif !verifier.verified {",
+              "\t\tgo realityClientFallback(e.ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
+              '\t\treturn nil, E.New("reality verification failed")',
+              "\t}",
+            ),
+            replace: lines(
+              "\tif !verifier.verified {",
+              "\t\tgo realityClientFallback(e.ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
+              "\t\tif !postQuantum {",
+              "\t\t\te.postQuantum.Store(true)",
+              "\t\t\treturn nil, errRealityWantsPostQuantum",
+              "\t\t}",
+              '\t\treturn nil, E.New("reality verification failed")',
+              "\t}",
+            ),
+          },
+          {
+            // sing-box 1.14.6+
+            find: lines(
+              "\tif !verifier.verified {",
+              "\t\trealityClientFallback(ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
+              '\t\treturn nil, E.New("reality verification failed")',
+              "\t}",
+            ),
+            replace: lines(
+              "\tif !verifier.verified {",
+              "\t\trealityClientFallback(ctx, uConn, e.uClient.ServerName(), e.uClient.id)",
+              "\t\tif !postQuantum {",
+              "\t\t\te.postQuantum.Store(true)",
+              "\t\t\treturn nil, errRealityWantsPostQuantum",
+              "\t\t}",
+              '\t\treturn nil, E.New("reality verification failed")',
+              "\t}",
+            ),
+          },
+        ],
       },
       {
         file: "common/tls/reality_client.go",
-        find: lines("\tauthKey    []byte", "\tverified   bool", "}"),
-        replace: lines(
-          "\tauthKey    []byte",
-          "\tverified   bool",
-          "\t// Aurora: the server answered with a certificate other than REALITY's,",
-          "\t// i.e. it turned the hello away and handed the connection to its target.",
-          "\tlanded bool",
-          "}",
-        ),
+        variants: [
+          {
+            // sing-box 1.13.x
+            find: lines("\tauthKey    []byte", "\tverified   bool", "}"),
+            replace: lines(
+              "\tauthKey    []byte",
+              "\tverified   bool",
+              "\t// Aurora: the server answered with a certificate other than REALITY's,",
+              "\t// i.e. it turned the hello away and handed the connection to its target.",
+              "\tlanded bool",
+              "}",
+            ),
+          },
+          {
+            // sing-box 1.14.6+
+            find: lines("\tauthKey     []byte", "\tverified    bool", "}"),
+            replace: lines(
+              "\tauthKey     []byte",
+              "\tverified    bool",
+              "\t// Aurora: the server answered with a certificate other than REALITY's,",
+              "\t// i.e. it turned the hello away and handed the connection to its target.",
+              "\tlanded bool",
+              "}",
+            ),
+          },
+        ],
       },
       {
         file: "common/tls/reality_client.go",
-        find: lines("\topts := x509.VerifyOptions{", "\t\tDNSName:       c.serverName,"),
-        replace: lines("\tc.landed = true", "\topts := x509.VerifyOptions{", "\t\tDNSName:       c.serverName,"),
+        variants: [
+          {
+            // sing-box 1.13.x
+            find: lines("\topts := x509.VerifyOptions{", "\t\tDNSName:       c.serverName,"),
+            replace: lines("\tc.landed = true", "\topts := x509.VerifyOptions{", "\t\tDNSName:       c.serverName,"),
+          },
+          {
+            // sing-box 1.14.6+
+            find: lines("\topts := x509.VerifyOptions{", "\t\tRoots:         c.rootCAs,"),
+            replace: lines("\tc.landed = true", "\topts := x509.VerifyOptions{", "\t\tRoots:         c.rootCAs,"),
+          },
+        ],
       },
       {
         file: "common/tls/client.go",
@@ -183,19 +301,40 @@ const PATCHES = [
       },
       {
         file: "common/tls/client.go",
-        find: lines(
-          "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, d.config)",
-          "\tif err != nil {",
-          "\t\tconn.Close()",
-        ),
-        replace: lines(
-          "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, d.config)",
-          "\tif err != nil {",
-          "\t\tconn.Close()",
-          "\t\tif errors.Is(err, errRealityWantsPostQuantum) {",
-          "\t\t\treturn d.dialContext(ctx, destination, echRetry)",
-          "\t\t}",
-        ),
+        variants: [
+          {
+            // sing-box 1.13.x
+            find: lines(
+              "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, d.config)",
+              "\tif err != nil {",
+              "\t\tconn.Close()",
+            ),
+            replace: lines(
+              "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, d.config)",
+              "\tif err != nil {",
+              "\t\tconn.Close()",
+              "\t\tif errors.Is(err, errRealityWantsPostQuantum) {",
+              "\t\t\treturn d.dialContext(ctx, destination, echRetry)",
+              "\t\t}",
+            ),
+          },
+          {
+            // sing-box 1.14.6+
+            find: lines(
+              "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, config)",
+              "\tif err != nil {",
+              "\t\tconn.Close()",
+            ),
+            replace: lines(
+              "\ttlsConn, err := aTLS.ClientHandshake(ctx, conn, config)",
+              "\tif err != nil {",
+              "\t\tconn.Close()",
+              "\t\tif errors.Is(err, errRealityWantsPostQuantum) {",
+              "\t\t\treturn d.dialContext(ctx, destination, config)",
+              "\t\t}",
+            ),
+          },
+        ],
       },
     ],
   },
@@ -215,14 +354,21 @@ export async function patchSingBox(src) {
       const crlf = original.includes("\r\n");
       let source = crlf ? original.replaceAll("\r\n", "\n") : original;
 
-      const count = source.split(edit.find).length - 1;
-      if (count !== 1) {
+      const candidates = edit.variants ?? [{ find: edit.find, replace: edit.replace }];
+      let matched = null;
+      let total = 0;
+      for (const candidate of candidates) {
+        const count = source.split(candidate.find).length - 1;
+        total += count;
+        if (count === 1) matched = candidate;
+      }
+      if (total !== 1 || !matched) {
         throw new Error(
-          `патч ${patch.id}: ${edit.file} не совпал с ожидаемым (${count} совпадений) — ` +
+          `патч ${patch.id}: ${edit.file} не совпал с ожидаемым (${total} совпадений) — ` +
             "код в этой версии sing-box сдвинулся, патч нужно обновить",
         );
       }
-      source = source.replace(edit.find, () => edit.replace);
+      source = source.replace(matched.find, () => matched.replace);
       await writeFile(file, crlf ? source.replaceAll("\n", "\r\n") : source);
     }
     applied.push(patch.id);
