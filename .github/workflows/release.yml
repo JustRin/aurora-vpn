@@ -329,7 +329,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: src-tauri/gen/android/app/libs/libbox.aar
-          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs') }}-api23
+          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs', 'scripts/build-libbox.mjs') }}-api23
 
       - name: Install dependencies
         run: npm ci
@@ -342,7 +342,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: src-tauri/gen/android/app/libs/libbox.aar
-          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs') }}-api23
+          key: libbox-${{ env.LIBBOX_VERSION }}-${{ hashFiles('scripts/sing-box-patches.mjs', 'scripts/build-libbox.mjs') }}-api23
 
       # Real signing when the secrets exist; the debug key otherwise, so a fork
       # without secrets still gets an installable artifact.

@@ -31,10 +31,13 @@ const OUT = path.join(ROOT, "src-tauri", "gen", "android", "app", "libs", "libbo
 /** Pinned: bump deliberately, together with a smoke test on a device. */
 const DEFAULT_VERSION = "1.13.19";
 
-// Tags mirror sing-box's own cmd/internal/build_libbox (main variant, API 23).
+// Tags mirror sing-box's own cmd/internal/build_libbox (API 23), без
+// with_naive_outbound: Aurora не использует NaiveProxy (на десктопе этого тега
+// тоже нет), а cronet-go тянет пресобранный libcronet.a с `-l:libcronet.a` в
+// #cgo LDFLAGS, который свежий Go 1.26 отклоняет как небезопасный флаг.
 const TAGS = [
   "with_gvisor", "with_quic", "with_wireguard", "with_utls",
-  "with_naive_outbound", "with_clash_api", "badlinkname", "tfogo_checklinkname0",
+  "with_clash_api", "badlinkname", "tfogo_checklinkname0",
   "with_tailscale", "ts_omit_logtail", "ts_omit_ssh", "ts_omit_drive",
   "ts_omit_taildrop", "ts_omit_webclient", "ts_omit_doctor", "ts_omit_capture",
   "ts_omit_kube", "ts_omit_aws", "ts_omit_synology", "ts_omit_bird",
